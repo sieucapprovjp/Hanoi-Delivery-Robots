@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+    
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap-glyphicons.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.2.0/css/all.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/python-visualization/folium/folium/templates/leaflet.awesome.rotate.min.css"/>
+    
+            <meta name="viewport" content="width=device-width,
+                initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <style>
+                #map_455916134175b497ad5578c2f7917ba3 {
+                    position: relative;
+                    width: 100.0%;
+                    height: 100.0%;
+                    left: 0.0%;
+                    top: 0.0%;
+                }
+                .leaflet-container { font-size: 1rem; }
+            </style>
+
+            <style>html, body {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+            </style>
+
+            <style>#map {
+                position:absolute;
+                top:0;
+                bottom:0;
+                right:0;
+                left:0;
+                }
+            </style>
+
+            <script>
+                L_NO_TOUCH = false;
+                L_DISABLE_3D = false;
+            </script>
+
+        
+</head>
+<body>
+    
+    
+            <div class="folium-map" id="map_455916134175b497ad5578c2f7917ba3" ></div>
+        
+</body>
+<script>
+    
+    
+            var map_455916134175b497ad5578c2f7917ba3 = L.map(
+                "map_455916134175b497ad5578c2f7917ba3",
+                {
+                    center: [21.0285, 105.8542],
+                    crs: L.CRS.EPSG3857,
+                    ...{
+  "zoom": 14,
+  "zoomControl": true,
+  "preferCanvas": false,
+}
+
+                }
+            );
+
+            
+
+        
+    
+            var tile_layer_f9e91a6b55feecc1011288f337a46a79 = L.tileLayer(
+                "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                {
+  "minZoom": 0,
+  "maxZoom": 19,
+  "maxNativeZoom": 19,
+  "noWrap": false,
+  "attribution": "\u0026copy; \u003ca href=\"https://www.openstreetmap.org/copyright\"\u003eOpenStreetMap\u003c/a\u003e contributors",
+  "subdomains": "abc",
+  "detectRetina": false,
+  "tms": false,
+  "opacity": 1,
+}
+
+            );
+        
+    
+            tile_layer_f9e91a6b55feecc1011288f337a46a79.addTo(map_455916134175b497ad5578c2f7917ba3);
+        
+    
+            var marker_7b69233ba0d217976e1fef1a5b332321 = L.marker(
+                [21.0285, 105.8542],
+                {
+}
+            ).addTo(map_455916134175b497ad5578c2f7917ba3);
+        
+    
+            var icon_e5f20cf60895a7cc4f63753a3ec967bf = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "red",
+  "iconColor": "white",
+  "icon": "info-sign",
+  "prefix": "glyphicon",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_91e444230e53c149d0e6e11a1db8e69b = L.popup({
+  "maxWidth": "100%",
+});
+
+        
+            
+                var html_1a7479f5b06c4d510c89582fe35f4353 = $(`<div id="html_1a7479f5b06c4d510c89582fe35f4353" style="width: 100.0%; height: 100.0%;">Hồ Hoàn Kiếm</div>`)[0];
+                popup_91e444230e53c149d0e6e11a1db8e69b.setContent(html_1a7479f5b06c4d510c89582fe35f4353);
+            
+        
+
+        marker_7b69233ba0d217976e1fef1a5b332321.bindPopup(popup_91e444230e53c149d0e6e11a1db8e69b)
+        ;
+
+        
+    
+    
+            marker_7b69233ba0d217976e1fef1a5b332321.bindTooltip(
+                `<div>
+                     Nhấn vào đây để xem chi tiết
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_7b69233ba0d217976e1fef1a5b332321.setIcon(icon_e5f20cf60895a7cc4f63753a3ec967bf);
+            
+</script>
+</html>
