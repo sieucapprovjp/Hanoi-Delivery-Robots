@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hanoi Delivery Robots - Hoan Kiem District</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+    <div id="map"></div>
+    
+    <!-- Top Search Bar -->
+    <div class="search-bar">
+        <div class="search-container">
+            <div class="menu-icon">☰</div>
+            <div class="search-input">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="search-box" placeholder="Search Hoan Kiem District...">
+            </div>
+            <div class="user-info">
+                <span class="stats-badge">🤖 5 Robots Active</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map Controls -->
+    <div class="map-controls-wrapper">
+        <div class="map-controls">
+            <button class="control-btn" id="zoom-in" title="Zoom in">+</button>
+            <button class="control-btn" id="zoom-out" title="Zoom out">−</button>
+            <button class="control-btn" id="locate-btn" title="My location">⌖</button>
+            <button class="control-btn" id="fullscreen-btn" title="Fullscreen">⛶</button>
+        </div>
+    </div>
+
+    <!-- Simulation Control Panel -->
+    <div class="control-panel">
+        <div class="panel-header">
+            <h3>🚚 Delivery Control</h3>
+            <button class="close-panel" id="close-panel">×</button>
+        </div>
+        <div class="panel-content">
+            <div class="simulation-controls">
+                <button id="start-btn" class="btn-primary">▶ Start Simulation</button>
+                <button id="pause-btn" class="btn-secondary">⏸ Pause</button>
+                <button id="reset-btn" class="btn-secondary">🔄 Reset</button>
+            </div>
+            
+            <div class="speed-control">
+                <label>
+                    <span class="label-text">Speed</span>
+                    <span id="speed-value" class="label-value">1x</span>
+                </label>
+                <input type="range" id="speed-slider" min="1" max="10" value="1">
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">📦</div>
+                    <div class="stat-info">
+                        <div class="stat-label">Deliveries</div>
+                        <div class="stat-value" id="total-deliveries">0</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📏</div>
+                    <div class="stat-info">
+                        <div class="stat-label">Distance</div>
+                        <div class="stat-value" id="total-distance">0 m</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">⚡</div>
+                    <div class="stat-info">
+                        <div class="stat-label">Avg Battery</div>
+                        <div class="stat-value" id="avg-battery">100%</div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">⏱</div>
+                    <div class="stat-info">
+                        <div class="stat-label">Time</div>
+                        <div class="stat-value" id="sim-time">00:00</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Robot Status Panel -->
+    <div class="robot-panel">
+        <div class="panel-header">
+            <h3>🤖 Robot Fleet</h3>
+            <button class="close-panel" id="close-robot-panel">×</button>
+        </div>
+        <div class="panel-content">
+            <div id="robot-status"></div>
+        </div>
+    </div>
+
+    <!-- Delivery Queue Panel -->
+    <div class="delivery-panel">
+        <div class="panel-header">
+            <h3>📋 Delivery Queue</h3>
+            <button class="close-panel" id="close-delivery-panel">×</button>
+        </div>
+        <div class="panel-content">
+            <div id="delivery-queue"></div>
+        </div>
+    </div>
+
+    <!-- Event Log Panel -->
+    <div class="log-panel">
+        <div class="panel-header">
+            <h3>📝 Event Log</h3>
+            <button class="close-panel" id="close-log-panel">×</button>
+        </div>
+        <div class="panel-content">
+            <div id="event-log"></div>
+        </div>
+    </div>
+
+    <!-- Dispatch Panel -->
+    <div class="dispatch-panel">
+        <div class="panel-header">
+            <h3>🧠 Dispatch Brain</h3>
+            <button class="close-panel" id="close-dispatch-panel">×</button>
+        </div>
+        <div class="panel-content">
+            <div id="dispatch-insights"></div>
+        </div>
+    </div>
+
+    <!-- Analytics Panel -->
+    <div class="analytics-panel">
+        <div class="panel-header">
+            <h3>📊 Fleet Analytics</h3>
+            <button class="close-panel" id="close-analytics-panel">×</button>
+        </div>
+        <div class="panel-content">
+            <div class="analytics-grid">
+                <div class="analytic-card">
+                    <div class="analytic-label">Throughput</div>
+                    <div class="analytic-value" id="metric-throughput">0.0/hr</div>
+                    <div class="analytic-bar"><div id="bar-throughput" class="analytic-fill throughput"></div></div>
+                </div>
+                <div class="analytic-card">
+                    <div class="analytic-label">Queue Pressure</div>
+                    <div class="analytic-value" id="metric-queue-pressure">0</div>
+                    <div class="analytic-bar"><div id="bar-queue-pressure" class="analytic-fill pressure"></div></div>
+                </div>
+                <div class="analytic-card">
+                    <div class="analytic-label">Reroutes</div>
+                    <div class="analytic-value" id="metric-reroutes">0</div>
+                    <div class="analytic-bar"><div id="bar-reroutes" class="analytic-fill reroutes"></div></div>
+                </div>
+                <div class="analytic-card">
+                    <div class="analytic-label">Energy Cost</div>
+                    <div class="analytic-value" id="metric-energy">0%</div>
+                    <div class="analytic-bar"><div id="bar-energy" class="analytic-fill energy"></div></div>
+                </div>
+                <div class="analytic-card">
+                    <div class="analytic-label">Decision Cost</div>
+                    <div class="analytic-value" id="metric-decision-cost">0 m</div>
+                    <div class="analytic-bar"><div id="bar-decision-cost" class="analytic-fill decision"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Action Buttons -->
+    <div class="fab-container">
+        <button class="fab" id="toggle-robots" title="Toggle robots">🤖</button>
+        <button class="fab" id="toggle-deliveries" title="Toggle deliveries">📦</button>
+        <button class="fab" id="toggle-log" title="Toggle log">📝</button>
+        <button class="fab" id="toggle-dispatch" title="Toggle dispatch">🧠</button>
+        <button class="fab" id="toggle-analytics" title="Toggle analytics">📊</button>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="static/js/map.js"></script>
+    <script src="static/js/pathfinding.js"></script>
+    <script src="static/js/robot.js"></script>
+    <script src="static/js/simulation.js"></script>
+    <script src="static/js/app.js"></script>
+</body>
+</html>
