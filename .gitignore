@@ -48,3 +48,6 @@ htmlcov/
 
 ./ai_pathfinding_result.html
 ./ban_do_demo.html
+
+./.qwen
+./cache
