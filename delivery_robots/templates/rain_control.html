@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hanoi Rain Zone Control</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+        }
+
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+
+        .control-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            max-width: 350px;
+            min-width: 280px;
+        }
+
+        .control-panel h2 {
+            margin-bottom: 15px;
+            color: #1a73e8;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .control-section {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .control-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .control-section h3 {
+            font-size: 14px;
+            color: #5f6368;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #1a73e8;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1557b0;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(26, 115, 232, 0.3);
+        }
+
+        .btn-secondary {
+            background: #e8eaed;
+            color: #3c4043;
+        }
+
+        .btn-secondary:hover {
+            background: #dadce0;
+        }
+
+        .btn-danger {
+            background: #ea4335;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #d33426;
+        }
+
+        .status-box {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #5f6368;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .status-item {
+            padding: 5px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+        }
+
+        .info-text {
+            font-size: 12px;
+            color: #5f6368;
+            margin-top: 8px;
+            line-height: 1.4;
+        }
+
+        .slider-control {
+            margin: 10px 0;
+        }
+
+        .slider-control label {
+            display: block;
+            font-size: 13px;
+            color: #3c4043;
+            margin-bottom: 5px;
+        }
+
+        .slider-control input[type="range"] {
+            width: 100%;
+        }
+
+        .slider-value {
+            display: inline-block;
+            font-weight: 600;
+            color: #1a73e8;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div class="control-panel">
+        <h2>🌧️ Rain Zone Control</h2>
+
+        <div class="control-section">
+            <h3>Instructions</h3>
+            <p class="info-text">
+                <strong>Click on the map</strong> to place a rain zone at that location.
+                Use the controls below to manage rain zones.
+            </p>
+        </div>
+
+        <div class="control-section">
+            <h3>Random Rain Zones</h3>
+            <div class="slider-control">
+                <label>Number of zones: <span class="slider-value" id="zone-count-value">3</span></label>
+                <input type="range" id="zone-count" min="1" max="10" value="3">
+            </div>
+            <div class="slider-control">
+                <label>Min radius: <span class="slider-value" id="min-radius-value">100</span>m</label>
+                <input type="range" id="min-radius" min="50" max="200" value="100" step="10">
+            </div>
+            <div class="slider-control">
+                <label>Max radius: <span class="slider-value" id="max-radius-value">200</span>m</label>
+                <input type="range" id="max-radius" min="100" max="300" value="200" step="10">
+            </div>
+            <button class="btn btn-primary" id="randomize-btn">🎲 Randomize Rain Zones</button>
+        </div>
+
+        <div class="control-section">
+            <h3>Current Rain Zones</h3>
+            <div class="status-box" id="rain-zone-list">
+                <div class="status-item">Loading...</div>
+            </div>
+        </div>
+
+        <div class="control-section">
+            <button class="btn btn-danger" id="clear-btn">🗑️ Clear All Rain Zones</button>
+            <button class="btn btn-secondary" id="refresh-btn">🔄 Refresh List</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Initialize map centered on Hoan Kiem
+        const map = L.map('map').setView([21.0285, 105.8542], 15);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 19
+        }).addTo(map);
+
+        // Hoan Kiem bounds
+        const bounds = {
+            north: 21.0380,
+            south: 21.0180,
+            east: 105.8650,
+            west: 105.8430
+        };
+
+        // Draw boundary
+        const boundary = L.rectangle(
+            [[bounds.south, bounds.west], [bounds.north, bounds.east]],
+            {color: '#1a73e8', weight: 2, opacity: 0.5, fillOpacity: 0.05}
+        ).addTo(map);
+
+        // Store rain zone circles
+        let rainZoneCircles = [];
+
+        // Slider controls
+        const zoneCountSlider = document.getElementById('zone-count');
+        const minRadiusSlider = document.getElementById('min-radius');
+        const maxRadiusSlider = document.getElementById('max-radius');
+
+        zoneCountSlider.oninput = () => {
+            document.getElementById('zone-count-value').textContent = zoneCountSlider.value;
+        };
+
+        minRadiusSlider.oninput = () => {
+            document.getElementById('min-radius-value').textContent = minRadiusSlider.value;
+            if (parseInt(minRadiusSlider.value) > parseInt(maxRadiusSlider.value)) {
+                maxRadiusSlider.value = minRadiusSlider.value;
+                document.getElementById('max-radius-value').textContent = maxRadiusSlider.value;
+            }
+        };
+
+        maxRadiusSlider.oninput = () => {
+            document.getElementById('max-radius-value').textContent = maxRadiusSlider.value;
+            if (parseInt(maxRadiusSlider.value) < parseInt(minRadiusSlider.value)) {
+                minRadiusSlider.value = maxRadiusSlider.value;
+                document.getElementById('min-radius-value').textContent = minRadiusSlider.value;
+            }
+        };
+
+        // Click on map to add rain zone
+        map.on('click', function(e) {
+            const lat = e.latlng.lat;
+            const lon = e.latlng.lng;
+
+            // Check if within bounds
+            if (lat < bounds.south || lat > bounds.north || lon < bounds.west || lon > bounds.east) {
+                alert('Please click within Hoan Kiem district boundaries!');
+                return;
+            }
+
+            addRainZoneAt(lat, lon);
+        });
+
+        async function addRainZoneAt(lat, lon, radius = 150) {
+            try {
+                const response = await fetch('/api/rain/add', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({lat, lon, radius})
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    displayRainZone(data.rainZone);
+                    updateRainZoneList();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error adding rain zone:', error);
+                alert('Failed to add rain zone');
+            }
+        }
+
+        // Randomize rain zones
+        document.getElementById('randomize-btn').onclick = async () => {
+            try {
+                const response = await fetch('/api/rain/randomize', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        count: parseInt(zoneCountSlider.value),
+                        minRadius: parseInt(minRadiusSlider.value),
+                        maxRadius: parseInt(maxRadiusSlider.value)
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Clear existing circles
+                    rainZoneCircles.forEach(circle => map.removeLayer(circle));
+                    rainZoneCircles = [];
+
+                    // Display new zones
+                    data.rainZones.forEach(zone => displayRainZone(zone));
+                    updateRainZoneList();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Error randomizing:', error);
+                alert('Failed to randomize rain zones');
+            }
+        };
+
+        // Clear all rain zones
+        document.getElementById('clear-btn').onclick = async () => {
+            try {
+                const response = await fetch('/api/rain/clear', {method: 'POST'});
+                const data = await response.json();
+
+                if (response.ok) {
+                    rainZoneCircles.forEach(circle => map.removeLayer(circle));
+                    rainZoneCircles = [];
+                    updateRainZoneList();
+                }
+            } catch (error) {
+                console.error('Error clearing:', error);
+            }
+        };
+
+        // Refresh list
+        document.getElementById('refresh-btn').onclick = () => {
+            updateRainZoneList();
+        };
+
+        // Display rain zone on map
+        function displayRainZone(zone) {
+            const circle = L.circle([zone.center.lat, zone.center.lon], {
+                color: '#4285f4',
+                fillColor: '#4285f4',
+                fillOpacity: 0.2,
+                radius: zone.radius
+            }).addTo(map);
+
+            circle.bindPopup(`
+                <strong>${zone.name}</strong><br>
+                Radius: ${Math.round(zone.radius)}m
+            `);
+
+            rainZoneCircles.push(circle);
+        }
+
+        // Update rain zone list
+        async function updateRainZoneList() {
+            try {
+                const response = await fetch('/api/rain/list');
+                const data = await response.json();
+
+                const listDiv = document.getElementById('rain-zone-list');
+
+                if (data.rainZones.length === 0) {
+                    listDiv.innerHTML = '<div class="status-item">No rain zones active</div>';
+                } else {
+                    listDiv.innerHTML = data.rainZones.map((zone, idx) => `
+                        <div class="status-item">
+                            <strong>${idx + 1}. ${zone.name}</strong><br>
+                            Lat: ${zone.center.lat.toFixed(4)}<br>
+                            Lon: ${zone.center.lon.toFixed(4)}<br>
+                            Radius: ${Math.round(zone.radius)}m
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Error updating list:', error);
+            }
+        }
+
+        // Initial load
+        updateRainZoneList();
+
+        // Fetch bounds from server
+        fetch('/api/weather')
+            .then(res => res.json())
+            .then(data => {
+                if (data.hoanKiemBounds) {
+                    Object.assign(bounds, data.hoanKiemBounds);
+                    boundary.setBounds(
+                        [[bounds.south, bounds.west], [bounds.north, bounds.east]]
+                    );
+                }
+            })
+            .catch(err => console.log('Using default bounds'));
+    </script>
+</body>
+</html>
