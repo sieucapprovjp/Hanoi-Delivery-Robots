@@ -20,6 +20,12 @@
             </div>
             <div class="user-info">
                 <span class="stats-badge">🤖 5 Robots Active</span>
+                <span class="clock-badge" id="clock-display" style="margin-left: 8px; background: #f8f9fa; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; color: #202124;">
+                    🕐 <span id="clock-time">--:--:--</span>
+                </span>
+                <span class="rush-badge" id="rush-hour-display" style="margin-left: 8px; display: none; background: #ea4335; color: white; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; animation: pulse 2s infinite;">
+                    🚗 Rush Hour (<span id="rush-multiplier">1.0</span>×)
+                </span>
             </div>
         </div>
     </div>
@@ -176,6 +182,182 @@
         <button class="fab" id="toggle-log" title="Toggle log">📝</button>
         <button class="fab" id="toggle-dispatch" title="Toggle dispatch">🧠</button>
         <button class="fab" id="toggle-analytics" title="Toggle analytics">📊</button>
+        <button class="fab" id="toggle-computing" title="Toggle computing details">⚙️</button>
+        <button class="fab" id="toggle-decision" title="Toggle decision making">🔍</button>
+        <button class="fab" id="toggle-weather" title="Toggle weather/traffic">🌧️</button>
+    </div>
+
+    <!-- Computing Behind The Scenes Panel -->
+    <div class="computing-panel" style="display: none;">
+        <div class="panel-header">
+            <h3>⚙️ Computing Behind The Scenes</h3>
+            <button class="close-panel" id="close-computing-panel">×</button>
+        </div>
+        <div class="panel-content">
+            <div id="computing-content" style="font-size: 11px; line-height: 1.4;">
+                <div style="text-align: center; color: #5f6368; padding: 20px;">
+                    Click a robot on the map to see its computing details
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Weather & Traffic Control Panel -->
+    <div class="weather-panel" style="display: none;">
+        <div class="panel-header">
+            <h3>🌧️🚗 Weather & Traffic</h3>
+            <button class="close-panel" id="close-weather-panel">×</button>
+        </div>
+        <div class="panel-content">
+            <div class="mode-tabs" style="display: flex; gap: 5px; margin-bottom: 15px;">
+                <button class="mode-tab active" data-mode="rain" style="flex: 1; padding: 8px; border: none; background: #e8eaed; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">🌧️ Rain</button>
+                <button class="mode-tab" data-mode="traffic" style="flex: 1; padding: 8px; border: none; background: #e8eaed; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">🚗 Traffic</button>
+                <button class="mode-tab" data-mode="obstacle" style="flex: 1; padding: 8px; border: none; background: #e8eaed; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">🚧 Obstacles</button>
+            </div>
+
+            <div id="rain-controls">
+                <p class="info-text" style="font-size: 12px; color: #5f6368; margin: 10px 0;">Click on map to place rain zone</p>
+                <div class="slider-control" style="margin: 8px 0;">
+                    <label style="font-size: 12px;">Radius: <span id="rain-radius-value" style="font-weight: 600; color: #1a73e8;">150</span>m</label>
+                    <input type="range" id="rain-radius" min="50" max="300" value="150" step="10" style="width: 100%;">
+                </div>
+                <button id="randomize-rain-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #1a73e8; color: white; border-radius: 8px; cursor: pointer;">🎲 Randomize Rain</button>
+                <button id="clear-rain-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #ea4335; color: white; border-radius: 8px; cursor: pointer;">🗑️ Clear Rain</button>
+                <div id="rain-list" style="background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 12px; max-height: 120px; overflow-y: auto;"></div>
+            </div>
+
+            <div id="traffic-controls" style="display: none;">
+                <p class="info-text" style="font-size: 12px; color: #5f6368; margin: 10px 0;">Click two points to create traffic route</p>
+                <div class="slider-control" style="margin: 8px 0;">
+                    <label style="font-size: 12px;">Severity: <span id="traffic-severity-value" style="font-weight: 600; color: #1a73e8;">0.7</span></label>
+                    <input type="range" id="traffic-severity" min="0" max="1" value="0.7" step="0.05" style="width: 100%;">
+                </div>
+                <button id="reset-traffic-points-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #e8eaed; color: #3c4043; border-radius: 8px; cursor: pointer;">🔄 Reset Points</button>
+                <button id="randomize-traffic-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #1a73e8; color: white; border-radius: 8px; cursor: pointer;">🎲 Randomize Traffic</button>
+                <button id="clear-traffic-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #ea4335; color: white; border-radius: 8px; cursor: pointer;">🗑️ Clear Traffic</button>
+                <div id="traffic-list" style="background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 12px; max-height: 120px; overflow-y: auto;"></div>
+            </div>
+
+            <div id="obstacle-controls" style="display: none;">
+                <p class="info-text" style="font-size: 12px; color: #5f6368; margin: 10px 0;">Click on map to place obstacle</p>
+                <div class="slider-control" style="margin: 8px 0;">
+                    <label style="font-size: 12px;">Radius: <span id="obstacle-radius-value" style="font-weight: 600; color: #1a73e8;">80</span>m</label>
+                    <input type="range" id="obstacle-radius" min="30" max="150" value="80" step="10" style="width: 100%;">
+                </div>
+                <div class="slider-control" style="margin: 8px 0;">
+                    <label style="font-size: 12px;">Severity: <span id="obstacle-severity-value" style="font-weight: 600; color: #1a73e8;">10</span></label>
+                    <input type="range" id="obstacle-severity" min="1" max="50" value="10" step="1" style="width: 100%;">
+                </div>
+                <button id="randomize-obstacle-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #1a73e8; color: white; border-radius: 8px; cursor: pointer;">🎲 Randomize Obstacles</button>
+                <button id="clear-obstacle-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #ea4335; color: white; border-radius: 8px; cursor: pointer;">🗑️ Clear Obstacles</button>
+                <div id="obstacle-list" style="background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 12px; max-height: 120px; overflow-y: auto;"></div>
+            </div>
+
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+                <h3 style="font-size: 13px; color: #5f6368; margin-bottom: 10px;">🧠 Scheduling Algorithm</h3>
+                <div style="display: flex; gap: 5px;">
+                    <button class="algo-btn active" data-algo="priority" style="flex: 1; padding: 8px; border: none; background: #1a73e8; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Priority</button>
+                    <button class="algo-btn" data-algo="fifo" style="flex: 1; padding: 8px; border: none; background: #e8eaed; color: #3c4043; border-radius: 6px; cursor: pointer; font-size: 12px;">FIFO</button>
+                    <button class="algo-btn" data-algo="nearest" style="flex: 1; padding: 8px; border: none; background: #e8eaed; color: #3c4043; border-radius: 6px; cursor: pointer; font-size: 12px;">Nearest</button>
+                </div>
+                <div id="algorithm-comparison" style="margin-top: 10px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Decision Making & A* Analytics Panel -->
+    <div class="decision-panel" style="display: none;">
+        <div class="panel-header">
+            <h3>🧠 AI Decision Making & A* Analytics</h3>
+            <button class="close-panel" id="close-decision-panel">×</button>
+        </div>
+        <div class="panel-content">
+            <div style="margin-bottom: 15px;">
+                <h3 style="font-size: 13px; color: #5f6368; margin-bottom: 10px;">⚡ A* Pathfinding Performance</h3>
+                <div id="astar-metrics" style="background: #f8f9fa; padding: 12px; border-radius: 8px; font-size: 12px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 10px; color: #5f6368;">Total Calculations</div>
+                            <div id="metric-total-calc" style="font-size: 18px; font-weight: 700; color: #1a73e8;">0</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 10px; color: #5f6368;">Avg Time</div>
+                            <div id="metric-avg-time" style="font-size: 18px; font-weight: 700; color: #34a853;">0ms</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 10px; color: #5f6368;">Last Time</div>
+                            <div id="metric-last-time" style="font-size: 18px; font-weight: 700; color: #ea4335;">0ms</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 10px; color: #5f6368;">Nodes Explored</div>
+                            <div id="metric-nodes" style="font-size: 18px; font-weight: 700; color: #fbbc04;">0</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #e0e0e0;">
+                        <div style="font-size: 11px; color: #5f6368; margin-bottom: 6px;">Speed Range</div>
+                        <div style="display: flex; justify-content: space-between; font-size: 11px;">
+                            <span>Min: <strong id="metric-min-time" style="color: #34a853;">0ms</strong></span>
+                            <span>Max: <strong id="metric-max-time" style="color: #ea4335;">0ms</strong></span>
+                        </div>
+                        <div style="margin-top: 6px; font-size: 11px;">
+                            Avg Path Length: <strong id="metric-path-length" style="color: #1a73e8;">0</strong> nodes
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <h3 style="font-size: 13px; color: #5f6368; margin-bottom: 10px;">🔍 How A* Works</h3>
+                <div style="background: #e3f2fd; padding: 10px; border-radius: 8px; font-size: 11px; line-height: 1.5;">
+                    <div style="margin-bottom: 6px;"><strong>f(n) = g(n) + h(n)</strong></div>
+                    <div style="color: #1565c0;">
+                        <strong>g(n):</strong> Actual cost from start to node n<br>
+                        <strong>h(n):</strong> Heuristic estimate to goal (Haversine)<br>
+                        <strong>f(n):</strong> Total estimated cost through n
+                    </div>
+                    <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #bbdefb;">
+                        <strong>Penalties applied:</strong><br>
+                        🌧️ Rain zones: 2× slower<br>
+                        🚗 Traffic: 1.5×-4× slower<br>
+                        🚧 Obstacles: 5×-50× (avoids completely)
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <h3 style="font-size: 13px; color: #5f6368; margin-bottom: 10px;">📊 Graph Info</h3>
+                <div style="background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 12px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 10px; color: #5f6368;">Nodes</div>
+                            <div id="metric-graph-nodes" style="font-size: 16px; font-weight: 700; color: #1a73e8;">0</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 10px; color: #5f6368;">Edges</div>
+                            <div id="metric-graph-edges" style="font-size: 16px; font-weight: 700; color: #34a853;">0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <h3 style="font-size: 13px; color: #5f6368; margin-bottom: 10px;">⚙️ Active Factors</h3>
+                <div style="background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 12px;">
+                    <div style="display: flex; justify-content: space-between; margin: 4px 0;">
+                        <span>🌧️ Rain Zones:</span>
+                        <strong id="metric-rain-count">0</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin: 4px 0;">
+                        <span>🚗 Traffic Routes:</span>
+                        <strong id="metric-traffic-count">0</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin: 4px 0;">
+                        <span>🚧 Obstacles:</span>
+                        <strong id="metric-obstacle-count">0</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

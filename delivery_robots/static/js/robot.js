@@ -6,7 +6,7 @@ class DeliveryRobot {
         this.lon = lon;
         this.name = name;
         this.color = color;
-        this.speed = 0.000016; // closer to real sidewalk robot pacing
+        this.speed = 0.000010;
         this.battery = 100;
         this.batteryDrain = 0.0065;
         this.capacity = 10;
@@ -18,6 +18,7 @@ class DeliveryRobot {
         this.totalDeliveries = 0;
         this.totalDistance = 0;
         this.marker = null;
+        this._calcHistory = [];
         this.pathLine = null;
         this.chargingStation = null;
         this.speedMultiplier = 1;
@@ -29,6 +30,25 @@ class DeliveryRobot {
         this.deliveryPhase = null;
         this.resumeAfterCharge = false;
         this.lastRouteBreakdown = null;
+
+        // 🧠 Road memory system (Q-learning lite)
+        this.roadMemory = {};
+        this.memoryDecay = 0.995;
+        this._frameCount = 0;
+    }
+
+    recordRoadExperience(fromLat, fromLon, toLat, toLon, speedMultiplier) {
+        const key = `${fromLat.toFixed(4)},${fromLon.toFixed(4)}->${toLat.toFixed(4)},${toLon.toFixed(4)}`;
+        const currentPenalty = this.roadMemory[key] || 1.0;
+        const experiencedPenalty = speedMultiplier < 0.3 ? 1.8 : speedMultiplier < 0.6 ? 1.3 : 0.95;
+        this.roadMemory[key] = currentPenalty * 0.7 + experiencedPenalty * 0.3;
+    }
+
+    decayMemory() {
+        for (const key in this.roadMemory) {
+            this.roadMemory[key] = this.roadMemory[key] * this.memoryDecay + 1.0 * (1 - this.memoryDecay);
+            if (Math.abs(this.roadMemory[key] - 1.0) < 0.01) delete this.roadMemory[key];
+        }
     }
 
     update() {
@@ -63,12 +83,24 @@ class DeliveryRobot {
         
         // Check traffic
         const traffic = mapManager.getTrafficAt(this.lat, this.lon);
-        this.speedMultiplier = Math.max(0.08, (0.55 * (1 - traffic * 0.65)) / rainPenalty); // rain doubles traversal cost
+        this.speedMultiplier = Math.max(0.08, (0.55 * (1 - traffic * 0.65)) / rainPenalty);
+
+        // 🧠 Record road experience for learning
+        this._frameCount++;
+        if (this.pathIndex + 1 < this.currentPath.length && this._frameCount % 30 === 0) {
+            const from = this.currentPath[this.pathIndex];
+            const to = this.currentPath[this.pathIndex + 1];
+            this.recordRoadExperience(from.lat, from.lon, to.lat, to.lon, this.speedMultiplier);
+        }
+        // Decay memory every ~5 seconds (300 frames at 60fps)
+        if (this._frameCount % 300 === 0) this.decayMemory();
+
         this.maybeReroute(traffic, rainPenalty);
 
         // Update marker
         if (this.marker) {
             this.marker.setLatLng([this.lat, this.lon]);
+            if (this.marker.isPopupOpen()) this.updatePopup();
         }
 
         // Check if need charging
@@ -210,7 +242,224 @@ class DeliveryRobot {
             zIndexOffset: 1000
         }).addTo(map);
 
-        this.marker.bindPopup(`<strong>${this.name}</strong><br>Status: ${this.status}<br>Battery: ${this.battery.toFixed(0)}%`);
+        // Initialize popup
+        this.marker.bindPopup('Loading...');
+        this.marker.on('click', () => {
+            this.updatePopup();
+            this.marker.openPopup();
+            // Update computing panel if open
+            const compPanel = document.querySelector('.computing-panel');
+            if (compPanel && compPanel.style.display === 'block') {
+                const content = document.getElementById('computing-content');
+                if (content) {
+                    content.dataset.robotId = this.id;
+                    content.innerHTML = this.getComputingDetails();
+                }
+            }
+        });
+    }
+
+    updatePopup() {
+        const deliveryInfo = this.currentDelivery ? 
+            `<div style="margin:4px 0;padding:5px;background:#f8f9fa;border-radius:6px;"><div style="font-size:10px;color:#5f6368;">📦 Order #${this.currentDelivery.id}</div><div style="font-size:11px;">${this.deliveryPhase === 'pickup' ? '🔵 Going to pickup' : '🔴 Going to deliver'}</div></div>` : 
+            '<div style="font-size:11px;color:#5f6368;">No delivery</div>';
+
+        const destInfo = this.routeTarget ? 
+            `<div style="margin:4px 0;padding:5px;background:#e8f5e9;border-radius:6px;font-size:11px;">🎯 ${this.routeTarget.lat.toFixed(4)}, ${this.routeTarget.lon.toFixed(4)}<br>${this.currentPath.length - this.pathIndex} waypoints left</div>` : '';
+
+        const batteryColor = this.battery > 60 ? '#34a853' : this.battery > 30 ? '#fbbc04' : '#ea4335';
+        
+        // Current decision state
+        let decisionState = '⏸ Idle - Waiting for assignment';
+        if (this.status === 'moving') {
+            if (this.routeMode === 'charging') decisionState = '🔋 Navigating to charging station';
+            else if (this.deliveryPhase === 'to_pickup') decisionState = '📦 Routing to pickup location';
+            else if (this.deliveryPhase === 'to_dropoff') decisionState = '🚚 Routing to delivery destination';
+            else decisionState = '🔄 Moving to waypoint';
+        }
+        if (this.isRouting) decisionState = '🧠 Recalculating route...';
+        if (this.battery < 20 && this.status !== 'charging') decisionState = '⚠️ Low battery - seeking charger';
+
+        const content = `<div style="min-width:240px;font-family:'Segoe UI',Arial,sans-serif;max-height:80vh;overflow-y:auto;">
+            <div style="font-size:13px;font-weight:700;color:${this.color};margin-bottom:4px;">🤖 ${this.name}</div>
+            
+            <div style="margin:4px 0;padding:5px;background:${this.isRouting ? '#fff3e0' : this.status === 'moving' ? '#e8f5e9' : '#f8f9fa'};border-radius:6px;font-size:11px;border-left:3px solid ${this.isRouting ? '#ff9800' : this.status === 'moving' ? '#34a853' : '#9e9e9e'};">
+                <div style="font-weight:600;">${decisionState}</div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin:4px 0;">
+                <div style="padding:4px;background:#f8f9fa;border-radius:4px;text-align:center;"><div style="font-size:8px;color:#5f6368;">Speed</div><div style="font-size:11px;font-weight:600;">${(this.speedMultiplier*100).toFixed(0)}%</div></div>
+                <div style="padding:4px;background:#f8f9fa;border-radius:4px;text-align:center;"><div style="font-size:8px;color:#5f6368;">Battery</div><div style="font-size:11px;font-weight:600;color:${batteryColor};">${this.battery.toFixed(1)}%</div></div>
+                <div style="padding:4px;background:#f8f9fa;border-radius:4px;text-align:center;"><div style="font-size:8px;color:#5f6368;">Drain</div><div style="font-size:11px;font-weight:600;">${this.batteryDrain.toFixed(3)}/s</div></div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:4px 0;">
+                <div style="padding:4px;background:#f8f9fa;border-radius:4px;text-align:center;"><div style="font-size:8px;color:#5f6368;">Completed</div><div style="font-size:14px;font-weight:700;color:#34a853;">${this.totalDeliveries}</div></div>
+                <div style="padding:4px;background:#f8f9fa;border-radius:4px;text-align:center;"><div style="font-size:8px;color:#5f6368;">Distance</div><div style="font-size:14px;font-weight:700;color:#1a73e8;">${this.totalDistance.toFixed(0)}m</div></div>
+            </div>
+
+            ${destInfo}${deliveryInfo}
+        </div>`;
+
+        const popup = this.marker.getPopup();
+        if (popup) popup.setContent(content);
+    }
+
+    getComputingDetails() {
+        const batteryColor = this.battery > 60 ? '#34a853' : this.battery > 30 ? '#fbbc04' : '#ea4335';
+        
+        let decisionState = '⏸ Idle';
+        if (this.status === 'moving') {
+            if (this.routeMode === 'charging') decisionState = '🔋 Charging';
+            else if (this.deliveryPhase === 'to_pickup') decisionState = '📦 To Pickup';
+            else if (this.deliveryPhase === 'to_dropoff') decisionState = '🚚 To Dropoff';
+            else decisionState = '🔄 Moving';
+        }
+        if (this.isRouting) decisionState = '🧠 Rerouting';
+        if (this.battery < 20) decisionState = '⚠️ Low Battery';
+
+        const calcHistory = this._calcHistory && this._calcHistory.length > 0 ?
+            this._calcHistory.slice(-8).reverse().map(c => {
+                const ago = ((Date.now() - c.timestamp) / 1000).toFixed(1);
+                const color = c.time < 30 ? '#34a853' : c.time < 80 ? '#fbbc04' : '#ea4335';
+                return `<tr style="border-bottom:1px solid #e0e0e0;">
+                    <td style="padding:3px;color:#5f6368;">${ago}s</td>
+                    <td style="padding:3px;text-align:center;">${c.nodes}</td>
+                    <td style="padding:3px;text-align:right;color:${color};font-weight:600;">${c.time.toFixed(1)}ms</td>
+                </tr>`;
+            }).join('') : '<tr><td colspan="3" style="padding:6px;text-align:center;color:#5f6368;">Waiting...</td></tr>';
+
+        const routeInfo = this.lastRouteBreakdown ?
+            `<div style="background:linear-gradient(135deg,#e3f2fd,#bbdefb);padding:10px;border-radius:8px;margin:6px 0;">
+                <div style="font-weight:700;font-size:11px;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+                    🧠 A* Route Cost Breakdown
+                </div>
+                <div style="background:white;border-radius:6px;padding:8px;font-size:11px;">
+                    <div style="display:flex;justify-content:space-between;margin:3px 0;padding:3px 0;border-bottom:1px dashed #e0e0e0;">
+                        <span>📏 Base Distance (Haversine):</span><strong style="color:#1a73e8;">${this.lastRouteBreakdown.baseDistance.toFixed(0)}m</strong>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin:3px 0;padding:3px 0;border-bottom:1px dashed #e0e0e0;">
+                        <span>🚗 Traffic Penalty:</span><span style="color:#ea4335;font-weight:600;">+${this.lastRouteBreakdown.trafficPenalty.toFixed(0)}m</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin:3px 0;padding:3px 0;border-bottom:1px dashed #e0e0e0;">
+                        <span>🌧️ Rain Penalty:</span><span style="color:#4285f4;font-weight:600;">+${this.lastRouteBreakdown.rainPenalty.toFixed(0)}m</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin:6px 0 3px 0;padding-top:6px;border-top:2px solid #1a73e8;background:#f8f9fa;padding:6px;border-radius:4px;">
+                        <span style="font-weight:700;">🎯 Total Cost:</span><strong style="color:#1a73e8;font-size:13px;">${this.lastRouteBreakdown.totalCost.toFixed(0)}m</strong>
+                    </div>
+                </div>
+                <div style="margin-top:6px;font-size:9px;color:#5f6368;">
+                    <strong>A* Formula:</strong> f(n) = g(n) + h(n)<br>
+                    g(n) = actual cost from start | h(n) = Haversine heuristic to goal
+                </div>
+            </div>` : '<div style="background:#f8f9fa;padding:10px;border-radius:8px;margin:6px 0;text-align:center;font-size:11px;color:#5f6368;">Waiting for route calculation...</div>';
+
+        const avgTime = this._calcHistory?.length > 0 ? 
+            (this._calcHistory.reduce((a,b) => a + b.time, 0) / this._calcHistory.length).toFixed(1) : '0';
+        const fastest = this._calcHistory?.length > 0 ? 
+            Math.min(...this._calcHistory.map(c => c.time)).toFixed(1) : '0';
+        const slowest = this._calcHistory?.length > 0 ? 
+            Math.max(...this._calcHistory.map(c => c.time)).toFixed(1) : '0';
+
+        // 🧠 Memory stats
+        const memorySize = Object.keys(this.roadMemory).length;
+        const hotRoads = Object.values(this.roadMemory).filter(p => p > 1.4).length;
+        const avgMemoryPenalty = memorySize > 0 ?
+            (Object.values(this.roadMemory).reduce((a,b) => a+b, 0) / memorySize).toFixed(2) : '1.00';
+
+        return `
+            <div style="font-family:'Segoe UI',Arial,sans-serif;max-height:85vh;overflow-y:auto;">
+                <div style="font-size:15px;font-weight:700;color:${this.color};margin-bottom:8px;padding-bottom:6px;border-bottom:3px solid ${this.color};display:flex;align-items:center;gap:8px;">
+                    🤖 ${this.name} <span style="font-size:10px;color:#5f6368;font-weight:400;">| Computing Engine</span>
+                </div>
+                
+                <div style="background:${this.isRouting ? '#fff3e0' : this.status === 'moving' ? '#e8f5e9' : '#f8f9fa'};padding:6px 8px;border-radius:6px;margin:6px 0;border-left:4px solid ${this.isRouting ? '#ff9800' : this.status === 'moving' ? '#34a853' : '#9e9e9e'};">
+                    <div style="font-size:11px;font-weight:600;">State: ${decisionState}</div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin:6px 0;">
+                    <div style="background:linear-gradient(135deg,#f8f9fa,#e8eaed);padding:6px;border-radius:6px;text-align:center;">
+                        <div style="font-size:8px;color:#5f6368;text-transform:uppercase;">Speed</div>
+                        <div style="font-size:13px;font-weight:700;">${(this.speedMultiplier*100).toFixed(0)}%</div>
+                    </div>
+                    <div style="background:linear-gradient(135deg,#f8f9fa,#e8eaed);padding:6px;border-radius:6px;text-align:center;">
+                        <div style="font-size:8px;color:#5f6368;text-transform:uppercase;">Battery</div>
+                        <div style="font-size:13px;font-weight:700;color:${batteryColor};">${this.battery.toFixed(1)}%</div>
+                    </div>
+                    <div style="background:linear-gradient(135deg,#f8f9fa,#e8eaed);padding:6px;border-radius:6px;text-align:center;">
+                        <div style="font-size:8px;color:#5f6368;text-transform:uppercase;">Drain/s</div>
+                        <div style="font-size:13px;font-weight:700;">${this.batteryDrain.toFixed(3)}</div>
+                    </div>
+                </div>
+
+                ${routeInfo}
+
+                <div style="background:linear-gradient(135deg,#f3e5f5,#e1bee7);padding:10px;border-radius:8px;margin:8px 0;">
+                    <div style="font-weight:700;font-size:11px;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+                        📊 Calculation History
+                        <span style="font-size:9px;color:#5f6368;font-weight:400;">(last ${Math.min(8, this._calcHistory?.length || 0)})</span>
+                    </div>
+                    <table style="width:100%;border-collapse:collapse;font-size:10px;background:white;border-radius:6px;overflow:hidden;">
+                        <thead>
+                            <tr style="background:#7b1fa2;color:white;">
+                                <th style="padding:5px;text-align:left;padding-left:8px;">⏱ When</th>
+                                <th style="padding:5px;text-align:center;">🔢 Nodes</th>
+                                <th style="padding:5px;text-align:right;padding-right:8px;">⚡ Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>${calcHistory}</tbody>
+                    </table>
+                </div>
+
+                <div style="background:linear-gradient(135deg,#e8f5e9,#c8e6c9);padding:10px;border-radius:8px;margin:6px 0;">
+                    <div style="font-weight:700;font-size:11px;margin-bottom:6px;">📈 Lifetime Performance</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+                        <div style="background:white;padding:6px;border-radius:6px;text-align:center;">
+                            <div style="font-size:8px;color:#5f6368;text-transform:uppercase;">Deliveries</div>
+                            <div style="font-size:16px;font-weight:700;color:#34a853;">${this.totalDeliveries}</div>
+                        </div>
+                        <div style="background:white;padding:6px;border-radius:6px;text-align:center;">
+                            <div style="font-size:8px;color:#5f6368;text-transform:uppercase;">Distance</div>
+                            <div style="font-size:16px;font-weight:700;color:#1a73e8;">${this.totalDistance.toFixed(0)}m</div>
+                        </div>
+                        <div style="background:white;padding:6px;border-radius:6px;text-align:center;">
+                            <div style="font-size:8px;color:#5f6368;text-transform:uppercase;">Calculations</div>
+                            <div style="font-size:16px;font-weight:700;color:#ff9800;">${this._calcHistory?.length || 0}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:6px;background:white;padding:6px;border-radius:6px;display:flex;justify-content:space-around;font-size:10px;">
+                        <div>⚡ Fastest: <strong style="color:#34a853;">${fastest}ms</strong></div>
+                        <div>🐌 Slowest: <strong style="color:#ea4335;">${slowest}ms</strong></div>
+                        <div>📊 Avg: <strong style="color:#9c27b0;">${avgTime}ms</strong></div>
+                    </div>
+                    <div style="margin-top:6px;background:linear-gradient(135deg,#ede7f6,#d1c4e9);padding:6px;border-radius:6px;">
+                        <div style="font-size:9px;font-weight:700;margin-bottom:3px;">🧠 Road Memory (Learning)</div>
+                        <div style="display:flex;gap:8px;font-size:10px;">
+                            <span>📍 Roads: <strong>${memorySize}</strong></span>
+                            <span>🔥 Hot: <strong style="color:#ea4335;">${hotRoads}</strong></span>
+                            <span>⚖️ Avg: <strong>${avgMemoryPenalty}×</strong></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="background:#fff8e1;padding:8px;border-radius:6px;margin:6px 0;font-size:9px;color:#5f6368;border-left:3px solid #ffc107;">
+                    <strong>💡 How A* + Learning Works:</strong><br>
+                    1. Start node added to open set<br>
+                    2. Node with lowest f(n) selected<br>
+                    3. Neighbors evaluated with penalties<br>
+                    4. <strong>🧠 Robot remembers slow roads → avoids them next time</strong><br>
+                    5. Path reconstructed from start to goal<br>
+                    6. <strong>Penalties:</strong> 🌧️ Rain 2× | 🚗 Traffic 1.5-4× | 🚧 Obstacles 5-50× | 🧠 Memory 0.95-1.8×
+                </div>
+
+                <div style="margin:8px 0;">
+                    <button onclick="showAStarProcess(${this.id})" style="width:100%;padding:10px;background:linear-gradient(135deg,#1a73e8,#1557b0);color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(26,115,232,0.3);">
+                        🔬 Show Full A* Calculation Process
+                    </button>
+                </div>
+                <div id="astep-visual-${this.id}" style="display:none;"></div>
+            </div>
+        `;
     }
 
     drawPathLine() {
@@ -278,7 +527,10 @@ class DeliveryRobot {
     }
 
     async buildRouteToTarget(targetLat, targetLon) {
-        const route = await pathfindingManager.getRoute(this.lat, this.lon, targetLat, targetLon);
+        const startTime = performance.now();
+        const route = await pathfindingManager.getRoute(this.lat, this.lon, targetLat, targetLon, this.roadMemory);
+        const calcTime = performance.now() - startTime;
+        
         if (!route.path || route.path.length <= 1) return false;
 
         this.currentPath = route.path;
@@ -286,6 +538,15 @@ class DeliveryRobot {
         this.pathIndex = 0;
         this.status = 'moving';
         this.drawPathLine();
+        
+        // Track calculation history
+        this._calcHistory.push({
+            time: calcTime,
+            nodes: route.path.length,
+            timestamp: Date.now()
+        });
+        if (this._calcHistory.length > 20) this._calcHistory = this._calcHistory.slice(-20);
+        
         return true;
     }
 

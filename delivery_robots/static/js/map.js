@@ -60,6 +60,7 @@ class HanoiMap {
 
     initializeMap() {
         this.map = L.map('map').setView([21.0285, 105.8542], 16);
+        window.map = this.map; // Expose for weather/traffic controls
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
