@@ -17,12 +17,6 @@ class Simulation {
         this.totalReroutes = 0;
         this.totalBatteryConsumed = 0;
         this.lastDecisionCost = 0;
-        this.schedulingAlgorithm = 'priority'; // 'fifo', 'priority', 'nearest'
-        this.algorithmStats = {
-            fifo: { deliveries: 0, avgDistance: 0, totalDistance: 0 },
-            priority: { deliveries: 0, avgDistance: 0, totalDistance: 0 },
-            nearest: { deliveries: 0, avgDistance: 0, totalDistance: 0 },
-        };
     }
 
     async initialize() {
@@ -158,31 +152,13 @@ class Simulation {
     }
 
     async assignDeliveries() {
-        // Sort pending deliveries based on scheduling algorithm
-        let sortedDeliveries = [...this.pendingDeliveries];
-        
-        if (this.schedulingAlgorithm === 'fifo') {
-            // First-Come-First-Serve: keep original order
-            sortedDeliveries.sort((a, b) => a.timestamp - b.timestamp);
-        } else if (this.schedulingAlgorithm === 'priority') {
-            // Priority-based: highest priority first
-            sortedDeliveries.forEach(delivery => {
+        for (let i = this.pendingDeliveries.length - 1; i >= 0; i--) {
+            this.pendingDeliveries.forEach(delivery => {
                 delivery.priorityScore = this.calculatePriorityScore(delivery);
             });
-            sortedDeliveries.sort((a, b) => b.priorityScore - a.priorityScore);
-        } else if (this.schedulingAlgorithm === 'nearest') {
-            // Nearest-First: closest deliveries first
-            sortedDeliveries.forEach(delivery => {
-                const avgDist = this.robots.reduce((sum, r) => {
-                    return sum + this.haversineDistance(r.lat, r.lon, delivery.pickup.lat, delivery.pickup.lon);
-                }, 0) / this.robots.length;
-                delivery.priorityScore = -avgDist; // Negative so nearest comes first
-            });
-            sortedDeliveries.sort((a, b) => b.priorityScore - a.priorityScore);
-        }
+            this.pendingDeliveries.sort((a, b) => b.priorityScore - a.priorityScore);
 
-        for (let i = sortedDeliveries.length - 1; i >= 0; i--) {
-            const delivery = sortedDeliveries[i];
+            const delivery = this.pendingDeliveries[i];
             const candidateRobots = this.robots.filter(r => r.status === 'idle' && r.currentLoad < r.capacity && !r.isRouting);
 
             if (candidateRobots.length > 0) {
@@ -190,33 +166,16 @@ class Simulation {
                 if (!best) continue;
 
                 this.lastDecisionCost = best.totalScore;
-                const algoName = this.schedulingAlgorithm.toUpperCase();
                 addDispatchInsight(
-                    `[${algoName}] ${best.robot.name} assigned to order #${delivery.id}. Cost: ${best.totalScore.toFixed(0)}m`,
+                    `${best.robot.name} assigned to order #${delivery.id} with priority ${delivery.priorityScore.toFixed(1)}. Cost breakdown: base ${best.breakdown.baseDistance.toFixed(0)}m, traffic +${best.breakdown.trafficPenalty.toFixed(0)}m, rain +${best.breakdown.rainPenalty.toFixed(0)}m, battery risk +${best.batteryRisk.toFixed(1)}.`,
                     'good'
                 );
                 const assigned = await best.robot.assignDelivery(delivery);
                 if (assigned) {
-                    const idx = this.pendingDeliveries.findIndex(d => d.id === delivery.id);
-                    if (idx !== -1) {
-                        this.pendingDeliveries.splice(idx, 1);
-                    }
-                    // Track algorithm stats
-                    this.algorithmStats[this.schedulingAlgorithm].deliveries++;
-                    this.algorithmStats[this.schedulingAlgorithm].totalDistance += best.totalScore;
+                    this.pendingDeliveries.splice(i, 1);
                 }
             }
         }
-    }
-
-    haversineDistance(lat1, lon1, lat2, lon2) {
-        const R = 6371000;
-        const phi1 = Math.radians(lat1);
-        const phi2 = Math.radians(lat2);
-        const deltaPhi = Math.radians(lat2 - lat1);
-        const deltaLambda = Math.radians(lon2 - lon1);
-        const a = Math.sin(deltaPhi/2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda/2) ** 2;
-        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
 
     async update() {
@@ -245,7 +204,6 @@ class Simulation {
         this.updateStats();
         this.updateRobotStatus();
         this.updateAnalytics();
-        this.updateAlgorithmComparison();
     }
 
     start() {
@@ -278,11 +236,6 @@ class Simulation {
         this.totalReroutes = 0;
         this.totalBatteryConsumed = 0;
         this.lastDecisionCost = 0;
-        this.algorithmStats = {
-            fifo: { deliveries: 0, avgDistance: 0, totalDistance: 0 },
-            priority: { deliveries: 0, avgDistance: 0, totalDistance: 0 },
-            nearest: { deliveries: 0, avgDistance: 0, totalDistance: 0 },
-        };
         
         const [startA, startB, startC, startD, startE] = await Promise.all([
             pathfindingManager.snapToRoad(21.0285, 105.8542),
@@ -400,32 +353,6 @@ class Simulation {
         setBar('bar-reroutes', this.totalReroutes * 8);
         setBar('bar-energy', avgEnergyPerDelivery * 18);
         setBar('bar-decision-cost', this.lastDecisionCost / 40);
-    }
-
-    updateAlgorithmComparison() {
-        const container = document.getElementById('algorithm-comparison');
-        if (!container) return;
-
-        const stats = this.algorithmStats;
-        container.innerHTML = `
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 8px;">
-                <div style="background: #f8f9fa; padding: 8px; border-radius: 6px; text-align: center;">
-                    <div style="font-size: 11px; color: #5f6368;">FIFO</div>
-                    <div style="font-size: 18px; font-weight: 700; color: #1a73e8;">${stats.fifo.deliveries}</div>
-                    <div style="font-size: 10px; color: #5f6368;">${stats.fifo.totalDistance.toFixed(0)}m</div>
-                </div>
-                <div style="background: #f8f9fa; padding: 8px; border-radius: 6px; text-align: center;">
-                    <div style="font-size: 11px; color: #5f6368;">Priority</div>
-                    <div style="font-size: 18px; font-weight: 700; color: #34a853;">${stats.priority.deliveries}</div>
-                    <div style="font-size: 10px; color: #5f6368;">${stats.priority.totalDistance.toFixed(0)}m</div>
-                </div>
-                <div style="background: #f8f9fa; padding: 8px; border-radius: 6px; text-align: center;">
-                    <div style="font-size: 11px; color: #5f6368;">Nearest</div>
-                    <div style="font-size: 18px; font-weight: 700; color: #ea4335;">${stats.nearest.deliveries}</div>
-                    <div style="font-size: 10px; color: #5f6368;">${stats.nearest.totalDistance.toFixed(0)}m</div>
-                </div>
-            </div>
-        `;
     }
 
     calculatePriorityScore(delivery) {

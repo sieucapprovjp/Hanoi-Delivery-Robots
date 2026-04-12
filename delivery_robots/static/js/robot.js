@@ -69,9 +69,6 @@ class DeliveryRobot {
         // Update marker
         if (this.marker) {
             this.marker.setLatLng([this.lat, this.lon]);
-            if (this.marker.isPopupOpen()) {
-                this.updatePopup();
-            }
         }
 
         // Check if need charging
@@ -213,98 +210,7 @@ class DeliveryRobot {
             zIndexOffset: 1000
         }).addTo(map);
 
-        // Initialize with simple popup, update on click
-        this.marker.bindPopup('Loading...');
-        
-        // Click handler to show detailed info
-        this.marker.on('click', () => {
-            this.updatePopup();
-            this.marker.openPopup();
-        });
-    }
-
-    updatePopup() {
-        const deliveryInfo = this.currentDelivery ? 
-            `<div style="margin: 8px 0; padding: 8px; background: #f8f9fa; border-radius: 6px;">
-                <div style="font-size: 11px; color: #5f6368; margin-bottom: 4px;">📦 Current Delivery</div>
-                <div style="font-size: 12px; font-weight: 600;">Order #${this.currentDelivery.id}</div>
-                <div style="font-size: 11px; margin-top: 4px;">
-                    ${this.deliveryPhase === 'pickup' ? '🔵 Going to pickup' : '🔴 Going to deliver'}
-                </div>
-            </div>` : 
-            '<div style="margin: 8px 0; padding: 8px; background: #f8f9fa; border-radius: 6px; font-size: 12px; color: #5f6368;">No active delivery</div>';
-
-        const destinationInfo = this.routeTarget ? 
-            `<div style="margin: 8px 0; padding: 8px; background: #e8f5e9; border-radius: 6px;">
-                <div style="font-size: 11px; color: #5f6368; margin-bottom: 4px;">🎯 Destination</div>
-                <div style="font-size: 12px; font-weight: 600;">${this.routeTarget.lat.toFixed(5)}, ${this.routeTarget.lon.toFixed(5)}</div>
-                <div style="font-size: 11px; margin-top: 4px;">${this.currentPath.length - this.pathIndex} waypoints remaining</div>
-            </div>` : '';
-
-        const batteryRisk = this.estimateBatteryRisk(this.totalDistance);
-        const batteryColor = this.battery > 60 ? '#34a853' : this.battery > 30 ? '#fbbc04' : '#ea4335';
-        
-        const decisionInfo = this.lastRouteBreakdown ? 
-            `<div style="margin: 8px 0; padding: 8px; background: #e3f2fd; border-radius: 6px;">
-                <div style="font-size: 11px; color: #5f6368; margin-bottom: 4px;">🧠 Decision Making</div>
-                <div style="font-size: 11px; line-height: 1.6;">
-                    <div>Base distance: <strong>${this.lastRouteBreakdown.baseDistance.toFixed(0)}m</strong></div>
-                    <div>Traffic penalty: <strong style="color: #ea4335;">+${this.lastRouteBreakdown.trafficPenalty.toFixed(0)}m</strong></div>
-                    <div>Rain penalty: <strong style="color: #4285f4;">+${this.lastRouteBreakdown.rainPenalty.toFixed(0)}m</strong></div>
-                    <div style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #bbdefb;">
-                        Total cost: <strong>${this.lastRouteBreakdown.totalCost.toFixed(0)}m</strong>
-                    </div>
-                </div>
-            </div>` : '';
-
-        const popupContent = `
-            <div style="min-width: 220px; font-family: 'Segoe UI', Arial, sans-serif;">
-                <div style="font-size: 14px; font-weight: 700; color: ${this.color}; margin-bottom: 8px;">🤖 ${this.name}</div>
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-                    <div style="padding: 6px; background: #f8f9fa; border-radius: 6px; text-align: center;">
-                        <div style="font-size: 10px; color: #5f6368;">Status</div>
-                        <div style="font-size: 12px; font-weight: 600;">${this.status}</div>
-                    </div>
-                    <div style="padding: 6px; background: #f8f9fa; border-radius: 6px; text-align: center;">
-                        <div style="font-size: 10px; color: #5f6368;">Speed</div>
-                        <div style="font-size: 12px; font-weight: 600;">${(this.speedMultiplier * 100).toFixed(0)}%</div>
-                    </div>
-                </div>
-
-                <div style="margin: 8px 0;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                        <span style="font-size: 11px; color: #5f6368;">🔋 Battery</span>
-                        <span style="font-size: 13px; font-weight: 700; color: ${batteryColor};">${this.battery.toFixed(1)}%</span>
-                    </div>
-                    <div style="width: 100%; height: 6px; background: #dadce0; border-radius: 3px; overflow: hidden;">
-                        <div style="width: ${this.battery}%; height: 100%; background: ${batteryColor}; border-radius: 3px; transition: width 0.3s;"></div>
-                    </div>
-                    <div style="font-size: 10px; color: #5f6368; margin-top: 4px;">Risk: ${batteryRisk.toFixed(1)}% drain projected</div>
-                </div>
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-                    <div style="padding: 6px; background: #f8f9fa; border-radius: 6px; text-align: center;">
-                        <div style="font-size: 10px; color: #5f6368;">Deliveries</div>
-                        <div style="font-size: 14px; font-weight: 700; color: #34a853;">${this.totalDeliveries}</div>
-                    </div>
-                    <div style="padding: 6px; background: #f8f9fa; border-radius: 6px; text-align: center;">
-                        <div style="font-size: 10px; color: #5f6368;">Distance</div>
-                        <div style="font-size: 14px; font-weight: 700; color: #1a73e8;">${this.totalDistance.toFixed(0)}m</div>
-                    </div>
-                </div>
-
-                ${destinationInfo}
-                ${deliveryInfo}
-                ${decisionInfo}
-            </div>
-        `;
-
-        // Update popup content using correct Leaflet API
-        const popup = this.marker.getPopup();
-        if (popup) {
-            popup.setContent(popupContent);
-        }
+        this.marker.bindPopup(`<strong>${this.name}</strong><br>Status: ${this.status}<br>Battery: ${this.battery.toFixed(0)}%`);
     }
 
     drawPathLine() {
