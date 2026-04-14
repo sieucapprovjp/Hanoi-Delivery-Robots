@@ -85,6 +85,7 @@ function setupControls() {
     });
     togglePanel('toggle-decision', '.decision-panel', fetchMetrics);
     togglePanel('toggle-weather', '.weather-panel', () => { weatherModeEnabled = true; }, () => { weatherModeEnabled = false; });
+    togglePanel('toggle-insider', '.insider-panel');
 
     // Close buttons
     document.getElementById('close-dispatch-panel')?.addEventListener('click', () => document.querySelector('.dispatch-panel').style.display = 'none');
@@ -92,6 +93,7 @@ function setupControls() {
     document.getElementById('close-decision-panel')?.addEventListener('click', () => document.querySelector('.decision-panel').style.display = 'none');
     document.getElementById('close-weather-panel')?.addEventListener('click', () => { document.querySelector('.weather-panel').style.display = 'none'; weatherModeEnabled = false; });
     document.getElementById('close-computing-panel')?.addEventListener('click', () => document.querySelector('.computing-panel').style.display = 'none');
+    document.getElementById('close-insider-panel')?.addEventListener('click', () => document.querySelector('.insider-panel').style.display = 'none');
 }
 
 function setupWeather() {
@@ -374,6 +376,152 @@ async function showAStarProcess(robotId) {
 
 // Make it global
 window.showAStarProcess = showAStarProcess;
+
+// ===== Insider Panel =====
+async function runInsiderComparison() {
+    const el = document.getElementById('comparison-table');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:10px;text-align:center;">⏳ Running 4 algorithms...</div>';
+    
+    try {
+        const d = await (await fetch('/api/insider?fromLat=21.0285&fromLon=105.8542&toLat=21.0355&toLon=105.8516')).json();
+        
+        const algos = d.algorithms;
+        const best = d.best_path_length;
+        
+        const rows = [
+            { name: "A* (Informed)", ...algos["A*"], icon: "⭐" },
+            { name: "Dijkstra (Uninformed)", ...algos["Dijkstra"], icon: "🔵" },
+            { name: "Greedy Best-First", ...algos["Greedy Best-First"], icon: "🟡" },
+            { name: "BFS (Blind)", ...algos["BFS"], icon: "🟢" },
+        ];
+        
+        // Find the best time
+        const bestTime = Math.min(...rows.map(r => r.time_ms));
+        
+        let html = `
+            <table style="width:100%;border-collapse:collapse;font-size:10px;">
+                <thead>
+                    <tr style="background:linear-gradient(135deg,#9c27b0,#673ab7);color:white;">
+                        <th style="padding:6px;text-align:left;">Algorithm</th>
+                        <th style="padding:6px;text-align:center;">Nodes</th>
+                        <th style="padding:6px;text-align:center;">Path</th>
+                        <th style="padding:6px;text-align:center;">Time</th>
+                        <th style="padding:6px;text-align:center;">Optimal?</th>
+                        <th style="padding:6px;text-align:center;">Efficiency</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        
+        rows.forEach(r => {
+            const bg = r.name.startsWith("A*") ? '#ede7f6' : '#f8f9fa';
+            const bold = r.name.startsWith("A*") ? 'font-weight:700;' : '';
+            const optimal = r.optimal ? '<span style="color:#34a853;">✅ Yes</span>' : '<span style="color:#ea4335;">❌ No</span>';
+            const eff = best > 0 ? ((r.path_length / best) * 100).toFixed(0) + '%' : 'N/A';
+            const effColor = eff === '100%' ? '#34a853' : '#ea4335';
+            const timeBadge = r.time_ms === bestTime ? '⚡ ' : '';
+            const timeColor = r.time_ms === bestTime ? '#34a853' : '#5f6368';
+            
+            html += `
+                <tr style="background:${bg};border-bottom:1px solid #e0e0e0;">
+                    <td style="padding:6px;${bold}">${r.icon} ${r.name}</td>
+                    <td style="padding:6px;text-align:center;${bold}">${r.nodes_explored}</td>
+                    <td style="padding:6px;text-align:center;${bold}">${r.path_length} nodes</td>
+                    <td style="padding:6px;text-align:center;color:${timeColor};font-weight:600;">${timeBadge}${r.time_ms}ms</td>
+                    <td style="padding:6px;text-align:center;">${optimal}</td>
+                    <td style="padding:6px;text-align:center;color:${effColor};font-weight:600;">${eff}</td>
+                </tr>
+            `;
+        });
+        
+        html += `</tbody></table>`;
+        
+        // Key insight
+        const astarNodes = algos["A*"].nodes_explored;
+        const dijkstraNodes = algos["Dijkstra"].nodes_explored;
+        const speedup = dijkstraNodes > 0 ? ((1 - astarNodes / dijkstraNodes) * 100).toFixed(0) : 0;
+        
+        html += `
+            <div style="margin-top:8px;padding:8px;background:#e8f5e9;border-radius:6px;font-size:10px;">
+                <strong>💡 Key Insight:</strong> A* explored <strong>${astarNodes}</strong> nodes vs Dijkstra's <strong>${dijkstraNodes}</strong> — that's <strong style="color:#34a853;">${speedup}% fewer nodes</strong> while finding the same optimal path!
+            </div>
+        `;
+        
+        el.innerHTML = html;
+    } catch(e) {
+        el.innerHTML = `<div style="padding:10px;text-align:center;color:#ea4335;">Error: ${e.message}</div>`;
+    }
+}
+
+async function runAStarVisualization() {
+    const el = document.getElementById('astep-visualizer');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:10px;text-align:center;">⏳ Running A* step-by-step...</div>';
+    
+    try {
+        const d = await (await fetch('/api/astep?fromLat=21.0285&fromLon=105.8542&toLat=21.0355&toLon=105.8516')).json();
+        
+        if (!d.steps || d.steps.length === 0) {
+            el.innerHTML = '<div style="padding:10px;text-align:center;color:#ea4335;">No steps to visualize</div>';
+            return;
+        }
+        
+        let html = `
+            <div style="font-size:11px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+                🔬 A* Expansion (${d.totalSteps} steps, ${d.calcTime}ms)
+            </div>
+            
+            <div style="display:flex;gap:6px;margin-bottom:8px;font-size:9px;color:#5f6368;">
+                <span>Start: Node ${d.startNode}</span>
+                <span>→ Goal: Node ${d.endNode}</span>
+                <span>→ Path: ${d.pathLength} nodes</span>
+            </div>
+        `;
+        
+        // Show steps with node visualization
+        d.steps.forEach((s, i) => {
+            const color = i === 0 ? '#34a853' : i === d.steps.length - 1 ? '#ea4335' : '#4285f4';
+            const bg = i === 0 ? '#e8f5e9' : i === d.steps.length - 1 ? '#fce4ec' : '#f8f9fa';
+            
+            html += `
+                <div style="background:${bg};border-radius:6px;padding:6px 8px;margin:4px 0;border-left:3px solid ${color};font-size:10px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span style="font-weight:700;color:${color};">Step ${s.step}</span>
+                        <span style="font-family:monospace;font-size:9px;">Node ${s.currentNode}</span>
+                    </div>
+                    <div style="font-family:monospace;font-size:9px;background:white;padding:3px 6px;border-radius:3px;margin:3px 0;">
+                        ${s.formula}
+                    </div>
+                    <div style="display:flex;gap:12px;font-size:9px;color:#5f6368;">
+                        <span>g=${s.g}</span><span>h=${s.h}</span><span>f=${s.f}</span>
+                        <span>Open: ${s.openSetSize}</span><span>Closed: ${s.closedSetSize}</span>
+                    </div>
+                    <!-- Node bar visualization -->
+                    <div style="margin-top:4px;height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden;">
+                        <div style="width:${Math.min(100, (s.closedSetSize / d.closedSetSize) * 100)}%;height:100%;background:linear-gradient(90deg,#4285f4,#ff9800);border-radius:3px;transition:width 0.3s;"></div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        if (d.success) {
+            html += `
+                <div style="margin-top:8px;padding:8px;background:#e8f5e9;border-radius:6px;text-align:center;font-size:11px;font-weight:700;color:#34a853;">
+                    ✅ Goal reached! Optimal path found with ${d.pathLength} nodes
+                </div>
+            `;
+        }
+        
+        el.innerHTML = html;
+    } catch(e) {
+        el.innerHTML = `<div style="padding:10px;text-align:center;color:#ea4335;">Error: ${e.message}</div>`;
+    }
+}
+
+// Attach button handlers
+document.getElementById('run-comparison-btn')?.addEventListener('click', runInsiderComparison);
+document.getElementById('run-astar-viz-btn')?.addEventListener('click', runAStarVisualization);
 
 // ===== CLOCK =====
 async function updateClock() {

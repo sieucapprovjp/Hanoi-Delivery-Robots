@@ -5,7 +5,6 @@ import time
 
 import networkx as nx
 
-
 app = Flask(__name__)
 
 GRAPH_CENTER = (21.0285, 105.8542)
@@ -717,6 +716,179 @@ def astep_demo():
                 heapq.heappush(open_set, (f_score[neighbor], neighbor))
     
     return jsonify({"success": False, "steps": steps, "totalSteps": step_count, "calcTime": round((time.time() - start_t) * 1000, 2)})
+
+
+@app.route("/api/insider")
+def insider_comparison():
+    """Compare A*, Dijkstra, Greedy Best-First, and BFS."""
+    import heapq
+    import time as py_time
+    
+    try:
+        from_lat = float(request.args.get("fromLat", 21.0285))
+        from_lon = float(request.args.get("fromLon", 105.8542))
+        to_lat = float(request.args.get("toLat", 21.0355))
+        to_lon = float(request.args.get("toLon", 105.8516))
+    except:
+        return jsonify({"error": "Invalid coords"}), 400
+    
+    graph, _, _ = get_road_graph()
+    start_node = nearest_node_id(graph, from_lat, from_lon)
+    end_node = nearest_node_id(graph, to_lat, to_lon)
+    
+    def run_astar():
+        """A* with penalties."""
+        t0 = py_time.time()
+        open_set = [(0, start_node)]
+        came_from = {}
+        g_score = {start_node: 0}
+        h_val = {start_node: haversine_distance(graph.nodes[start_node]["y"], graph.nodes[start_node]["x"], to_lat, to_lon)}
+        f_score = {start_node: h_val[start_node]}
+        closed = set()
+        nodes_explored = 0
+        
+        while open_set:
+            _, current = heapq.heappop(open_set)
+            if current == end_node:
+                path = []
+                while current in came_from:
+                    path.append(current)
+                    current = came_from[current]
+                path.append(start_node)
+                path.reverse()
+                return {"path_length": len(path), "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": True}
+            if current in closed: continue
+            closed.add(current)
+            nodes_explored += 1
+            
+            for neighbor in graph.neighbors(current):
+                if neighbor in closed: continue
+                edge_data = graph[current][neighbor]
+                edge_len = min(d.get("length", 10) for d in edge_data.values())
+                mid_lat = (graph.nodes[current]["y"] + graph.nodes[neighbor]["y"]) / 2
+                mid_lon = (graph.nodes[current]["x"] + graph.nodes[neighbor]["x"]) / 2
+                w = edge_len * traffic_penalty_for_point(mid_lat, mid_lon) * rain_penalty_for_point(mid_lat, mid_lon) * obstacle_penalty_for_point(mid_lat, mid_lon)
+                tg = g_score[current] + w
+                if tg < g_score.get(neighbor, float('inf')):
+                    came_from[neighbor] = current
+                    g_score[neighbor] = tg
+                    h = haversine_distance(graph.nodes[neighbor]["y"], graph.nodes[neighbor]["x"], to_lat, to_lon)
+                    f = tg + h
+                    f_score[neighbor] = f
+                    heapq.heappush(open_set, (f, neighbor))
+        return {"path_length": 0, "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": False}
+    
+    def run_dijkstra():
+        """Dijkstra (uninformed)."""
+        t0 = py_time.time()
+        open_set = [(0, start_node)]
+        dist = {start_node: 0}
+        came_from = {}
+        visited = set()
+        nodes_explored = 0
+        
+        while open_set:
+            d, current = heapq.heappop(open_set)
+            if current == end_node:
+                path = []
+                while current in came_from:
+                    path.append(current)
+                    current = came_from[current]
+                path.append(start_node)
+                path.reverse()
+                return {"path_length": len(path), "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": True}
+            if current in visited: continue
+            visited.add(current)
+            nodes_explored += 1
+            
+            for neighbor in graph.neighbors(current):
+                if neighbor in visited: continue
+                edge_data = graph[current][neighbor]
+                w = min(d.get("length", 10) for d in edge_data.values())
+                nd = dist[current] + w
+                if nd < dist.get(neighbor, float('inf')):
+                    dist[neighbor] = nd
+                    came_from[neighbor] = current
+                    heapq.heappush(open_set, (nd, neighbor))
+        return {"path_length": 0, "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": False}
+    
+    def run_greedy():
+        """Greedy Best-First (only heuristic)."""
+        t0 = py_time.time()
+        h_start = haversine_distance(graph.nodes[start_node]["y"], graph.nodes[start_node]["x"], to_lat, to_lon)
+        open_set = [(h_start, start_node)]
+        came_from = {}
+        visited = set()
+        nodes_explored = 0
+        
+        while open_set:
+            _, current = heapq.heappop(open_set)
+            if current == end_node:
+                path = []
+                while current in came_from:
+                    path.append(current)
+                    current = came_from[current]
+                path.append(start_node)
+                path.reverse()
+                return {"path_length": len(path), "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": False}
+            if current in visited: continue
+            visited.add(current)
+            nodes_explored += 1
+            
+            for neighbor in graph.neighbors(current):
+                if neighbor in visited: continue
+                h = haversine_distance(graph.nodes[neighbor]["y"], graph.nodes[neighbor]["x"], to_lat, to_lon)
+                came_from[neighbor] = current
+                heapq.heappush(open_set, (h, neighbor))
+        return {"path_length": 0, "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": False}
+    
+    def run_bfs():
+        """BFS (blind search)."""
+        t0 = py_time.time()
+        from collections import deque
+        queue = deque([start_node])
+        came_from = {start_node: None}
+        visited = set([start_node])
+        nodes_explored = 0
+        
+        while queue:
+            current = queue.popleft()
+            if current == end_node:
+                path = []
+                while current is not None:
+                    path.append(current)
+                    current = came_from[current]
+                path.reverse()
+                return {"path_length": len(path), "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": True}
+            nodes_explored += 1
+            
+            for neighbor in graph.neighbors(current):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    came_from[neighbor] = current
+                    queue.append(neighbor)
+        return {"path_length": 0, "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": False}
+    
+    # Run all 4
+    astar = run_astar()
+    dijkstra = run_dijkstra()
+    greedy = run_greedy()
+    bfs = run_bfs()
+    
+    # Find best path length for optimality check
+    best_path = min(p["path_length"] for p in [astar, dijkstra, greedy, bfs] if p["path_length"] > 0)
+    
+    return jsonify({
+        "algorithms": {
+            "A*": astar,
+            "Dijkstra": dijkstra,
+            "Greedy Best-First": greedy,
+            "BFS": bfs,
+        },
+        "best_path_length": best_path,
+        "from": {"lat": from_lat, "lon": from_lon},
+        "to": {"lat": to_lat, "lon": to_lon},
+    })
 
 
 if __name__ == "__main__":

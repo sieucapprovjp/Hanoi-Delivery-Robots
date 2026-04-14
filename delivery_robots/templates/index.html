@@ -185,6 +185,52 @@
         <button class="fab" id="toggle-computing" title="Toggle computing details">⚙️</button>
         <button class="fab" id="toggle-decision" title="Toggle decision making">🔍</button>
         <button class="fab" id="toggle-weather" title="Toggle weather/traffic">🌧️</button>
+        <button class="fab" id="toggle-insider" title="A* Algorithm Analysis" style="background: linear-gradient(135deg, #9c27b0, #673ab7); color: white;">🔬</button>
+    </div>
+
+    <!-- Insider: A* Algorithm Analysis Panel -->
+    <div class="insider-panel" style="display: none;">
+        <div class="panel-header" style="background: linear-gradient(135deg, #9c27b0, #673ab7); color: white;">
+            <h3>🔬 Insider — A* Algorithm Lab</h3>
+            <button class="close-panel" id="close-insider-panel" style="color: white;">×</button>
+        </div>
+        <div class="panel-content">
+            <!-- Comparison Table -->
+            <div style="margin-bottom: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <h3 style="font-size: 13px; color: #5f6368; margin: 0;">📊 Algorithm Comparison</h3>
+                    <button id="run-comparison-btn" style="padding: 6px 14px; background: linear-gradient(135deg, #9c27b0, #673ab7); color: white; border: none; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;">▶ Run Comparison</button>
+                </div>
+                <div id="comparison-table" style="background: #f8f9fa; border-radius: 8px; padding: 10px; min-height: 100px;">
+                    <div style="text-align: center; color: #5f6368; padding: 20px; font-size: 12px;">
+                        Click <strong>▶ Run Comparison</strong> to see how A* stacks up against Dijkstra, Greedy, and BFS
+                    </div>
+                </div>
+            </div>
+
+            <!-- A* Step Visualizer -->
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <h3 style="font-size: 13px; color: #5f6368; margin: 0;">🔍 A* Step-by-Step Expansion</h3>
+                    <button id="run-astar-viz-btn" style="padding: 6px 14px; background: linear-gradient(135deg, #1a73e8, #1557b0); color: white; border: none; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;">▶ Visualize A*</button>
+                </div>
+                <div id="astep-visualizer" style="background: #f8f9fa; border-radius: 8px; padding: 10px; min-height: 150px;">
+                    <div style="text-align: center; color: #5f6368; padding: 20px; font-size: 12px;">
+                        Click <strong>▶ Visualize A*</strong> to watch the algorithm explore nodes step by step
+                    </div>
+                </div>
+            </div>
+
+            <!-- Legend -->
+            <div style="margin-top: 12px; padding: 10px; background: #fff8e1; border-radius: 8px; font-size: 10px; color: #5f6368; border-left: 3px solid #ffc107;">
+                <strong style="font-size: 11px;">📖 Legend:</strong><br>
+                <span style="display: inline-block; width: 12px; height: 12px; background: #34a853; border-radius: 2px; vertical-align: middle;"></span> Start &nbsp;
+                <span style="display: inline-block; width: 12px; height: 12px; background: #ea4335; border-radius: 2px; vertical-align: middle;"></span> Goal &nbsp;
+                <span style="display: inline-block; width: 12px; height: 12px; background: #4285f4; border-radius: 2px; vertical-align: middle;"></span> Open Set (being explored) &nbsp;
+                <span style="display: inline-block; width: 12px; height: 12px; background: #ff9800; border-radius: 2px; vertical-align: middle;"></span> Closed Set (evaluated) &nbsp;
+                <span style="display: inline-block; width: 12px; height: 12px; background: #9c27b0; border-radius: 2px; vertical-align: middle;"></span> Final Path
+            </div>
+        </div>
     </div>
 
     <!-- Computing Behind The Scenes Panel -->
