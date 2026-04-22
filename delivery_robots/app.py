@@ -4,37 +4,24 @@ import threading
 import time
 
 import networkx as nx
+from .geo_utils import haversine_distance, point_to_segment_distance_meters
+from .metrics_utils import build_metrics_payload, create_metrics, record_route_metrics
+from .route_analysis import build_route_response, nearest_node_id
+from .validation import (
+    validate_coordinate,
+    validate_lat_lon,
+    validate_non_negative_int,
+    validate_positive_number,
+)
 
 app = Flask(__name__)
 
 GRAPH_CENTER = (21.0285, 105.8542)
 GRAPH_DIST_METERS = 2200
 GRAPH_NETWORK_TYPE = "bike"
-TRAFFIC_ANCHORS = [
-    {
-        "name": "Le Thai To",
-        "start": (21.0242, 105.8487),
-        "end": (21.0249, 105.8527),
-        "severity": 0.9,
-    },
-    {
-        "name": "Dinh Tien Hoang",
-        "start": (21.0321, 105.8525),
-        "end": (21.0249, 105.8527),
-        "severity": 0.75,
-    },
-    {
-        "name": "Hai Ba Trung",
-        "start": (21.0220, 105.8510),
-        "end": (21.0299, 105.8531),
-        "severity": 0.65,
-    },
-]
+TRAFFIC_ANCHORS = []
 TRAFFIC_PERIOD_SECONDS = 36
-RAIN_ZONES = [
-    {"name": "South Lake Edge", "center": (21.0248, 105.8532), "radius": 155, "severity": 1.0},
-    {"name": "East Corridor", "center": (21.0284, 105.8562), "radius": 140, "severity": 1.0},
-]
+RAIN_ZONES = []
 
 # Simulation clock and rush hour configuration
 _simulation_start_time = time.time()
@@ -50,21 +37,6 @@ _road_graph = None
 _projected_road_graph = None
 _traffic_routes = None
 _ox = None
-
-
-def haversine_distance(lat1, lon1, lat2, lon2):
-    radius = 6371000
-    phi1 = math.radians(lat1)
-    phi2 = math.radians(lat2)
-    delta_phi = math.radians(lat2 - lat1)
-    delta_lambda = math.radians(lon2 - lon1)
-
-    a = (
-        math.sin(delta_phi / 2) ** 2
-        + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
-    )
-    return radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
 
 def get_road_graph():
     global _road_graph, _projected_road_graph, _traffic_routes, _ox
@@ -90,37 +62,23 @@ def get_road_graph():
 
     return _road_graph, _projected_road_graph, _traffic_routes
 
-
-def validate_coordinate(value, name):
-    try:
-        return float(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"Invalid {name}") from exc
-
-
-def nearest_node_id(graph, lat, lon):
-    best_node_id = None
-    best_distance = float("inf")
-
-    for node_id, node_data in graph.nodes(data=True):
-        distance = haversine_distance(lat, lon, node_data["y"], node_data["x"])
-        if distance < best_distance:
-            best_distance = distance
-            best_node_id = node_id
-
-    return best_node_id
-
-
 def build_traffic_routes(graph):
     routes = []
 
     for anchor in TRAFFIC_ANCHORS:
         start_lat, start_lon = anchor["start"]
         end_lat, end_lon = anchor["end"]
-        start_node = nearest_node_id(graph, start_lat, start_lon)
-        end_node = nearest_node_id(graph, end_lat, end_lon)
+        start_node = nearest_node_id(graph, start_lat, start_lon, _ox)
+        end_node = nearest_node_id(graph, end_lat, end_lon, _ox)
         route_nodes = nx.shortest_path(graph, start_node, end_node, weight="length")
-        route_payload = build_route_response(graph, route_nodes, include_cost_breakdown=False)
+        route_payload = build_route_response(
+            graph,
+            route_nodes,
+            traffic_penalty_for_point,
+            rain_penalty_for_point,
+            obstacle_penalty_for_point,
+            include_cost_breakdown=False,
+        )
         routes.append(
             {
                 "name": anchor["name"],
@@ -130,31 +88,6 @@ def build_traffic_routes(graph):
         )
 
     return routes
-
-
-def to_local_xy(lat, lon, origin_lat):
-    meters_per_deg_lat = 111320
-    meters_per_deg_lon = 111320 * math.cos(math.radians(origin_lat))
-    return lon * meters_per_deg_lon, lat * meters_per_deg_lat
-
-
-def point_to_segment_distance_meters(lat, lon, start_lat, start_lon, end_lat, end_lon):
-    origin_lat = (lat + start_lat + end_lat) / 3
-    px, py = to_local_xy(lat, lon, origin_lat)
-    ax, ay = to_local_xy(start_lat, start_lon, origin_lat)
-    bx, by = to_local_xy(end_lat, end_lon, origin_lat)
-    abx = bx - ax
-    aby = by - ay
-    ab_len_sq = abx * abx + aby * aby
-
-    if ab_len_sq == 0:
-        return math.hypot(px - ax, py - ay)
-
-    t = max(0, min(1, ((px - ax) * abx + (py - ay) * aby) / ab_len_sq))
-    closest_x = ax + t * abx
-    closest_y = ay + t * aby
-    return math.hypot(px - closest_x, py - closest_y)
-
 
 def get_simulation_time():
     """Returns simulated time based on real elapsed time and simulation speed."""
@@ -188,12 +121,13 @@ def get_rush_hour_multiplier():
 def traffic_penalty_for_point(lat, lon):
     penalty = 1.0
     now = time.time()
-    if _traffic_routes is None:
+    if _traffic_routes is None and not _dynamic_traffic_routes:
         return penalty
 
-    traffic_routes = _traffic_routes
-    
-    # Apply rush hour multiplier
+    traffic_routes = list(_traffic_routes or [])
+    with _dynamic_traffic_lock:
+        traffic_routes.extend(_dynamic_traffic_routes)
+
     rush_multiplier, _ = get_rush_hour_multiplier()
     penalty *= rush_multiplier
 
@@ -228,7 +162,27 @@ def rain_penalty_for_point(lat, lon):
         center_lat, center_lon = zone["center"]
         distance = haversine_distance(lat, lon, center_lat, center_lon)
         if distance <= zone["radius"]:
-            penalty = max(penalty, 2.0)
+            penalty = max(penalty, 1 + zone.get("severity", 1.0))
+
+    return penalty
+
+
+def obstacle_penalty_for_point(lat, lon):
+    penalty = 1.0
+
+    with _obstacles_lock:
+        obstacles = list(_obstacles)
+
+    for obstacle in obstacles:
+        center_lat, center_lon = obstacle["center"]
+        distance = haversine_distance(lat, lon, center_lat, center_lon)
+        radius = obstacle["radius"]
+        if distance > radius:
+            continue
+
+        closeness = 1 - (distance / radius if radius else 1)
+        severity = obstacle.get("severity", 10.0)
+        penalty = max(penalty, 1 + (severity / 10.0) * max(0.2, closeness))
 
     return penalty
 
@@ -240,6 +194,7 @@ def edge_weight_with_traffic(from_node, to_node, edge_data):
     midpoint_lon = (from_data["x"] + to_data["x"]) / 2
     penalty = traffic_penalty_for_point(midpoint_lat, midpoint_lon)
     penalty *= rain_penalty_for_point(midpoint_lat, midpoint_lon)
+    penalty *= obstacle_penalty_for_point(midpoint_lat, midpoint_lon)
 
     if "length" in edge_data:
         return edge_data.get("length", 0.0) * penalty
@@ -250,68 +205,6 @@ def edge_weight_with_traffic(from_node, to_node, edge_data):
     )
     return best_length * penalty
 
-
-def edge_geometry_coordinates(graph, from_node, to_node, edge_data):
-    geometry = edge_data.get("geometry")
-
-    if geometry is None:
-        start = graph.nodes[from_node]
-        end = graph.nodes[to_node]
-        return [
-            {"lat": start["y"], "lon": start["x"]},
-            {"lat": end["y"], "lon": end["x"]},
-        ]
-
-    return [{"lat": lat, "lon": lon} for lon, lat in geometry.coords]
-
-
-def build_route_response(graph, route_nodes, include_cost_breakdown=True):
-    route_path = []
-    route_distance = 0.0
-    traffic_cost = 0.0
-    rain_cost = 0.0
-
-    for idx in range(len(route_nodes) - 1):
-        from_node = route_nodes[idx]
-        to_node = route_nodes[idx + 1]
-        edge_options = graph.get_edge_data(from_node, to_node)
-        edge_data = min(
-            edge_options.values(),
-            key=lambda item: item.get("length", float("inf")),
-        )
-        segment_points = edge_geometry_coordinates(graph, from_node, to_node, edge_data)
-
-        if route_path and segment_points:
-            segment_points = segment_points[1:]
-
-        route_path.extend(segment_points)
-        edge_length = edge_data.get("length", 0.0)
-        route_distance += edge_length
-
-        if include_cost_breakdown:
-            from_data = graph.nodes[from_node]
-            to_data = graph.nodes[to_node]
-            midpoint_lat = (from_data["y"] + to_data["y"]) / 2
-            midpoint_lon = (from_data["x"] + to_data["x"]) / 2
-            traffic_penalty = traffic_penalty_for_point(midpoint_lat, midpoint_lon)
-            rain_penalty = rain_penalty_for_point(midpoint_lat, midpoint_lon)
-            traffic_cost += edge_length * max(0, traffic_penalty - 1)
-            rain_cost += edge_length * max(0, rain_penalty - 1)
-
-    response = {
-        "path": route_path,
-        "distance": route_distance,
-    }
-
-    if include_cost_breakdown:
-        response["costBreakdown"] = {
-            "baseDistance": round(route_distance, 1),
-            "trafficPenalty": round(traffic_cost, 1),
-            "rainPenalty": round(rain_cost, 1),
-            "totalCost": round(route_distance + traffic_cost + rain_cost, 1),
-        }
-
-    return response
 
 
 @app.route("/")
@@ -330,8 +223,11 @@ def traffic():
     roads = []
 
     _, _, traffic_routes = get_road_graph()
+    all_routes = list(traffic_routes or [])
+    with _dynamic_traffic_lock:
+        all_routes.extend(_dynamic_traffic_routes)
 
-    for road in traffic_routes:
+    for road in all_routes:
         if len(road["path"]) < 2:
             roads.append({"name": road["name"], "segments": []})
             continue
@@ -369,7 +265,7 @@ def weather():
                     "name": zone["name"],
                     "center": {"lat": zone["center"][0], "lon": zone["center"][1]},
                     "radius": zone["radius"],
-                    "multiplier": 2.0,
+                    "multiplier": round(1 + zone.get("severity", 1.0), 2),
                 }
                 for zone in RAIN_ZONES
             ]
@@ -410,6 +306,8 @@ def route():
         from_lon = validate_coordinate(request.args.get("fromLon"), "fromLon")
         to_lat = validate_coordinate(request.args.get("toLat"), "toLat")
         to_lon = validate_coordinate(request.args.get("toLon"), "toLon")
+        validate_lat_lon(from_lat, from_lon)
+        validate_lat_lon(to_lat, to_lon)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -425,8 +323,8 @@ def route():
 
     try:
         graph, projected_graph, _ = get_road_graph()
-        start_node = nearest_node_id(graph, from_lat, from_lon)
-        end_node = nearest_node_id(graph, to_lat, to_lon)
+        start_node = nearest_node_id(graph, from_lat, from_lon, _ox)
+        end_node = nearest_node_id(graph, to_lat, to_lon, _ox)
 
         def edge_weight_with_memory(from_node, to_node, edge_data):
             base = edge_weight_with_traffic(from_node, to_node, edge_data)
@@ -439,24 +337,19 @@ def route():
 
         weight_fn = edge_weight_with_memory if road_memory else edge_weight_with_traffic
         route_nodes = nx.shortest_path(graph, start_node, end_node, weight=weight_fn)
-        payload = build_route_response(graph, route_nodes)
+        payload = build_route_response(
+            graph,
+            route_nodes,
+            traffic_penalty_for_point,
+            rain_penalty_for_point,
+            obstacle_penalty_for_point,
+        )
         payload["start"] = {"lat": graph.nodes[start_node]["y"], "lon": graph.nodes[start_node]["x"]}
         payload["end"] = {"lat": graph.nodes[end_node]["y"], "lon": graph.nodes[end_node]["x"]}
         
-        # Track metrics
         calc_time = (time.time() - start_t) * 1000
-        _metrics["totalCalculations"] += 1
-        _metrics["lastCalculationTime"] = calc_time
-        _metrics["minCalculationTime"] = min(_metrics["minCalculationTime"], calc_time)
-        _metrics["maxCalculationTime"] = max(_metrics["maxCalculationTime"], calc_time)
-        _metrics["totalCalculationTime"] += calc_time
-        _metrics["avgCalculationTime"] = _metrics["totalCalculationTime"] / _metrics["totalCalculations"]
         nodes_explored = len(route_nodes) * 5  # approximate
-        _metrics["totalNodesExplored"] += nodes_explored
-        _metrics["avgNodesExplored"] = _metrics["totalNodesExplored"] / _metrics["totalCalculations"]
-        _metrics["pathLengths"].append(len(route_nodes))
-        if len(_metrics["pathLengths"]) > 100:
-            _metrics["pathLengths"] = _metrics["pathLengths"][-100:]
+        record_route_metrics(_metrics, calc_time, nodes_explored, len(route_nodes))
         
         return jsonify(payload)
     except nx.NetworkXNoPath:
@@ -477,8 +370,9 @@ def snap():
     try:
         lat = validate_coordinate(request.args.get("lat"), "lat")
         lon = validate_coordinate(request.args.get("lon"), "lon")
+        validate_lat_lon(lat, lon)
         graph, projected_graph, _ = get_road_graph()
-        node_id = nearest_node_id(graph, lat, lon)
+        node_id = nearest_node_id(graph, lat, lon, _ox)
         return jsonify(
             {
                 "lat": graph.nodes[node_id]["y"],
@@ -500,7 +394,14 @@ def list_rain():
 def add_rain():
     global RAIN_ZONES
     d = request.get_json(silent=True) or {}
-    lat, lon, radius = float(d.get("lat",0)), float(d.get("lon",0)), float(d.get("radius",150))
+    try:
+        lat = validate_coordinate(d.get("lat"), "lat")
+        lon = validate_coordinate(d.get("lon"), "lon")
+        radius = validate_positive_number(d.get("radius", 150), "radius")
+        validate_lat_lon(lat, lon)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
     RAIN_ZONES.append({"name": f"Rain {len(RAIN_ZONES)+1}", "center": (lat,lon), "radius": radius, "severity": 1.0})
     return jsonify({"message": "Added", "rainZone": {"name": f"Rain {len(RAIN_ZONES)}", "center": {"lat": lat, "lon": lon}, "radius": radius}})
 
@@ -509,8 +410,17 @@ def randomize_rain():
     global RAIN_ZONES
     import random
     d = request.get_json(silent=True) or {}
-    count = int(d.get("count", 3))
-    RAIN_ZONES = [{"name": f"Rain {i+1}", "center": (random.uniform(21.0180,21.0380), random.uniform(105.8430,105.8650)), "radius": random.uniform(float(d.get("minRadius",100)), float(d.get("maxRadius",200))), "severity": 1.0} for i in range(count)]
+    try:
+        count = validate_non_negative_int(d.get("count", 3), "count")
+        min_radius = validate_positive_number(d.get("minRadius", 100), "minRadius")
+        max_radius = validate_positive_number(d.get("maxRadius", 200), "maxRadius")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if min_radius > max_radius:
+        return jsonify({"error": "minRadius must be less than or equal to maxRadius"}), 400
+
+    RAIN_ZONES = [{"name": f"Rain {i+1}", "center": (random.uniform(21.0180,21.0380), random.uniform(105.8430,105.8650)), "radius": random.uniform(min_radius, max_radius), "severity": 1.0} for i in range(count)]
     return jsonify({"message": f"Added {count}", "rainZones": [{"name": z["name"], "center": {"lat": z["center"][0], "lon": z["center"][1]}, "radius": z["radius"]} for z in RAIN_ZONES]})
 
 @app.route("/api/rain/clear", methods=["POST"])
@@ -529,12 +439,57 @@ def list_traffic_routes():
     with _dynamic_traffic_lock:
         return jsonify({"routes": _dynamic_traffic_routes[:]})
 
+@app.route("/api/traffic/add", methods=["POST"])
+def add_traffic_route():
+    global _dynamic_traffic_routes
+    d = request.get_json(silent=True) or {}
+
+    try:
+        start_lat = validate_coordinate(d.get("startLat"), "startLat")
+        start_lon = validate_coordinate(d.get("startLon"), "startLon")
+        end_lat = validate_coordinate(d.get("endLat"), "endLat")
+        end_lon = validate_coordinate(d.get("endLon"), "endLon")
+        validate_lat_lon(start_lat, start_lon)
+        validate_lat_lon(end_lat, end_lon)
+        severity = float(d.get("severity", 0.7))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if start_lat == end_lat and start_lon == end_lon:
+        return jsonify({"error": "Traffic start and end must be different"}), 400
+
+    severity = max(0.0, min(1.0, severity))
+
+    graph, _, _ = get_road_graph()
+    start_node = nearest_node_id(graph, start_lat, start_lon, _ox)
+    end_node = nearest_node_id(graph, end_lat, end_lon, _ox)
+    route_nodes = nx.shortest_path(graph, start_node, end_node, weight="length")
+    route_payload = build_route_response(
+        graph,
+        route_nodes,
+        traffic_penalty_for_point,
+        rain_penalty_for_point,
+        obstacle_penalty_for_point,
+        include_cost_breakdown=False,
+    )
+
+    with _dynamic_traffic_lock:
+        route_name = d.get("name") or f"Traffic {len(_dynamic_traffic_routes) + 1}"
+        route = {"name": route_name, "severity": severity, "path": route_payload["path"]}
+        _dynamic_traffic_routes.append(route)
+
+    return jsonify({"message": "Added", "route": route, "routes": _dynamic_traffic_routes[:]})
+
 @app.route("/api/traffic/randomize", methods=["POST"])
 def randomize_traffic():
     global _dynamic_traffic_routes
-    import random, json
+    import random
     d = request.get_json(silent=True) or {}
-    count = int(d.get("count", 3))
+    try:
+        count = validate_non_negative_int(d.get("count", 3), "count")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
     routes = []
     for i in range(count):
         routes.append({"name": f"Traffic {i+1}", "severity": random.uniform(0.4,0.9), "path": [{"lat": random.uniform(21.0200,21.0350), "lon": random.uniform(105.8450,105.8600)} for _ in range(10)]})
@@ -563,8 +518,16 @@ def list_obstacles():
 def add_obstacle():
     global _obstacles
     d = request.get_json(silent=True) or {}
-    lat, lon = float(d.get("lat",0)), float(d.get("lon",0))
-    o = {"name": f"Obstacle {len(_obstacles)+1}", "center": (lat,lon), "radius": float(d.get("radius",80)), "severity": float(d.get("severity",10)), "type": d.get("type","roadblock")}
+    try:
+        lat = validate_coordinate(d.get("lat"), "lat")
+        lon = validate_coordinate(d.get("lon"), "lon")
+        radius = validate_positive_number(d.get("radius", 80), "radius")
+        severity = validate_positive_number(d.get("severity", 10), "severity")
+        validate_lat_lon(lat, lon)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    o = {"name": f"Obstacle {len(_obstacles)+1}", "center": (lat,lon), "radius": radius, "severity": severity, "type": d.get("type","roadblock")}
     with _obstacles_lock:
         _obstacles.append(o)
     return jsonify({"message": "Added", "obstacle": {"name": o["name"], "center": {"lat": lat, "lon": lon}, "radius": o["radius"], "severity": o["severity"], "type": o["type"]}})
@@ -574,7 +537,11 @@ def randomize_obstacles():
     global _obstacles
     import random
     d = request.get_json(silent=True) or {}
-    count = int(d.get("count", 3))
+    try:
+        count = validate_non_negative_int(d.get("count", 3), "count")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
     types = ["roadblock","construction","accident"]
     with _obstacles_lock:
         _obstacles = [{"name": f"Obs {i+1}", "center": (random.uniform(21.0180,21.0380), random.uniform(105.8430,105.8650)), "radius": random.uniform(50,120), "severity": random.uniform(5,50), "type": random.choice(types)} for i in range(count)]
@@ -589,24 +556,19 @@ def clear_obstacles():
 
 
 # ========== Metrics ==========
-_metrics = {"totalCalculations": 0, "avgCalculationTime": 0, "lastCalculationTime": 0, "minCalculationTime": 999, "maxCalculationTime": 0, "avgNodesExplored": 0, "totalCalculationTime": 0, "totalNodesExplored": 0, "pathLengths": []}
+_metrics = create_metrics()
 
 @app.route("/api/metrics")
 def get_metrics():
-    avg_path = sum(_metrics["pathLengths"])/len(_metrics["pathLengths"]) if _metrics["pathLengths"] else 0
-    return jsonify({
-        "pathfinding": {
-            "totalCalculations": _metrics["totalCalculations"],
-            "avgCalculationTime": round(_metrics["avgCalculationTime"],2),
-            "lastCalculationTime": round(_metrics["lastCalculationTime"],2),
-            "minCalculationTime": round(_metrics["minCalculationTime"],2) if _metrics["minCalculationTime"]<999 else 0,
-            "maxCalculationTime": round(_metrics["maxCalculationTime"],2),
-            "avgNodesExplored": round(_metrics["avgNodesExplored"],1),
-            "avgPathLength": round(avg_path,1),
-        },
-        "graph": {"totalNodes": _road_graph.number_of_nodes() if _road_graph else 0, "totalEdges": _road_graph.number_of_edges() if _road_graph else 0},
-        "activeFactors": {"rainZones": len(RAIN_ZONES), "trafficRoutes": len(_dynamic_traffic_routes), "obstacles": len(_obstacles)}
-    })
+    return jsonify(
+        build_metrics_payload(
+            _metrics,
+            _road_graph,
+            len(RAIN_ZONES),
+            len(_dynamic_traffic_routes),
+            len(_obstacles),
+        )
+    )
 
 
 @app.route("/api/astep")
@@ -616,16 +578,18 @@ def astep_demo():
     start_t = time.time()
     
     try:
-        from_lat = float(request.args.get("fromLat", 21.0285))
-        from_lon = float(request.args.get("fromLon", 105.8542))
-        to_lat = float(request.args.get("toLat", 21.0355))
-        to_lon = float(request.args.get("toLon", 105.8516))
-    except:
+        from_lat = validate_coordinate(request.args.get("fromLat", 21.0285), "fromLat")
+        from_lon = validate_coordinate(request.args.get("fromLon", 105.8542), "fromLon")
+        to_lat = validate_coordinate(request.args.get("toLat", 21.0355), "toLat")
+        to_lon = validate_coordinate(request.args.get("toLon", 105.8516), "toLon")
+        validate_lat_lon(from_lat, from_lon)
+        validate_lat_lon(to_lat, to_lon)
+    except ValueError:
         return jsonify({"error": "Invalid coords"}), 400
     
     graph, _, _ = get_road_graph()
-    start_node = nearest_node_id(graph, from_lat, from_lon)
-    end_node = nearest_node_id(graph, to_lat, to_lon)
+    start_node = nearest_node_id(graph, from_lat, from_lon, _ox)
+    end_node = nearest_node_id(graph, to_lat, to_lon, _ox)
     
     # A* with step tracking
     open_set = [(0, start_node)]
@@ -637,6 +601,7 @@ def astep_demo():
     f_score = {start_node: h_score[start_node]}
     closed_set = set()
     steps = []
+    explored_nodes = []
     max_steps = 30  # Limit for visualization
     
     step_count = 0
@@ -659,6 +624,10 @@ def astep_demo():
                 "path": path_coords,
                 "pathLength": len(path),
                 "steps": steps,
+                "exploredPath": [
+                    {"lat": graph.nodes[node]["y"], "lon": graph.nodes[node]["x"]}
+                    for node in explored_nodes
+                ],
                 "totalSteps": step_count,
                 "calcTime": round((time.time() - start_t) * 1000, 2),
                 "startNode": start_node,
@@ -670,6 +639,7 @@ def astep_demo():
         if current in closed_set:
             continue
         closed_set.add(current)
+        explored_nodes.append(current)
         
         # Record step
         current_lat = graph.nodes[current]["y"]
@@ -715,7 +685,16 @@ def astep_demo():
                 f_score[neighbor] = tentative_g + h_neighbor
                 heapq.heappush(open_set, (f_score[neighbor], neighbor))
     
-    return jsonify({"success": False, "steps": steps, "totalSteps": step_count, "calcTime": round((time.time() - start_t) * 1000, 2)})
+    return jsonify({
+        "success": False,
+        "steps": steps,
+        "exploredPath": [
+            {"lat": graph.nodes[node]["y"], "lon": graph.nodes[node]["x"]}
+            for node in explored_nodes
+        ],
+        "totalSteps": step_count,
+        "calcTime": round((time.time() - start_t) * 1000, 2),
+    })
 
 
 @app.route("/api/insider")
@@ -725,16 +704,18 @@ def insider_comparison():
     import time as py_time
     
     try:
-        from_lat = float(request.args.get("fromLat", 21.0285))
-        from_lon = float(request.args.get("fromLon", 105.8542))
-        to_lat = float(request.args.get("toLat", 21.0355))
-        to_lon = float(request.args.get("toLon", 105.8516))
-    except:
+        from_lat = validate_coordinate(request.args.get("fromLat", 21.0285), "fromLat")
+        from_lon = validate_coordinate(request.args.get("fromLon", 105.8542), "fromLon")
+        to_lat = validate_coordinate(request.args.get("toLat", 21.0355), "toLat")
+        to_lon = validate_coordinate(request.args.get("toLon", 105.8516), "toLon")
+        validate_lat_lon(from_lat, from_lon)
+        validate_lat_lon(to_lat, to_lon)
+    except ValueError:
         return jsonify({"error": "Invalid coords"}), 400
     
     graph, _, _ = get_road_graph()
-    start_node = nearest_node_id(graph, from_lat, from_lon)
-    end_node = nearest_node_id(graph, to_lat, to_lon)
+    start_node = nearest_node_id(graph, from_lat, from_lon, _ox)
+    end_node = nearest_node_id(graph, to_lat, to_lon, _ox)
     
     def run_astar():
         """A* with penalties."""
@@ -891,9 +872,3 @@ def insider_comparison():
     })
 
 
-if __name__ == "__main__":
-    print("Starting Hanoi Delivery Robots...")
-    print("Loading OpenStreetMap road graph for Hoan Kiem...")
-    get_road_graph()
-    print("Open http://127.0.0.1:5000 in your browser")
-    app.run(host="127.0.0.1", port=5000)

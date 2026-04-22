@@ -17,6 +17,7 @@ class Simulation {
         this.totalReroutes = 0;
         this.totalBatteryConsumed = 0;
         this.lastDecisionCost = 0;
+        this.latestDecision = null;
     }
 
     async initialize() {
@@ -166,8 +167,18 @@ class Simulation {
                 if (!best) continue;
 
                 this.lastDecisionCost = best.totalScore;
+                this.latestDecision = {
+                    robotName: best.robot.name,
+                    deliveryId: delivery.id,
+                    priorityScore: delivery.priorityScore,
+                    batteryRisk: best.batteryRisk,
+                    totalScore: best.totalScore,
+                    breakdown: best.breakdown,
+                    pickupName: delivery.pickup.name,
+                    destinationName: delivery.destination.name
+                };
                 addDispatchInsight(
-                    `${best.robot.name} assigned to order #${delivery.id} with priority ${delivery.priorityScore.toFixed(1)}. Cost breakdown: base ${best.breakdown.baseDistance.toFixed(0)}m, traffic +${best.breakdown.trafficPenalty.toFixed(0)}m, rain +${best.breakdown.rainPenalty.toFixed(0)}m, battery risk +${best.batteryRisk.toFixed(1)}.`,
+                    `${best.robot.name} assigned to order #${delivery.id} with priority ${delivery.priorityScore.toFixed(1)}. Cost breakdown: base ${best.breakdown.baseDistance.toFixed(0)}m, traffic +${best.breakdown.trafficPenalty.toFixed(0)}m, rain +${best.breakdown.rainPenalty.toFixed(0)}m, obstacles +${best.breakdown.obstaclePenalty.toFixed(0)}m, battery risk +${best.batteryRisk.toFixed(1)}.`,
                     'good'
                 );
                 const assigned = await best.robot.assignDelivery(delivery);
@@ -204,6 +215,7 @@ class Simulation {
         this.updateStats();
         this.updateRobotStatus();
         this.updateAnalytics();
+        this.updateLatestDecision();
     }
 
     start() {
@@ -236,6 +248,7 @@ class Simulation {
         this.totalReroutes = 0;
         this.totalBatteryConsumed = 0;
         this.lastDecisionCost = 0;
+        this.latestDecision = null;
         
         const [startA, startB, startC, startD, startE] = await Promise.all([
             pathfindingManager.snapToRoad(21.0285, 105.8542),
@@ -258,6 +271,8 @@ class Simulation {
             robot.pathIndex = 0;
             robot.currentDelivery = null;
             robot.isRouting = false;
+            robot.lastRouteEtaMinutes = 0;
+            robot.lastRouteBreakdown = null;
             robot.clearPathLine();
             if (robot.marker) robot.marker.setLatLng([robot.lat, robot.lon]);
         });
@@ -269,6 +284,7 @@ class Simulation {
         this.updateStats();
         this.updateRobotStatus();
         this.updateAnalytics();
+        this.updateLatestDecision();
     }
 
     updateStats() {
@@ -297,13 +313,41 @@ class Simulation {
             card.innerHTML = `
                 <div class="robot-name" style="color:${robot.color}">${robot.name}</div>
                 <div class="robot-detail">${robot.getStatusText()}</div>
-                <div class="robot-detail">📦 ${robot.totalDeliveries} | ${robot.totalDistance.toFixed(0)}m</div>
+                <div class="robot-detail">📦 ${robot.totalDeliveries} | ${robot.totalDistance.toFixed(0)}m | ⏱ ${robot.getEtaText()}</div>
+                <div class="robot-detail">🎯 ${robot.routeMode || 'standby'} | 🔋 ${robot.battery.toFixed(0)}%</div>
                 <div class="battery-bar">
                     <div class="battery-fill" style="width:${robot.battery}%;background:${robot.battery>60?'#34a853':robot.battery>30?'#fbbc04':'#ea4335'}"></div>
                 </div>
             `;
             container.appendChild(card);
         });
+    }
+
+    updateLatestDecision() {
+        const container = document.getElementById('latest-route-choice');
+        if (!container) return;
+        if (!this.latestDecision) {
+            container.textContent = 'Waiting for a robot assignment...';
+            return;
+        }
+
+        const d = this.latestDecision;
+        container.innerHTML = `
+            <div style="font-weight:700;color:#202124;margin-bottom:8px;">${d.robotName} → Order #${d.deliveryId}</div>
+            <div style="font-size:11px;color:#5f6368;margin-bottom:8px;">${d.pickupName} → ${d.destinationName}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;">
+                <div>📏 Base: <strong>${d.breakdown.baseDistance.toFixed(0)}m</strong></div>
+                <div>🚗 Traffic: <strong>+${d.breakdown.trafficPenalty.toFixed(0)}m</strong></div>
+                <div>🌧️ Rain: <strong>+${d.breakdown.rainPenalty.toFixed(0)}m</strong></div>
+                <div>🚧 Obstacles: <strong>+${d.breakdown.obstaclePenalty.toFixed(0)}m</strong></div>
+                <div>⚠️ Battery risk: <strong>${d.batteryRisk.toFixed(1)}</strong></div>
+                <div>⏱ ETA: <strong>${d.breakdown.estimatedMinutes.toFixed(1)} min</strong></div>
+            </div>
+            <div style="margin-top:8px;padding-top:8px;border-top:1px solid #e0e0e0;font-size:11px;">
+                <div>Priority score: <strong>${d.priorityScore.toFixed(1)}</strong></div>
+                <div>Chosen total cost: <strong style="color:#1a73e8;">${d.breakdown.totalCost.toFixed(0)}m</strong></div>
+            </div>
+        `;
     }
 
     updateDeliveryQueue() {

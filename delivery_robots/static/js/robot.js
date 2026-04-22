@@ -30,6 +30,7 @@ class DeliveryRobot {
         this.deliveryPhase = null;
         this.resumeAfterCharge = false;
         this.lastRouteBreakdown = null;
+        this.lastRouteEtaMinutes = 0;
 
         // 🧠 Road memory system (Q-learning lite)
         this.roadMemory = {};
@@ -261,11 +262,11 @@ class DeliveryRobot {
 
     updatePopup() {
         const deliveryInfo = this.currentDelivery ? 
-            `<div style="margin:4px 0;padding:5px;background:#f8f9fa;border-radius:6px;"><div style="font-size:10px;color:#5f6368;">📦 Order #${this.currentDelivery.id}</div><div style="font-size:11px;">${this.deliveryPhase === 'pickup' ? '🔵 Going to pickup' : '🔴 Going to deliver'}</div></div>` : 
+            `<div style="margin:4px 0;padding:5px;background:#f8f9fa;border-radius:6px;"><div style="font-size:10px;color:#5f6368;">📦 Order #${this.currentDelivery.id}</div><div style="font-size:11px;">${this.deliveryPhase === 'to_pickup' ? '🔵 Going to pickup' : '🔴 Going to deliver'}</div></div>` : 
             '<div style="font-size:11px;color:#5f6368;">No delivery</div>';
 
         const destInfo = this.routeTarget ? 
-            `<div style="margin:4px 0;padding:5px;background:#e8f5e9;border-radius:6px;font-size:11px;">🎯 ${this.routeTarget.lat.toFixed(4)}, ${this.routeTarget.lon.toFixed(4)}<br>${this.currentPath.length - this.pathIndex} waypoints left</div>` : '';
+            `<div style="margin:4px 0;padding:5px;background:#e8f5e9;border-radius:6px;font-size:11px;">🎯 ${this.routeTarget.lat.toFixed(4)}, ${this.routeTarget.lon.toFixed(4)}<br>${this.currentPath.length - this.pathIndex} waypoints left<br>⏱ ETA ${this.getEtaText()}</div>` : '';
 
         const batteryColor = this.battery > 60 ? '#34a853' : this.battery > 30 ? '#fbbc04' : '#ea4335';
         
@@ -344,8 +345,14 @@ class DeliveryRobot {
                     <div style="display:flex;justify-content:space-between;margin:3px 0;padding:3px 0;border-bottom:1px dashed #e0e0e0;">
                         <span>🌧️ Rain Penalty:</span><span style="color:#4285f4;font-weight:600;">+${this.lastRouteBreakdown.rainPenalty.toFixed(0)}m</span>
                     </div>
+                    <div style="display:flex;justify-content:space-between;margin:3px 0;padding:3px 0;border-bottom:1px dashed #e0e0e0;">
+                        <span>🚧 Obstacle Penalty:</span><span style="color:#f57c00;font-weight:600;">+${this.lastRouteBreakdown.obstaclePenalty.toFixed(0)}m</span>
+                    </div>
                     <div style="display:flex;justify-content:space-between;margin:6px 0 3px 0;padding-top:6px;border-top:2px solid #1a73e8;background:#f8f9fa;padding:6px;border-radius:4px;">
                         <span style="font-weight:700;">🎯 Total Cost:</span><strong style="color:#1a73e8;font-size:13px;">${this.lastRouteBreakdown.totalCost.toFixed(0)}m</strong>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin:3px 0 0 0;padding-top:4px;">
+                        <span>⏱ Sim ETA:</span><strong style="color:#2b8a3e;">${this.getEtaText()}</strong>
                     </div>
                 </div>
                 <div style="margin-top:6px;font-size:9px;color:#5f6368;">
@@ -449,7 +456,7 @@ class DeliveryRobot {
                     3. Neighbors evaluated with penalties<br>
                     4. <strong>🧠 Robot remembers slow roads → avoids them next time</strong><br>
                     5. Path reconstructed from start to goal<br>
-                    6. <strong>Penalties:</strong> 🌧️ Rain 2× | 🚗 Traffic 1.5-4× | 🚧 Obstacles 5-50× | 🧠 Memory 0.95-1.8×
+                    6. <strong>Penalties:</strong> 🌧️ Rain 2× | 🚗 Traffic 1.5-4× | 🚧 Obstacles 1.2-6× | 🧠 Memory 0.95-1.8×
                 </div>
 
                 <div style="margin:8px 0;">
@@ -489,6 +496,11 @@ class DeliveryRobot {
 
     getStatusText() {
         return this.status === 'moving' ? `Moving (${(this.speedMultiplier*100).toFixed(0)}%)` : this.status;
+    }
+
+    getEtaText() {
+        if (!this.lastRouteEtaMinutes) return '--';
+        return `${this.lastRouteEtaMinutes.toFixed(1)} min`;
     }
 
     estimateBatteryRisk(routeCostMeters) {
@@ -535,6 +547,7 @@ class DeliveryRobot {
 
         this.currentPath = route.path;
         this.lastRouteBreakdown = pathfindingManager.estimateRouteCost(route);
+        this.lastRouteEtaMinutes = this.lastRouteBreakdown.estimatedMinutes || 0;
         this.pathIndex = 0;
         this.status = 'moving';
         this.drawPathLine();

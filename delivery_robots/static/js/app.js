@@ -4,6 +4,7 @@ let rainCircles = [];
 let trafficPolylines = [];
 let obstacleCircles = [];
 let weatherModeEnabled = false;
+let insiderLayers = [];
 
 function logEvent(message) {
     const el = document.getElementById('event-log');
@@ -85,7 +86,7 @@ function setupControls() {
     });
     togglePanel('toggle-decision', '.decision-panel', fetchMetrics);
     togglePanel('toggle-weather', '.weather-panel', () => { weatherModeEnabled = true; }, () => { weatherModeEnabled = false; });
-    togglePanel('toggle-insider', '.insider-panel');
+    togglePanel('toggle-insider', '.insider-panel', null, clearInsiderLayers);
 
     // Close buttons
     document.getElementById('close-dispatch-panel')?.addEventListener('click', () => document.querySelector('.dispatch-panel').style.display = 'none');
@@ -93,7 +94,10 @@ function setupControls() {
     document.getElementById('close-decision-panel')?.addEventListener('click', () => document.querySelector('.decision-panel').style.display = 'none');
     document.getElementById('close-weather-panel')?.addEventListener('click', () => { document.querySelector('.weather-panel').style.display = 'none'; weatherModeEnabled = false; });
     document.getElementById('close-computing-panel')?.addEventListener('click', () => document.querySelector('.computing-panel').style.display = 'none');
-    document.getElementById('close-insider-panel')?.addEventListener('click', () => document.querySelector('.insider-panel').style.display = 'none');
+    document.getElementById('close-insider-panel')?.addEventListener('click', () => {
+        document.querySelector('.insider-panel').style.display = 'none';
+        clearInsiderLayers();
+    });
 }
 
 function setupWeather() {
@@ -153,6 +157,53 @@ function setupWeather() {
     updateRainList().catch(()=>{});
     updateTrafficList().catch(()=>{});
     updateObstacleList().catch(()=>{});
+}
+
+function clearInsiderLayers() {
+    insiderLayers.forEach(layer => {
+        if (window.map && layer) {
+            window.map.removeLayer(layer);
+        }
+    });
+    insiderLayers = [];
+}
+
+function renderAStarOverlay(data) {
+    if (!window.map) return;
+    clearInsiderLayers();
+
+    const exploredPath = data.exploredPath || [];
+    exploredPath.forEach((point, index) => {
+        const marker = L.circleMarker([point.lat, point.lon], {
+            radius: index === exploredPath.length - 1 ? 5 : 4,
+            color: index === exploredPath.length - 1 ? '#ff9800' : '#4285f4',
+            fillColor: index === exploredPath.length - 1 ? '#ff9800' : '#90caf9',
+            fillOpacity: 0.75,
+            weight: 1
+        }).addTo(window.map);
+        insiderLayers.push(marker);
+    });
+
+    if (data.path?.length) {
+        const pathLine = L.polyline(
+            data.path.map(point => [point.lat, point.lon]),
+            { color: '#9c27b0', weight: 5, opacity: 0.85 }
+        ).addTo(window.map);
+        insiderLayers.push(pathLine);
+
+        const start = data.path[0];
+        const end = data.path[data.path.length - 1];
+        insiderLayers.push(
+            L.circleMarker([start.lat, start.lon], {
+                radius: 7, color: '#34a853', fillColor: '#34a853', fillOpacity: 1
+            }).addTo(window.map)
+        );
+        insiderLayers.push(
+            L.circleMarker([end.lat, end.lon], {
+                radius: 7, color: '#ea4335', fillColor: '#ea4335', fillOpacity: 1
+            }).addTo(window.map)
+        );
+    }
 }
 
 // ===== WEATHER ACTIONS =====
@@ -352,23 +403,24 @@ async function showAStarProcess(robotId) {
         }
         
         // Show penalties applied
-        const hasRain = RAIN_ZONES && RAIN_ZONES.length > 0;
-        const hasTraffic = true; // Always has traffic simulation
-        const hasObstacles = typeof _obstacles !== 'undefined' && _obstacles && _obstacles.length > 0;
+        const hasRain = rainCircles.length > 0;
+        const hasTraffic = trafficPolylines.length > 0;
+        const hasObstacles = obstacleCircles.length > 0;
         
         html += `
                 <div style="background:white;border-radius:8px;padding:8px;margin:6px 0;">
                     <div style="font-size:10px;font-weight:700;margin-bottom:4px;">⚙️ Penalties Applied:</div>
                     <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:9px;">
                         ${hasRain ? '<span style="background:#e3f2fd;padding:3px 6px;border-radius:4px;">🌧️ Rain: 2×</span>' : ''}
-                        <span style="background:#fce4ec;padding:3px 6px;border-radius:4px;">🚗 Traffic: 1.5-4×</span>
-                        ${hasObstacles ? '<span style="background:#fff3e0;padding:3px 6px;border-radius:4px;">🚧 Obstacles: 5-50×</span>' : ''}
+                        ${hasTraffic ? '<span style="background:#fce4ec;padding:3px 6px;border-radius:4px;">🚗 Traffic: 1.5-4×</span>' : ''}
+                        ${hasObstacles ? '<span style="background:#fff3e0;padding:3px 6px;border-radius:4px;">🚧 Obstacles: 1.2-6×</span>' : ''}
                     </div>
                 </div>
             </div>
         `;
         
         el.innerHTML = html;
+        renderAStarOverlay(d);
     } catch(e) {
         el.innerHTML = `<div style="padding:10px;text-align:center;color:#ea4335;">Error: ${e.message}</div>`;
     }
@@ -466,6 +518,8 @@ async function runAStarVisualization() {
             el.innerHTML = '<div style="padding:10px;text-align:center;color:#ea4335;">No steps to visualize</div>';
             return;
         }
+
+        renderAStarOverlay(d);
         
         let html = `
             <div style="font-size:11px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
@@ -512,6 +566,11 @@ async function runAStarVisualization() {
                 </div>
             `;
         }
+        html += `
+            <div style="margin-top:8px;padding:8px;background:#fff8e1;border-radius:6px;font-size:10px;color:#5f6368;">
+                Blue markers show exploration order on the map, orange shows the latest expanded node, green is the start, red is the goal, and purple is the final chosen path.
+            </div>
+        `;
         
         el.innerHTML = html;
     } catch(e) {

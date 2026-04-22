@@ -11,26 +11,6 @@ class HanoiMap {
         this.rainZones = [];
         this.rainLayers = [];
         this.deliveryMarkers = new Map();
-        this.trafficRoads = [
-            {
-                name: 'Le Thai To',
-                points: [[21.0240,105.8480],[21.0250,105.8486],[21.0260,105.8492],[21.0270,105.8498],[21.0280,105.8504],[21.0290,105.8509],[21.0300,105.8513]],
-                severity: 0.9,
-                radius: 28
-            },
-            {
-                name: 'Dinh Tien Hoang',
-                points: [[21.0300,105.8513],[21.0310,105.8517],[21.0320,105.8521],[21.0330,105.8525],[21.0340,105.8529],[21.0355,105.8532]],
-                severity: 0.75,
-                radius: 28
-            },
-            {
-                name: 'Hai Ba Trung',
-                points: [[21.0220,105.8510],[21.0240,105.8515],[21.0260,105.8520],[21.0280,105.8525],[21.0300,105.8530]],
-                severity: 0.65,
-                radius: 32
-            }
-        ];
         
         // Predefined street paths (real Hoan Kiem streets)
         this.streets = [
@@ -73,7 +53,6 @@ class HanoiMap {
         this.setupChargingStations();
         this.loadWeather();
         this.startTraffic();
-        this.startRoadblocks();
 
         console.log('✓ Map ready');
     }
@@ -217,19 +196,7 @@ class HanoiMap {
     }
 
     startRoadblocks() {
-        // 1 roadblock
-        this.roadblocks = [
-            { lat: 21.0270, lon: 105.8515, reason: "Construction" }
-        ];
-
-        this.roadblocks.forEach(rb => {
-            L.marker([rb.lat, rb.lon], {
-                icon: L.divIcon({
-                    html: `<div style="width:36px;height:36px;background:#ff6b6b;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;border:3px solid white;">🚧</div>`,
-                    iconSize: [36, 36], iconAnchor: [18, 18]
-                })
-            }).addTo(this.map).bindPopup(`<strong>🚧 Roadblock</strong><br>${rb.reason}`);
-        });
+        this.roadblocks = [];
     }
 
     buildRoadGraph() {

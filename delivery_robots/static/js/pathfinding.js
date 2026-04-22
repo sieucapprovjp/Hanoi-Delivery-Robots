@@ -53,7 +53,9 @@ class Pathfinding {
             baseDistance: breakdown.baseDistance || 0,
             trafficPenalty: breakdown.trafficPenalty || 0,
             rainPenalty: breakdown.rainPenalty || 0,
-            totalCost: breakdown.totalCost || 0
+            obstaclePenalty: breakdown.obstaclePenalty || 0,
+            totalCost: breakdown.totalCost || 0,
+            estimatedMinutes: breakdown.estimatedMinutes || 0
         };
     }
 }
