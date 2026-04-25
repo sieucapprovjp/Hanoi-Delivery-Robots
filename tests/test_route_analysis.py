@@ -1,6 +1,6 @@
 import unittest
 
-from delivery_robots.route_analysis import build_route_response
+from delivery_robots.core.route_analysis import build_route_response
 
 
 class FakeGraph:

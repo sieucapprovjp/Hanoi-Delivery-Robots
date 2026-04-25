@@ -1,4 +1,4 @@
-from .geo_utils import haversine_distance
+from ..utils.geo_utils import haversine_distance
 
 
 def nearest_node_id(graph, lat, lon, ox=None):

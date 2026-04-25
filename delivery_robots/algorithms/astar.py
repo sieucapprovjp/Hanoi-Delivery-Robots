@@ -1,6 +1,6 @@
 import heapq
 import time as py_time
-from ..geo_utils import haversine_distance
+from ..utils.geo_utils import haversine_distance
 
 def run_astar(graph, start_node, end_node, to_lat, to_lon, environment_manager):
     """Executes A* algorithm with environment penalties."""

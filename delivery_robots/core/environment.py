@@ -2,7 +2,7 @@ import threading
 import time
 import math
 import networkx as nx
-from .geo_utils import haversine_distance, point_to_segment_distance_meters
+from ..utils.geo_utils import haversine_distance, point_to_segment_distance_meters
 from .route_analysis import build_route_response, nearest_node_id
 
 class EnvironmentManager:
@@ -59,7 +59,7 @@ class EnvironmentManager:
         if self._traffic_routes is not None:
             return
 
-        graph, _, _ = self.map_manager.get_road_graph()
+        graph, _ = self.map_manager.get_road_graph()
         self._traffic_routes = []
 
         for anchor in self.TRAFFIC_ANCHORS:

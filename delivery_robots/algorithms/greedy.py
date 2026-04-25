@@ -1,6 +1,6 @@
 import heapq
 import time as py_time
-from ..geo_utils import haversine_distance
+from ..utils.geo_utils import haversine_distance
 
 def run_greedy(graph, start_node, end_node, to_lat, to_lon):
     """Executes Greedy Best-First (only heuristic) search."""

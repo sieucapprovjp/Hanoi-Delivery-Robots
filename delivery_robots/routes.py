@@ -2,40 +2,36 @@ import json
 import random
 import time
 import networkx as nx
-from flask import Flask, jsonify, render_template, request
+from flask import Blueprint, jsonify, render_template, request
 
-from .geo_utils import haversine_distance
-from .metrics_utils import build_metrics_payload, create_metrics, record_route_metrics
-from .route_analysis import build_route_response, nearest_node_id
-from .validation import (
+from .utils.geo_utils import haversine_distance
+from .utils.metrics_utils import build_metrics_payload, record_route_metrics
+from .core.route_analysis import build_route_response, nearest_node_id
+from .utils.validation import (
     validate_coordinate,
     validate_lat_lon,
     validate_non_negative_int,
     validate_positive_number,
 )
-from .map_manager import MapManager
-from .environment import EnvironmentManager
 from .algorithms import run_astar, run_dijkstra, run_greedy, run_bfs
 
-app = Flask(__name__)
+from . import map_manager, env_manager, _metrics
 
-map_manager = MapManager()
-env_manager = EnvironmentManager(map_manager)
-_metrics = create_metrics()
+api_bp = Blueprint('api', __name__)
 
 def get_road_graph():
     """Proxy function to MapManager for backward compatibility."""
     return map_manager.get_road_graph()
 
-@app.route("/")
+@api_bp.route("/")
 def index():
     return render_template("index.html")
 
-@app.route("/api/health")
+@api_bp.route("/api/health")
 def health():
     return jsonify({"status": "ok"})
 
-@app.route("/api/traffic")
+@api_bp.route("/api/traffic")
 def traffic():
     now = time.time()
     roads = []
@@ -77,7 +73,7 @@ def traffic():
 
     return jsonify({"roads": roads, "updatedAt": now})
 
-@app.route("/api/weather")
+@api_bp.route("/api/weather")
 def weather():
     return jsonify({
         "rainZones": [
@@ -91,7 +87,7 @@ def weather():
         ]
     })
 
-@app.route("/api/clock")
+@api_bp.route("/api/clock")
 def get_clock():
     hours, minutes, seconds = env_manager.get_simulation_time()
     rush_multiplier, rush_name = env_manager.get_rush_hour_multiplier()
@@ -112,14 +108,20 @@ def get_clock():
         "simulationSpeed": env_manager._simulation_speed,
     })
 
-@app.route("/api/route")
+@api_bp.route("/api/route", methods=["GET", "POST"])
 def route():
     start_t = time.time()
+    
+    req_data = request.get_json(silent=True) or {} if request.method == "POST" else {}
+    
+    def get_param(key, default=None):
+        return req_data.get(key) if key in req_data else request.args.get(key, default)
+
     try:
-        from_lat = validate_coordinate(request.args.get("fromLat"), "fromLat")
-        from_lon = validate_coordinate(request.args.get("fromLon"), "fromLon")
-        to_lat = validate_coordinate(request.args.get("toLat"), "toLat")
-        to_lon = validate_coordinate(request.args.get("toLon"), "toLon")
+        from_lat = validate_coordinate(get_param("fromLat"), "fromLat")
+        from_lon = validate_coordinate(get_param("fromLon"), "fromLon")
+        to_lat = validate_coordinate(get_param("toLat"), "toLat")
+        to_lon = validate_coordinate(get_param("toLon"), "toLon")
         validate_lat_lon(from_lat, from_lon)
         validate_lat_lon(to_lat, to_lon)
     except ValueError as exc:
@@ -129,7 +131,12 @@ def route():
         return jsonify({"path": [{"lat": from_lat, "lon": from_lon}], "distance": 0})
 
     try:
-        road_memory = json.loads(request.args.get("memory", "{}"))
+        if request.method == "POST" and "memory" in req_data:
+            road_memory = req_data["memory"]
+            if isinstance(road_memory, str):
+                road_memory = json.loads(road_memory)
+        else:
+            road_memory = json.loads(request.args.get("memory", "{}"))
     except Exception:
         road_memory = {}
 
@@ -184,7 +191,7 @@ def route():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
-@app.route("/api/snap")
+@api_bp.route("/api/snap")
 def snap():
     try:
         lat = validate_coordinate(request.args.get("lat"), "lat")
@@ -201,7 +208,7 @@ def snap():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
-@app.route("/api/rain/list")
+@api_bp.route("/api/rain/list")
 def list_rain():
     return jsonify({
         "rainZones": [
@@ -214,7 +221,7 @@ def list_rain():
         ]
     })
 
-@app.route("/api/rain/add", methods=["POST"])
+@api_bp.route("/api/rain/add", methods=["POST"])
 def add_rain():
     d = request.get_json(silent=True) or {}
     try:
@@ -240,7 +247,7 @@ def add_rain():
         },
     })
 
-@app.route("/api/rain/randomize", methods=["POST"])
+@api_bp.route("/api/rain/randomize", methods=["POST"])
 def randomize_rain():
     d = request.get_json(silent=True) or {}
     try:
@@ -277,17 +284,17 @@ def randomize_rain():
         ],
     })
 
-@app.route("/api/rain/clear", methods=["POST"])
+@api_bp.route("/api/rain/clear", methods=["POST"])
 def clear_rain():
     env_manager.rain_zones = []
     return jsonify({"message": "Cleared"})
 
-@app.route("/api/traffic/list")
+@api_bp.route("/api/traffic/list")
 def list_traffic_routes():
     with env_manager._dynamic_traffic_lock:
         return jsonify({"routes": env_manager._dynamic_traffic_routes[:]})
 
-@app.route("/api/traffic/add", methods=["POST"])
+@api_bp.route("/api/traffic/add", methods=["POST"])
 def add_traffic_route():
     d = request.get_json(silent=True) or {}
     try:
@@ -329,7 +336,7 @@ def add_traffic_route():
 
     return jsonify({"message": "Added", "route": route, "routes": env_manager._dynamic_traffic_routes[:]})
 
-@app.route("/api/traffic/randomize", methods=["POST"])
+@api_bp.route("/api/traffic/randomize", methods=["POST"])
 def randomize_traffic():
     d = request.get_json(silent=True) or {}
     try:
@@ -354,13 +361,13 @@ def randomize_traffic():
         env_manager._dynamic_traffic_routes = routes
     return jsonify({"message": f"Added {count}", "routes": routes})
 
-@app.route("/api/traffic/clear", methods=["POST"])
+@api_bp.route("/api/traffic/clear", methods=["POST"])
 def clear_traffic():
     with env_manager._dynamic_traffic_lock:
         env_manager._dynamic_traffic_routes = []
     return jsonify({"message": "Cleared"})
 
-@app.route("/api/obstacle/list")
+@api_bp.route("/api/obstacle/list")
 def list_obstacles():
     with env_manager._obstacles_lock:
         return jsonify({
@@ -376,7 +383,7 @@ def list_obstacles():
             ]
         })
 
-@app.route("/api/obstacle/add", methods=["POST"])
+@api_bp.route("/api/obstacle/add", methods=["POST"])
 def add_obstacle():
     d = request.get_json(silent=True) or {}
     try:
@@ -408,7 +415,7 @@ def add_obstacle():
         },
     })
 
-@app.route("/api/obstacle/randomize", methods=["POST"])
+@api_bp.route("/api/obstacle/randomize", methods=["POST"])
 def randomize_obstacles():
     d = request.get_json(silent=True) or {}
     try:
@@ -445,13 +452,13 @@ def randomize_obstacles():
         ],
     })
 
-@app.route("/api/obstacle/clear", methods=["POST"])
+@api_bp.route("/api/obstacle/clear", methods=["POST"])
 def clear_obstacles():
     with env_manager._obstacles_lock:
         env_manager._obstacles = []
     return jsonify({"message": "Cleared"})
 
-@app.route("/api/metrics")
+@api_bp.route("/api/metrics")
 def get_metrics():
     return jsonify(
         build_metrics_payload(
@@ -463,7 +470,7 @@ def get_metrics():
         )
     )
 
-@app.route("/api/astep")
+@api_bp.route("/api/astep")
 def astep_demo():
     import heapq
     start_t = time.time()
@@ -566,7 +573,7 @@ def astep_demo():
         "calcTime": round((time.time() - start_t) * 1000, 2),
     })
 
-@app.route("/api/insider")
+@api_bp.route("/api/insider")
 def insider_comparison():
     try:
         from_lat = validate_coordinate(request.args.get("fromLat", 21.0285), "fromLat")
