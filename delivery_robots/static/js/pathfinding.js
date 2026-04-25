@@ -18,7 +18,7 @@ class Pathfinding {
 
     async snapToRoad(lat, lon) {
         const params = new URLSearchParams({ lat, lon });
-        const response = await fetch(`/api/snap?${params.toString()}`);
+        const response = await fetch(`/api/route/snap?${params.toString()}`);
 
         if (!response.ok) {
             throw new Error(`Snap request failed: ${response.status}`);
@@ -28,7 +28,7 @@ class Pathfinding {
     }
 
     async getTraffic() {
-        const response = await fetch('/api/traffic');
+        const response = await fetch('/api/traffic/active');
 
         if (!response.ok) {
             throw new Error(`Traffic request failed: ${response.status}`);

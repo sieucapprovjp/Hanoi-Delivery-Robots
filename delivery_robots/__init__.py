@@ -17,6 +17,6 @@ def create_app():
     with app.app_context():
         # Import routes down here to avoid circular imports
         from . import routes
-        app.register_blueprint(routes.api_bp)
+        routes.register_routes(app)
         
     return app

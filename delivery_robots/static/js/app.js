@@ -208,7 +208,7 @@ function renderAStarOverlay(data) {
 
 // ===== WEATHER ACTIONS =====
 async function addRainZone(lat, lon, radius) {
-    const res = await fetch('/api/rain/add', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({lat, lon, radius}) });
+    const res = await fetch('/api/weather/rain', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({lat, lon, radius}) });
     const d = await res.json();
     if (res.ok) { displayRainZone(d.rainZone); updateRainList(); logEvent('🌧️ ' + d.rainZone.name); }
 }
@@ -221,20 +221,20 @@ function displayRainZone(z) {
 }
 
 async function updateRainList() {
-    const d = await (await fetch('/api/rain/list')).json();
+    const d = await (await fetch('/api/weather/rain')).json();
     const el = document.getElementById('rain-list');
     if (!el) return;
     el.innerHTML = d.rainZones.length ? d.rainZones.map((z, i) => `<div style="padding:4px 0;border-bottom:1px solid #e0e0e0;"><strong>${i+1}. ${z.name}</strong><br>${z.center.lat.toFixed(4)}, ${z.center.lon.toFixed(4)} | ${Math.round(z.radius)}m</div>`).join('') : 'No rain zones';
 }
 
 async function randomizeRain() {
-    const d = await (await fetch('/api/rain/randomize', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({count:3,minRadius:100,maxRadius:200}) })).json();
+    const d = await (await fetch('/api/weather/rain/randomize', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({count:3,minRadius:100,maxRadius:200}) })).json();
     rainCircles.forEach(c => window.map.removeLayer(c)); rainCircles = [];
     d.rainZones.forEach(z => displayRainZone(z)); updateRainList(); logEvent('🎲 Rain');
 }
 
 async function clearRain() {
-    await fetch('/api/rain/clear', {method:'POST'});
+    await fetch('/api/weather/rain', {method:'DELETE'});
     rainCircles.forEach(c => window.map.removeLayer(c)); rainCircles = []; updateRainList(); logEvent('🗑️ Rain');
 }
 
@@ -248,19 +248,19 @@ async function randomizeTraffic() {
 }
 
 async function clearTraffic() {
-    await fetch('/api/traffic/clear', {method:'POST'});
+    await fetch('/api/traffic', {method:'DELETE'});
     trafficPolylines.forEach(p => window.map.removeLayer(p)); trafficPolylines = []; updateTrafficList(); logEvent('🗑️ Traffic');
 }
 
 async function updateTrafficList() {
-    const d = await (await fetch('/api/traffic/list')).json();
+    const d = await (await fetch('/api/traffic')).json();
     const el = document.getElementById('traffic-list');
     if (!el) return;
     el.innerHTML = d.routes.length ? d.routes.map((r,i)=>`<div style="padding:4px 0;border-bottom:1px solid #e0e0e0;"><strong>${i+1}. ${r.name}</strong><br>Severity: ${r.severity.toFixed(2)}</div>`).join('') : 'No traffic routes';
 }
 
 async function addObstacle(lat, lon, radius, severity) {
-    const res = await fetch('/api/obstacle/add', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({lat,lon,radius,severity,type:'roadblock'}) });
+    const res = await fetch('/api/obstacles', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({lat,lon,radius,severity,type:'roadblock'}) });
     const d = await res.json();
     if (res.ok) { displayObstacle(d.obstacle); updateObstacleList(); logEvent('🚧 ' + d.obstacle.name); }
 }
@@ -274,20 +274,20 @@ function displayObstacle(o) {
 }
 
 async function updateObstacleList() {
-    const d = await (await fetch('/api/obstacle/list')).json();
+    const d = await (await fetch('/api/obstacles')).json();
     const el = document.getElementById('obstacle-list');
     if (!el) return;
     el.innerHTML = d.obstacles.length ? d.obstacles.map((o,i)=>`<div style="padding:4px 0;border-bottom:1px solid #e0e0e0;"><strong>${i+1}. ${o.name}</strong><br>${Math.round(o.radius)}m | Sev: ${o.severity.toFixed(1)}</div>`).join('') : 'No obstacles';
 }
 
 async function randomizeObstacles() {
-    const d = await (await fetch('/api/obstacle/randomize', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({count:4}) })).json();
+    const d = await (await fetch('/api/obstacles/randomize', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({count:4}) })).json();
     obstacleCircles.forEach(c => window.map.removeLayer(c)); obstacleCircles = [];
     d.obstacles.forEach(o => displayObstacle(o)); updateObstacleList(); logEvent('🎲 Obstacles');
 }
 
 async function clearObstacles() {
-    await fetch('/api/obstacle/clear', {method:'POST'});
+    await fetch('/api/obstacles', {method:'DELETE'});
     obstacleCircles.forEach(c => window.map.removeLayer(c)); obstacleCircles = []; updateObstacleList(); logEvent('🗑️ Obstacles');
 }
 
@@ -345,7 +345,7 @@ async function showAStarProcess(robotId) {
     el.innerHTML = '<div style="padding:10px;text-align:center;">⏳ Computing A*...</div>';
     
     try {
-        const d = await (await fetch(`/api/astep?fromLat=${robot.lat}&fromLon=${robot.lon}&toLat=${robot.routeTarget.lat}&toLon=${robot.routeTarget.lon}`)).json();
+        const d = await (await fetch(`/api/algorithms/astep?fromLat=${robot.lat}&fromLon=${robot.lon}&toLat=${robot.routeTarget.lat}&toLon=${robot.routeTarget.lon}`)).json();
         
         if (!d.steps || d.steps.length === 0) {
             el.innerHTML = '<div style="padding:10px;text-align:center;color:#ea4335;">No steps recorded</div>';
@@ -512,7 +512,7 @@ async function runAStarVisualization() {
     el.innerHTML = '<div style="padding:10px;text-align:center;">⏳ Running A* step-by-step...</div>';
     
     try {
-        const d = await (await fetch('/api/astep?fromLat=21.0285&fromLon=105.8542&toLat=21.0355&toLon=105.8516')).json();
+        const d = await (await fetch('/api/algorithms/astep?fromLat=21.0285&fromLon=105.8542&toLat=21.0355&toLon=105.8516')).json();
         
         if (!d.steps || d.steps.length === 0) {
             el.innerHTML = '<div style="padding:10px;text-align:center;color:#ea4335;">No steps to visualize</div>';
