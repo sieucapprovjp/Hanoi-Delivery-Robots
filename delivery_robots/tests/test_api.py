@@ -1,8 +1,10 @@
 import unittest
+import importlib
 
 import networkx as nx
 
 import delivery_robots as appmod
+appcore = importlib.import_module("delivery_robots.app")
 
 
 def build_test_graph():
@@ -21,39 +23,39 @@ class ApiTests(unittest.TestCase):
     def setUp(self):
         self.graph = build_test_graph()
 
-        self._orig_get_road_graph = appmod.get_road_graph
-        self._orig_road_graph = appmod._road_graph
-        self._orig_projected_graph = appmod._projected_road_graph
-        self._orig_ox = appmod._ox
-        self._orig_rain_zones = list(appmod.RAIN_ZONES)
-        self._orig_dynamic_routes = list(appmod._dynamic_traffic_routes)
-        self._orig_obstacles = list(appmod._obstacles)
+        self._orig_get_road_graph = appcore.get_road_graph
+        self._orig_road_graph = appcore._road_graph
+        self._orig_projected_graph = appcore._projected_road_graph
+        self._orig_ox = appcore._ox
+        self._orig_rain_zones = list(appcore.RAIN_ZONES)
+        self._orig_dynamic_routes = list(appcore._dynamic_traffic_routes)
+        self._orig_obstacles = list(appcore._obstacles)
 
-        appmod._ox = None
-        appmod._road_graph = self.graph
-        appmod._projected_road_graph = None
-        appmod.RAIN_ZONES = []
-        with appmod._dynamic_traffic_lock:
-            appmod._dynamic_traffic_routes = []
-        with appmod._obstacles_lock:
-            appmod._obstacles = []
+        appcore._ox = None
+        appcore._road_graph = self.graph
+        appcore._projected_road_graph = None
+        appcore.RAIN_ZONES = []
+        with appcore._dynamic_traffic_lock:
+            appcore._dynamic_traffic_routes = []
+        with appcore._obstacles_lock:
+            appcore._obstacles = []
 
         def fake_get_road_graph():
             return self.graph, None, []
 
-        appmod.get_road_graph = fake_get_road_graph
-        self.client = appmod.app.test_client()
+        appcore.get_road_graph = fake_get_road_graph
+        self.client = appcore.app.test_client()
 
     def tearDown(self):
-        appmod.get_road_graph = self._orig_get_road_graph
-        appmod._road_graph = self._orig_road_graph
-        appmod._projected_road_graph = self._orig_projected_graph
-        appmod._ox = self._orig_ox
-        appmod.RAIN_ZONES = self._orig_rain_zones
-        with appmod._dynamic_traffic_lock:
-            appmod._dynamic_traffic_routes = self._orig_dynamic_routes
-        with appmod._obstacles_lock:
-            appmod._obstacles = self._orig_obstacles
+        appcore.get_road_graph = self._orig_get_road_graph
+        appcore._road_graph = self._orig_road_graph
+        appcore._projected_road_graph = self._orig_projected_graph
+        appcore._ox = self._orig_ox
+        appcore.RAIN_ZONES = self._orig_rain_zones
+        with appcore._dynamic_traffic_lock:
+            appcore._dynamic_traffic_routes = self._orig_dynamic_routes
+        with appcore._obstacles_lock:
+            appcore._obstacles = self._orig_obstacles
 
     def test_health(self):
         resp = self.client.get("/api/health")
