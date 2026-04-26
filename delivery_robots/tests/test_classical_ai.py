@@ -2,7 +2,7 @@ import unittest
 
 import networkx as nx
 
-from delivery_robots.classical_ai import compare_classical_algorithms
+from delivery_robots import compare_classical_algorithms
 
 
 def build_graph():

@@ -50,7 +50,6 @@ _ox = None
 DELIVERY_HISTORY = []
 _history_lock = threading.Lock()
 
-
 def get_road_graph():
 
     global _road_graph, _projected_road_graph, _traffic_routes, _ox

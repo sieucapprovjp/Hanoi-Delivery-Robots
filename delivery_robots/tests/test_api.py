@@ -2,7 +2,7 @@ import unittest
 
 import networkx as nx
 
-import delivery_robots.app as appmod
+import delivery_robots as appmod
 
 
 def build_test_graph():

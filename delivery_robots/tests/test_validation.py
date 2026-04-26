@@ -1,6 +1,6 @@
 import unittest
 
-from delivery_robots.validation import (
+from delivery_robots import (
     validate_coordinate,
     validate_lat_lon,
     validate_non_negative_int,
