@@ -51,3 +51,5 @@ htmlcov/
 
 ./.qwen
 ./cache
+./delivery_robots/__init__.py
+./delivery_robots/test_server.py

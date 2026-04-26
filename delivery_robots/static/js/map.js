@@ -11,6 +11,7 @@ class HanoiMap {
         this.rainZones = [];
         this.rainLayers = [];
         this.deliveryMarkers = new Map();
+        this.hubLayers = [];
         
         // Predefined street paths (real Hoan Kiem streets)
         this.streets = [
@@ -501,5 +502,31 @@ class HanoiMap {
 
     clearAllDeliveryMarkers() {
         Array.from(this.deliveryMarkers.keys()).forEach(deliveryId => this.clearDeliveryMarkers(deliveryId));
+    }
+
+    drawHubs(hubs) {
+        this.hubLayers.forEach(layer => layer.remove());
+        this.hubLayers = [];
+
+        hubs.forEach(hub => {
+            const marker = L.marker([hub.lat, hub.lon], {
+                icon: L.divIcon({
+                    html: `<div style="width:34px;height:34px;background:#1a73e8;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.25);">🧠</div>`,
+                    iconSize: [34, 34],
+                    iconAnchor: [17, 17]
+                })
+            }).addTo(this.map).bindPopup(`<strong>${hub.name}</strong><br>Optimized with k-means`);
+
+            const ring = L.circle([hub.lat, hub.lon], {
+                radius: 90,
+                color: '#1a73e8',
+                weight: 2,
+                opacity: 0.5,
+                fillColor: '#1a73e8',
+                fillOpacity: 0.08
+            }).addTo(this.map);
+
+            this.hubLayers.push(marker, ring);
+        });
     }
 }

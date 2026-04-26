@@ -30,6 +30,9 @@
 - Added A* map overlays so explored nodes and final paths are visible on the map.
 - Split reusable backend logic into `validation.py`, `geo_utils.py`, `route_analysis.py`, and `metrics_utils.py`.
 - Added starter unit tests for validation and route cost breakdown logic.
+- Added a dedicated classical AI module with clean BFS, Dijkstra, Greedy Best-First, and A* implementations.
+- Added `/api/classical/compare` to benchmark classical search algorithms on base edge length only.
+- Added tests for classical AI comparison and the new API endpoint.
 
 ## Good Next Improvements
 

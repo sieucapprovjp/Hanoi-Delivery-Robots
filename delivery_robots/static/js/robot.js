@@ -1,6 +1,6 @@
 // Simple working robot
 class DeliveryRobot {
-    constructor(id, lat, lon, name, color) {
+    constructor(id, lat, lon, name, color, routeAlgorithm = 'astar') {
         this.id = id;
         this.lat = lat;
         this.lon = lon;
@@ -31,6 +31,8 @@ class DeliveryRobot {
         this.resumeAfterCharge = false;
         this.lastRouteBreakdown = null;
         this.lastRouteEtaMinutes = 0;
+        this.routeAlgorithm = routeAlgorithm;
+        this.currentDeliveryAlgorithm = null;
 
         // 🧠 Road memory system (Q-learning lite)
         this.roadMemory = {};
@@ -139,9 +141,13 @@ class DeliveryRobot {
         if (this.currentDelivery && this.deliveryPhase === 'to_dropoff') {
             this.currentLoad--;
             this.totalDeliveries++;
+            if (typeof simulation !== 'undefined' && simulation && typeof simulation.recordDeliveryCompleted === 'function') {
+                simulation.recordDeliveryCompleted(this.currentDeliveryAlgorithm || this.routeAlgorithm);
+            }
             logEvent(`✅ ${this.name} completed delivery #${this.currentDelivery.id}`);
             mapManager.clearDeliveryMarkers(this.currentDelivery.id);
             this.currentDelivery = null;
+            this.currentDeliveryAlgorithm = null;
         }
 
         this.status = 'idle';
@@ -207,6 +213,7 @@ class DeliveryRobot {
 
         this.isRouting = true;
         this.currentDelivery = delivery;
+        this.currentDeliveryAlgorithm = this.routeAlgorithm;
         this.currentLoad++;
         this.deliveryPhase = 'to_pickup';
         mapManager.showDeliveryMarkers(delivery);
@@ -223,6 +230,7 @@ class DeliveryRobot {
             return true;
         } catch (error) {
             this.currentDelivery = null;
+            this.currentDeliveryAlgorithm = null;
             this.currentLoad = Math.max(0, this.currentLoad - 1);
             mapManager.clearDeliveryMarkers(delivery.id);
             logEvent(`❌ ${this.name} could not route delivery #${delivery.id}`);
@@ -524,6 +532,9 @@ class DeliveryRobot {
             if (rebuilt) {
                 if (typeof simulation !== 'undefined' && simulation) {
                     simulation.totalReroutes++;
+                    if (typeof simulation.recordReroute === 'function') {
+                        simulation.recordReroute(this.routeAlgorithm);
+                    }
                 }
                 logEvent(`↺ ${this.name} rerouted around ${traffic >= 0.45 ? 'traffic' : 'rain'}`);
                 addDispatchInsight(
@@ -540,7 +551,14 @@ class DeliveryRobot {
 
     async buildRouteToTarget(targetLat, targetLon) {
         const startTime = performance.now();
-        const route = await pathfindingManager.getRoute(this.lat, this.lon, targetLat, targetLon, this.roadMemory);
+        const route = await pathfindingManager.getRoute(
+            this.lat,
+            this.lon,
+            targetLat,
+            targetLon,
+            this.roadMemory,
+            this.routeAlgorithm
+        );
         const calcTime = performance.now() - startTime;
         
         if (!route.path || route.path.length <= 1) return false;
@@ -560,6 +578,10 @@ class DeliveryRobot {
         });
         if (this._calcHistory.length > 20) this._calcHistory = this._calcHistory.slice(-20);
         
+        if (typeof simulation !== 'undefined' && simulation && typeof simulation.recordRouteMetrics === 'function') {
+            simulation.recordRouteMetrics(this.routeAlgorithm, route);
+        }
+
         return true;
     }
 

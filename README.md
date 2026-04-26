@@ -1,248 +1,136 @@
-# 🤖 AI Delivery Robots - Suburban Hanoi Simulation
+# AI Delivery Robots - Academic Simulation
 
-An interactive AI-powered delivery robot simulation set in Hoan Kiem District, Hanoi. Features autonomous delivery robots with **A* pathfinding**, **dynamic weather/obstacle avoidance**, **multi-algorithm scheduling**, and **real-time decision analytics**.
+An interactive AI simulation of autonomous delivery robots in Hoan Kiem District, Hanoi, built for introductory AI coursework. The project focuses on classical search algorithms, runtime comparison, and explainable metrics under dynamic environment conditions.
 
----
+## What This App Demonstrates
 
-## ✨ Key Features
+- Fleet-wide routing algorithm comparison: A*, Dijkstra, and GBFS.
+- Dynamic path costs under rain, traffic, and obstacle penalties.
+- Real-time multi-robot dispatch and rerouting behavior.
+- K-means based hub optimization from historical pickup/dropoff points.
+- Academic insights panel with runtime metrics and efficiency scoring.
 
-### 🗺️ Real Map Integration
-- **OpenStreetMap Data**: Real road network from Hoan Kiem District (1096 nodes, 2441 edges)
-- **Optimized Loading**: Bounding box loading (2.2km → Hoan Kiem boundaries only) saves 40-60% resources
-- **Accurate Coordinates**: Real lat/lon coordinates with Haversine distance calculations
+## Core AI Features
 
-### 🧠 AI Pathfinding (A* Algorithm)
-- **Dynamic Weighting**: `f(n) = g(n) + h(n)` with real-time penalties
-  - 🌧️ Rain zones: **2× slower**
-  - 🚗 Traffic congestion: **1.5×-4× slower**
-  - 🚧 Obstacles: **5×-50×** (forces complete avoidance)
-- **Real-Time Rerouting**: Robots recalculate paths when conditions change
-- **Performance Tracking**: Metrics for calculation time, nodes explored, path length
+- **Classical search routing**
+  - `A*`: `f(n) = g(n) + h(n)`
+  - `Dijkstra`: priority by `g(n)`
+  - `GBFS`: priority by `h(n)`
+  - Heuristic `h(n)` uses Haversine distance.
 
-### 🌦️ Dynamic Environment
-- **Rain Zones** (🌧️): Place anywhere on map, adjustable radius (50-300m), randomize button
-- **Traffic Routes** (🚗): Click two points to create congestion, adjustable severity (0-1)
-- **Obstacles** (🚧): Roadblocks, construction, accidents with high penalty zones
-- **All zones update routes instantly** - robots avoid bad areas automatically
+- **Fleet benchmark mode**
+  - Apply one routing algorithm to all robots at once.
+  - Compare average runtime, nodes explored, path cost, reroutes, and deliveries.
 
-### 📦 Delivery Scheduling Algorithms
-Compare three algorithms in real-time:
-- **FIFO** (First-Come-First-Serve): Fair but inefficient
-- **Priority**: Smart scoring based on wait time, pickup type, distance
-- **Nearest-First**: Minimizes travel distance, fastest completion
-- **Live comparison panel** shows deliveries completed & total distance per algorithm
+- **Efficiency score**
+  - `score = deliveries / (costKm + 0.02*avgTimeMs + 0.005*avgNodes + 0.5*reroutes + 1)`
+  - Higher score indicates better operational efficiency under current conditions.
 
-### 🤖 Autonomous Robots
-- **5 Robots** with unique identities, colors, and battery management
-- **Smart Charging**: Automatically return to charging when battery < 20%
-- **Detailed Click Info**: Click any robot to see:
-  - 🎯 Current destination & waypoints remaining
-  - 🔋 Battery level with color-coded bar & projected drain
-  - ⚡ Speed multiplier (affected by weather/traffic)
-  - 🧠 Decision breakdown (base distance + traffic/rain penalties)
-  - 📊 Total deliveries & distance traveled
+- **RL-lite road memory**
+  - Robots remember slow road segments and bias future routing costs.
 
-### 📊 AI Decision Analytics Panel
-Real-time metrics dashboard showing:
-- A* calculation speed (avg, min, max, last)
-- Nodes explored per search
-- Graph statistics (nodes, edges)
-- Active environment factors count
-- Auto-refreshes every 3 seconds
+- **K-means hub optimization**
+  - Collect delivery coordinates and compute optimized hub centroids.
+  - Reposition robots toward demand hotspots.
 
----
+## Current UI Focus (Simplified for Demo)
 
-## 🚀 Quick Start
+- Kept visible:
+  - Delivery control panel
+  - Fleet algorithm selector
+  - Academic insights panel
+  - Robot computing panel
+  - Weather panel (rain and traffic)
+
+- Hidden to reduce clutter:
+  - Delivery queue panel
+  - Fleet analytics panel
+  - Legacy event log panel
+  - Insider panel
+
+## Tech Stack
+
+- Backend: Flask, NetworkX, OSMnx
+- Frontend: Vanilla JS, Leaflet
+- ML: scikit-learn (KMeans), NumPy
+
+## Project Layout
+
+```text
+delivery_robots/
+  app.py                Flask app, routing, k-means hub API
+  routes_api.py         Environment, metrics, logs, utility APIs
+  classical_ai.py       Classical algorithm comparison helpers
+  static/js/
+    app.js              UI wiring and controls
+    simulation.js       Multi-robot simulation engine
+    robot.js            Robot agent behavior and computing details
+    map.js              Leaflet map and overlays
+    pathfinding.js      Routing API client
+  templates/
+    index.html          Main UI
+main.py                 Local runner entrypoint
+requirements.txt        Dependencies
+```
+
+## Setup
 
 ### Prerequisites
-- Python 3.7+
+
+- Python 3.10+
 - pip
 
-### Installation
+### Install
 
 ```bash
-cd delivery_robots
 pip install -r requirements.txt
 ```
 
-### Running
+### Run
 
 ```bash
-# Use project virtual environment for best performance
-.venv\Scripts\python.exe main.py
-
-# Or directly
-python app.py
+python main.py
 ```
 
-Open **http://127.0.0.1:5000** in your browser.
+Then open the printed URL (default: `http://127.0.0.1:5001`).
 
----
+## Key API Endpoints
 
-## 🎮 How to Use
+- Routing
+  - `GET /api/route?fromLat=&fromLon=&toLat=&toLon=&algo=astar|dijkstra|gbfs`
+  - `GET /api/snap?lat=&lon=`
 
-### Basic Simulation
-1. Click **▶ Start** to begin
-2. Robots automatically accept and deliver packages
-3. Adjust speed with slider (1x-10x)
-4. Watch real-time stats in side panels
+- Environment
+  - Rain: `/api/rain/list`, `/api/rain/add`, `/api/rain/randomize`, `/api/rain/clear`
+  - Traffic: `/api/traffic/list`, `/api/traffic/add`, `/api/traffic/randomize`, `/api/traffic/clear`
+  - Obstacles: `/api/obstacle/list`, `/api/obstacle/add`, `/api/obstacle/randomize`, `/api/obstacle/clear`
 
-### Weather & Traffic Controls
-1. Click **🌧️** FAB button (bottom right)
-2. Switch between tabs: Rain / Traffic / Obstacles
-3. **Click on map** to place zones manually
-4. Use **🎲 Randomize** for instant chaos
-5. Use **🗑️ Clear** to remove all zones
+- Metrics and clocks
+  - `GET /api/metrics`
+  - `GET /api/clock`
 
-### Scheduling Algorithm
-1. Open weather panel (🌧️)
-2. Scroll to bottom
-3. Click **Priority / FIFO / Nearest** to switch
-4. Watch comparison panel update in real-time
+- Academic compare
+  - `GET /api/classical/compare`
+  - `GET /api/insider`
+  - `GET /api/astep`
 
-### Robot Inspection
-1. **Click any robot** on the map
-2. See detailed popup with:
-   - Destination & phase (pickup vs delivery)
-   - Battery level & projected drain
-   - Speed affected by conditions
-   - Decision breakdown showing A* cost calculation
+- K-means hub optimization
+  - `POST /api/log_delivery`
+  - `POST /api/optimize-hubs`
 
-### AI Analytics
-1. Click **🔍** FAB button
-2. View A* performance metrics
-3. See how fast robots make decisions
-4. Monitor active environment factors
+- Unified API logs
+  - `POST /api/logs`
+  - `GET /api/logs?limit=200`
 
----
+## Suggested Demo Flow
 
-## 🔌 API Endpoints
+1. Start simulation.
+2. Pick fleet routing algorithm and apply to all robots.
+3. Open Academic Insights to compare runtime metrics.
+4. Add rain/traffic to increase search complexity.
+5. Run Optimize Hubs and observe repositioning.
+6. Query `/api/logs` to inspect API-level event traces.
 
-### Routing
-- `GET /api/route?fromLat=&fromLon=&toLat=&toLon=` - Get optimal A* path
-- `GET /api/snap?lat=&lon=` - Snap coordinate to nearest road node
+## License
 
-### Environment
-- `POST /api/rain/add` - Add rain zone at coordinates
-- `POST /api/rain/randomize` - Generate random rain zones
-- `POST /api/rain/clear` - Remove all rain zones
-- `POST /api/traffic/add` - Add traffic congestion route
-- `POST /api/traffic/randomize` - Generate random traffic
-- `POST /api/traffic/clear` - Remove all traffic
-- `POST /api/obstacle/add` - Add obstacle (roadblock/construction/accident)
-- `POST /api/obstacle/randomize` - Generate random obstacles
-- `POST /api/obstacle/clear` - Remove all obstacles
-
-### Metrics & Status
-- `GET /api/metrics` - A* pathfinding performance metrics
-- `GET /api/weather` - Current rain zones & district bounds
-- `GET /api/traffic` - Active traffic routes with animation data
-- `GET /api/rain/list` - List rain zones
-- `GET /api/traffic/list` - List traffic routes
-- `GET /api/obstacle/list` - List obstacles
-
----
-
-## 🏗️ Project Structure
-
-```
-delivery_robots/
-├── app.py                      # Flask server + all API endpoints
-├── requirements.txt            # Python dependencies
-├── templates/
-│   ├── index.html              # Main application (robots + controls)
-│   ├── main_map.html           # Standalone map with weather controls
-│   └── rain_control.html       # Dedicated rain zone control page
-└── static/
-    ├── css/
-    │   └── style.css           # Full UI styling
-    └── js/
-        ├── app.js               # Main app + weather controls
-        ├── simulation.js        # Simulation engine + scheduling algorithms
-        ├── robot.js             # Robot class with detailed popup
-        ├── map.js               # Leaflet map + OSM integration
-        └── pathfinding.js       # A* pathfinding client
-```
-
----
-
-## 🔬 Technical Details
-
-### A* Pathfinding
-- **Graph Source**: OpenStreetMap via OSMnx library
-- **Heuristic**: Haversine distance (great-circle distance on sphere)
-- **Edge Weights**: `length × traffic_penalty × rain_penalty × obstacle_penalty`
-- **Metrics Tracking**: Calculation time, nodes explored, path length
-- **Dynamic Updates**: Weights recalculated each request based on live conditions
-
-### Scheduling Algorithms
-- **FIFO**: `sort by timestamp` - fair queue order
-- **Priority**: `score = wait_time × pickup_weight + distance_factor`
-- **Nearest**: `sort by avg haversine distance to all robots`
-- **Statistics**: Per-algorithm delivery count and total distance tracked
-
-### Environment Simulation
-- **Rain Zones**: Circular zones with 2× speed penalty
-- **Traffic Routes**: Line segments with moving congestion wave (36s cycle)
-- **Obstacles**: High-penalty zones (5-50×) forcing complete avoidance
-- **Thread Safety**: All dynamic zones use locks for concurrent access
-
-### Performance Optimizations
-- **Bounding Box Loading**: Only loads Hoan Kiem district (not circular 2.2km radius)
-- **Graph Caching**: Road graph loaded once and reused
-- **Efficient Lookups**: Nearest node by haversine pre-calculation
-- **Auto-Refresh**: Metrics panel updates every 3s only when visible
-
----
-
-## 📊 Performance
-
-| Metric | Value |
-|--------|-------|
-| Graph Nodes | 1,096 |
-| Graph Edges | 2,441 |
-| Avg A* Time | < 50ms |
-| Avg Nodes Explored | ~200-400 |
-| Avg Path Length | ~30-50 waypoints |
-| Active Robots | 5 |
-| Delivery Interval | 6.5s |
-
----
-
-## 🎓 Academic Value
-
-This project demonstrates:
-- **Classical AI**: A* search with dynamic edge weights
-- **Multi-Agent Systems**: Independent robots with shared environment
-- **Algorithm Comparison**: FIFO vs Priority vs Nearest scheduling
-- **Reactive AI**: Real-time rerouting based on environment changes
-- **Constraint Handling**: Battery management, capacity limits, charging behavior
-- **Real-World Data**: OpenStreetMap integration with actual Hanoi roads
-
-Perfect for midterm demonstrations showing:
-1. Robots avoiding rain zones you place
-2. Robots rerouting around obstacles in real-time
-3. Algorithm comparison (Priority beats FIFO in delivery count)
-4. A* decision breakdown showing exact cost calculation
-
----
-
-## 🛠️ Dependencies
-
-```
-flask==3.0.0
-osmnx==2.1.0
-networkx==3.6.1
-```
-
----
-
-## 📝 License
-
-MIT License - Feel free to use and modify!
-
----
-
-## 👨‍💻 Author
-
-Built with ❤️ for AI learning and demonstration
+MIT

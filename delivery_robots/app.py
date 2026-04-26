@@ -1,12 +1,20 @@
 from flask import Flask, jsonify, render_template, request
+import heapq
+import json
 import math
 import threading
 import time
+from collections import deque
+import numpy as np
+from sklearn.cluster import KMeans
 
 import networkx as nx
+
+from .classical_ai import compare_classical_algorithms
 from .geo_utils import haversine_distance, point_to_segment_distance_meters
 from .metrics_utils import build_metrics_payload, create_metrics, record_route_metrics
 from .route_analysis import build_route_response, nearest_node_id
+from .routes_api import register_api_routes
 from .validation import (
     validate_coordinate,
     validate_lat_lon,
@@ -38,10 +46,20 @@ _projected_road_graph = None
 _traffic_routes = None
 _ox = None
 
+# Delivery history for k-means optimization
+DELIVERY_HISTORY = []
+_history_lock = threading.Lock()
+
+
 def get_road_graph():
+
     global _road_graph, _projected_road_graph, _traffic_routes, _ox
 
-    if _road_graph is not None and _projected_road_graph is not None and _traffic_routes is not None:
+    if (
+        _road_graph is not None
+        and _projected_road_graph is not None
+        and _traffic_routes is not None
+    ):
         return _road_graph, _projected_road_graph, _traffic_routes
 
     with _graph_lock:
@@ -61,6 +79,7 @@ def get_road_graph():
             _traffic_routes = build_traffic_routes(_road_graph)
 
     return _road_graph, _projected_road_graph, _traffic_routes
+
 
 def build_traffic_routes(graph):
     routes = []
@@ -89,6 +108,7 @@ def build_traffic_routes(graph):
 
     return routes
 
+
 def get_simulation_time():
     """Returns simulated time based on real elapsed time and simulation speed."""
     elapsed_real = time.time() - _simulation_start_time
@@ -106,7 +126,7 @@ def get_rush_hour_multiplier():
     """Returns traffic multiplier based on current simulated time."""
     hours, minutes, seconds = get_simulation_time()
     current_hour = hours + minutes / 60.0
-    
+
     for rush in RUSH_HOURS:
         if rush["start"] <= current_hour < rush["end"]:
             # Smooth transition: ramp up at start, ramp down at end
@@ -114,7 +134,7 @@ def get_rush_hour_multiplier():
             # Peak in the middle
             multiplier = 1 + (rush["multiplier"] - 1) * math.sin(progress * math.pi)
             return multiplier, rush["name"]
-    
+
     return 1.0, "Normal"
 
 
@@ -199,103 +219,92 @@ def edge_weight_with_traffic(from_node, to_node, edge_data):
     if "length" in edge_data:
         return edge_data.get("length", 0.0) * penalty
 
-    best_length = min(
-        data.get("length", float("inf"))
-        for data in edge_data.values()
-    )
+    best_length = min(data.get("length", float("inf")) for data in edge_data.values())
     return best_length * penalty
 
+
+def _reconstruct_node_path(came_from, current):
+    path = [current]
+    while current in came_from:
+        current = came_from[current]
+        path.append(current)
+    path.reverse()
+    return path
+
+
+def _run_weighted_route_search(
+    graph,
+    start_node,
+    end_node,
+    goal_lat,
+    goal_lon,
+    weight_fn,
+    algorithm,
+):
+    g_score = {start_node: 0.0}
+    came_from = {}
+    visited = set()
+    nodes_explored = 0
+
+    start_h = haversine_distance(
+        graph.nodes[start_node]["y"],
+        graph.nodes[start_node]["x"],
+        goal_lat,
+        goal_lon,
+    )
+
+    if algorithm == "dijkstra":
+        open_set = [(0.0, start_node)]
+    elif algorithm == "gbfs":
+        open_set = [(start_h, start_node)]
+    else:
+        open_set = [(start_h, start_node)]
+
+    while open_set:
+        _, current = heapq.heappop(open_set)
+        if current in visited:
+            continue
+
+        visited.add(current)
+        nodes_explored += 1
+
+        if current == end_node:
+            return _reconstruct_node_path(came_from, current), nodes_explored
+
+        for neighbor in graph.neighbors(current):
+            if neighbor in visited:
+                continue
+
+            edge_data = graph[current][neighbor]
+            tentative_g = g_score[current] + weight_fn(current, neighbor, edge_data)
+            if tentative_g >= g_score.get(neighbor, float("inf")):
+                continue
+
+            came_from[neighbor] = current
+            g_score[neighbor] = tentative_g
+
+            h_neighbor = haversine_distance(
+                graph.nodes[neighbor]["y"],
+                graph.nodes[neighbor]["x"],
+                goal_lat,
+                goal_lon,
+            )
+
+            if algorithm == "dijkstra":
+                priority = tentative_g
+            elif algorithm == "gbfs":
+                priority = h_neighbor
+            else:
+                priority = tentative_g + h_neighbor
+
+            heapq.heappush(open_set, (priority, neighbor))
+
+    raise nx.NetworkXNoPath
 
 
 @app.route("/")
 def index():
     return render_template("index.html")
-
-
-@app.route("/api/health")
-def health():
-    return jsonify({"status": "ok"})
-
-
-@app.route("/api/traffic")
-def traffic():
-    now = time.time()
-    roads = []
-
-    _, _, traffic_routes = get_road_graph()
-    all_routes = list(traffic_routes or [])
-    with _dynamic_traffic_lock:
-        all_routes.extend(_dynamic_traffic_routes)
-
-    for road in all_routes:
-        if len(road["path"]) < 2:
-            roads.append({"name": road["name"], "segments": []})
-            continue
-
-        progress = (now / TRAFFIC_PERIOD_SECONDS + road["severity"]) % 1
-        active_segment = progress * (len(road["path"]) - 1)
-        segments = []
-
-        for idx in range(len(road["path"]) - 1):
-            strength = max(0.0, 1 - abs(idx - active_segment))
-            if strength < 0.15:
-                continue
-
-            segments.append(
-                {
-                    "points": [
-                        [road["path"][idx]["lat"], road["path"][idx]["lon"]],
-                        [road["path"][idx + 1]["lat"], road["path"][idx + 1]["lon"]],
-                    ],
-                    "severity": round(road["severity"] * strength, 3),
-                }
-            )
-
-        roads.append({"name": road["name"], "segments": segments})
-
-    return jsonify({"roads": roads, "updatedAt": now})
-
-
-@app.route("/api/weather")
-def weather():
-    return jsonify(
-        {
-            "rainZones": [
-                {
-                    "name": zone["name"],
-                    "center": {"lat": zone["center"][0], "lon": zone["center"][1]},
-                    "radius": zone["radius"],
-                    "multiplier": round(1 + zone.get("severity", 1.0), 2),
-                }
-                for zone in RAIN_ZONES
-            ]
-        }
-    )
-
-
-@app.route("/api/clock")
-def get_clock():
-    """Get current simulation time and rush hour status."""
-    hours, minutes, seconds = get_simulation_time()
-    rush_multiplier, rush_name = get_rush_hour_multiplier()
-    
-    is_rush_hour = rush_name != "Normal"
-    
-    return jsonify({
-        "time": {
-            "hours": hours,
-            "minutes": minutes,
-            "seconds": seconds,
-            "display": f"{hours:02d}:{minutes:02d}:{seconds:02d}",
-        },
-        "rushHour": {
-            "isActive": is_rush_hour,
-            "name": rush_name,
-            "multiplier": round(rush_multiplier, 2),
-            "schedule": RUSH_HOURS,
-        },
-        "simulationSpeed": _simulation_speed,
-    })
 
 
 @app.route("/api/route")
@@ -315,11 +324,14 @@ def route():
         return jsonify({"path": [{"lat": from_lat, "lon": from_lon}], "distance": 0})
 
     # Parse robot memory (optional — falls back to empty dict)
-    import json
     try:
         road_memory = json.loads(request.args.get("memory", "{}"))
     except Exception:
         road_memory = {}
+
+    algo = (request.args.get("algo") or "astar").strip().lower()
+    if algo not in {"astar", "gbfs", "dijkstra"}:
+        return jsonify({"error": "Invalid algo. Use astar, gbfs, or dijkstra."}), 400
 
     try:
         graph, projected_graph, _ = get_road_graph()
@@ -336,7 +348,15 @@ def route():
             return base * memory_penalty
 
         weight_fn = edge_weight_with_memory if road_memory else edge_weight_with_traffic
-        route_nodes = nx.shortest_path(graph, start_node, end_node, weight=weight_fn)
+        route_nodes, nodes_explored = _run_weighted_route_search(
+            graph,
+            start_node,
+            end_node,
+            to_lat,
+            to_lon,
+            weight_fn,
+            algo,
+        )
         payload = build_route_response(
             graph,
             route_nodes,
@@ -344,19 +364,33 @@ def route():
             rain_penalty_for_point,
             obstacle_penalty_for_point,
         )
-        payload["start"] = {"lat": graph.nodes[start_node]["y"], "lon": graph.nodes[start_node]["x"]}
-        payload["end"] = {"lat": graph.nodes[end_node]["y"], "lon": graph.nodes[end_node]["x"]}
-        
+        payload["start"] = {
+            "lat": graph.nodes[start_node]["y"],
+            "lon": graph.nodes[start_node]["x"],
+        }
+        payload["end"] = {
+            "lat": graph.nodes[end_node]["y"],
+            "lon": graph.nodes[end_node]["x"],
+        }
+        payload["algo"] = algo
+
         calc_time = (time.time() - start_t) * 1000
-        nodes_explored = len(route_nodes) * 5  # approximate
         record_route_metrics(_metrics, calc_time, nodes_explored, len(route_nodes))
-        
+        payload["timeMs"] = round(calc_time, 2)
+        payload["nodesExplored"] = nodes_explored
+        payload["pathCost"] = payload.get("costBreakdown", {}).get(
+            "totalCost", round(payload.get("distance", 0.0), 1)
+        )
+
         return jsonify(payload)
     except nx.NetworkXNoPath:
         fallback_distance = haversine_distance(from_lat, from_lon, to_lat, to_lon)
         return jsonify(
             {
-                "path": [{"lat": from_lat, "lon": from_lon}, {"lat": to_lat, "lon": to_lon}],
+                "path": [
+                    {"lat": from_lat, "lon": from_lon},
+                    {"lat": to_lat, "lon": to_lon},
+                ],
                 "distance": fallback_distance,
                 "fallback": True,
             }
@@ -385,198 +419,121 @@ def snap():
         return jsonify({"error": str(exc)}), 500
 
 
-# ========== Rain/Weather Controls ==========
-@app.route("/api/rain/list")
-def list_rain():
-    return jsonify({"rainZones": [{"name": z["name"], "center": {"lat": z["center"][0], "lon": z["center"][1]}, "radius": z["radius"]} for z in RAIN_ZONES]})
-
-@app.route("/api/rain/add", methods=["POST"])
-def add_rain():
-    global RAIN_ZONES
-    d = request.get_json(silent=True) or {}
+@app.route("/api/log_delivery", methods=["POST"])
+def log_delivery():
+    """Records pickup and drop-off coordinates for k-means clustering."""
     try:
-        lat = validate_coordinate(d.get("lat"), "lat")
-        lon = validate_coordinate(d.get("lon"), "lon")
-        radius = validate_positive_number(d.get("radius", 150), "radius")
-        validate_lat_lon(lat, lon)
-    except ValueError as exc:
+        data = request.json
+        pickup_lat = validate_coordinate(data.get("pickupLat"), "pickupLat")
+        pickup_lon = validate_coordinate(data.get("pickupLon"), "pickupLon")
+        dropoff_lat = validate_coordinate(data.get("dropoffLat"), "dropoffLat")
+        dropoff_lon = validate_coordinate(data.get("dropoffLon"), "dropoffLon")
+
+        with _history_lock:
+            DELIVERY_HISTORY.append([pickup_lat, pickup_lon])
+            DELIVERY_HISTORY.append([dropoff_lat, dropoff_lon])
+
+        return jsonify({"status": "success"}), 200
+    except Exception as exc:
         return jsonify({"error": str(exc)}), 400
 
-    RAIN_ZONES.append({"name": f"Rain {len(RAIN_ZONES)+1}", "center": (lat,lon), "radius": radius, "severity": 1.0})
-    return jsonify({"message": "Added", "rainZone": {"name": f"Rain {len(RAIN_ZONES)}", "center": {"lat": lat, "lon": lon}, "radius": radius}})
 
-@app.route("/api/rain/randomize", methods=["POST"])
-def randomize_rain():
-    global RAIN_ZONES
-    import random
-    d = request.get_json(silent=True) or {}
+@app.route("/api/optimize-hubs", methods=["POST"])
+def optimize_hubs():
+    """Uses k-means clustering to find optimal robot hub locations."""
+    with _history_lock:
+        if len(DELIVERY_HISTORY) < 5:
+            return jsonify(
+                {
+                    "error": "Not enough delivery data to optimize hubs. Need at least 5 points."
+                }
+            ), 400
+
+        data = np.array(DELIVERY_HISTORY)
+
     try:
-        count = validate_non_negative_int(d.get("count", 3), "count")
-        min_radius = validate_positive_number(d.get("minRadius", 100), "minRadius")
-        max_radius = validate_positive_number(d.get("maxRadius", 200), "maxRadius")
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        # We want 5 hubs for our 5 robots
+        kmeans = KMeans(n_clusters=5, n_init="auto", random_state=42)
+        kmeans.fit(data)
+        centroids = kmeans.cluster_centers_
 
-    if min_radius > max_radius:
-        return jsonify({"error": "minRadius must be less than or equal to maxRadius"}), 400
+        hubs = []
+        for i, center in enumerate(centroids):
+            hubs.append(
+                {
+                    "id": i,
+                    "lat": float(center[0]),
+                    "lon": float(center[1]),
+                    "name": f"AI Hub {chr(65 + i)}",
+                }
+            )
 
-    RAIN_ZONES = [{"name": f"Rain {i+1}", "center": (random.uniform(21.0180,21.0380), random.uniform(105.8430,105.8650)), "radius": random.uniform(min_radius, max_radius), "severity": 1.0} for i in range(count)]
-    return jsonify({"message": f"Added {count}", "rainZones": [{"name": z["name"], "center": {"lat": z["center"][0], "lon": z["center"][1]}, "radius": z["radius"]} for z in RAIN_ZONES]})
-
-@app.route("/api/rain/clear", methods=["POST"])
-def clear_rain():
-    global RAIN_ZONES
-    RAIN_ZONES = []
-    return jsonify({"message": "Cleared"})
+        return jsonify({"hubs": hubs}), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 # ========== Traffic Controls ==========
+
 _dynamic_traffic_lock = threading.Lock()
 _dynamic_traffic_routes = []
-
-@app.route("/api/traffic/list")
-def list_traffic_routes():
-    with _dynamic_traffic_lock:
-        return jsonify({"routes": _dynamic_traffic_routes[:]})
-
-@app.route("/api/traffic/add", methods=["POST"])
-def add_traffic_route():
-    global _dynamic_traffic_routes
-    d = request.get_json(silent=True) or {}
-
-    try:
-        start_lat = validate_coordinate(d.get("startLat"), "startLat")
-        start_lon = validate_coordinate(d.get("startLon"), "startLon")
-        end_lat = validate_coordinate(d.get("endLat"), "endLat")
-        end_lon = validate_coordinate(d.get("endLon"), "endLon")
-        validate_lat_lon(start_lat, start_lon)
-        validate_lat_lon(end_lat, end_lon)
-        severity = float(d.get("severity", 0.7))
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-
-    if start_lat == end_lat and start_lon == end_lon:
-        return jsonify({"error": "Traffic start and end must be different"}), 400
-
-    severity = max(0.0, min(1.0, severity))
-
-    graph, _, _ = get_road_graph()
-    start_node = nearest_node_id(graph, start_lat, start_lon, _ox)
-    end_node = nearest_node_id(graph, end_lat, end_lon, _ox)
-    route_nodes = nx.shortest_path(graph, start_node, end_node, weight="length")
-    route_payload = build_route_response(
-        graph,
-        route_nodes,
-        traffic_penalty_for_point,
-        rain_penalty_for_point,
-        obstacle_penalty_for_point,
-        include_cost_breakdown=False,
-    )
-
-    with _dynamic_traffic_lock:
-        route_name = d.get("name") or f"Traffic {len(_dynamic_traffic_routes) + 1}"
-        route = {"name": route_name, "severity": severity, "path": route_payload["path"]}
-        _dynamic_traffic_routes.append(route)
-
-    return jsonify({"message": "Added", "route": route, "routes": _dynamic_traffic_routes[:]})
-
-@app.route("/api/traffic/randomize", methods=["POST"])
-def randomize_traffic():
-    global _dynamic_traffic_routes
-    import random
-    d = request.get_json(silent=True) or {}
-    try:
-        count = validate_non_negative_int(d.get("count", 3), "count")
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-
-    routes = []
-    for i in range(count):
-        routes.append({"name": f"Traffic {i+1}", "severity": random.uniform(0.4,0.9), "path": [{"lat": random.uniform(21.0200,21.0350), "lon": random.uniform(105.8450,105.8600)} for _ in range(10)]})
-    with _dynamic_traffic_lock:
-        _dynamic_traffic_routes = routes
-    return jsonify({"message": f"Added {count}", "routes": routes})
-
-@app.route("/api/traffic/clear", methods=["POST"])
-def clear_traffic():
-    global _dynamic_traffic_routes
-    with _dynamic_traffic_lock:
-        _dynamic_traffic_routes = []
-    return jsonify({"message": "Cleared"})
 
 
 # ========== Obstacles Controls ==========
 _obstacles_lock = threading.Lock()
 _obstacles = []
 
-@app.route("/api/obstacle/list")
-def list_obstacles():
-    with _obstacles_lock:
-        return jsonify({"obstacles": [{"name": o["name"], "center": {"lat": o["center"][0], "lon": o["center"][1]}, "radius": o["radius"], "severity": o["severity"], "type": o["type"]} for o in _obstacles]})
-
-@app.route("/api/obstacle/add", methods=["POST"])
-def add_obstacle():
-    global _obstacles
-    d = request.get_json(silent=True) or {}
-    try:
-        lat = validate_coordinate(d.get("lat"), "lat")
-        lon = validate_coordinate(d.get("lon"), "lon")
-        radius = validate_positive_number(d.get("radius", 80), "radius")
-        severity = validate_positive_number(d.get("severity", 10), "severity")
-        validate_lat_lon(lat, lon)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-
-    o = {"name": f"Obstacle {len(_obstacles)+1}", "center": (lat,lon), "radius": radius, "severity": severity, "type": d.get("type","roadblock")}
-    with _obstacles_lock:
-        _obstacles.append(o)
-    return jsonify({"message": "Added", "obstacle": {"name": o["name"], "center": {"lat": lat, "lon": lon}, "radius": o["radius"], "severity": o["severity"], "type": o["type"]}})
-
-@app.route("/api/obstacle/randomize", methods=["POST"])
-def randomize_obstacles():
-    global _obstacles
-    import random
-    d = request.get_json(silent=True) or {}
-    try:
-        count = validate_non_negative_int(d.get("count", 3), "count")
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-
-    types = ["roadblock","construction","accident"]
-    with _obstacles_lock:
-        _obstacles = [{"name": f"Obs {i+1}", "center": (random.uniform(21.0180,21.0380), random.uniform(105.8430,105.8650)), "radius": random.uniform(50,120), "severity": random.uniform(5,50), "type": random.choice(types)} for i in range(count)]
-    return jsonify({"message": f"Added {count}", "obstacles": [{"name": o["name"], "center": {"lat": o["center"][0], "lon": o["center"][1]}, "radius": o["radius"], "severity": o["severity"], "type": o["type"]} for o in _obstacles]})
-
-@app.route("/api/obstacle/clear", methods=["POST"])
-def clear_obstacles():
-    global _obstacles
-    with _obstacles_lock:
-        _obstacles = []
-    return jsonify({"message": "Cleared"})
-
 
 # ========== Metrics ==========
 _metrics = create_metrics()
+_api_logs_lock = threading.Lock()
+_api_logs = deque(maxlen=500)
 
-@app.route("/api/metrics")
-def get_metrics():
-    return jsonify(
-        build_metrics_payload(
-            _metrics,
-            _road_graph,
-            len(RAIN_ZONES),
-            len(_dynamic_traffic_routes),
-            len(_obstacles),
-        )
-    )
+
+def _get_ox():
+    return _ox
+
+
+register_api_routes(
+    app,
+    {
+        "get_road_graph": get_road_graph,
+        "road_graph_getter": lambda: _road_graph,
+        "get_simulation_time": get_simulation_time,
+        "get_rush_hour_multiplier": get_rush_hour_multiplier,
+        "build_metrics_payload": build_metrics_payload,
+        "build_route_response": build_route_response,
+        "nearest_node_id": nearest_node_id,
+        "validate_coordinate": validate_coordinate,
+        "validate_lat_lon": validate_lat_lon,
+        "validate_non_negative_int": validate_non_negative_int,
+        "validate_positive_number": validate_positive_number,
+        "traffic_penalty_for_point": traffic_penalty_for_point,
+        "rain_penalty_for_point": rain_penalty_for_point,
+        "obstacle_penalty_for_point": obstacle_penalty_for_point,
+        "traffic_period_seconds": TRAFFIC_PERIOD_SECONDS,
+        "rush_hours": RUSH_HOURS,
+        "simulation_speed": _simulation_speed,
+        "rain_zones": RAIN_ZONES,
+        "dynamic_traffic_lock": _dynamic_traffic_lock,
+        "dynamic_traffic_routes": _dynamic_traffic_routes,
+        "obstacles_lock": _obstacles_lock,
+        "obstacles": _obstacles,
+        "metrics": _metrics,
+        "api_logs": _api_logs,
+        "api_logs_lock": _api_logs_lock,
+        "get_ox": _get_ox,
+    },
+)
 
 
 @app.route("/api/astep")
 def astep_demo():
     """Visual A* step-by-step demo for presentation."""
     import heapq
+
     start_t = time.time()
-    
+
     try:
         from_lat = validate_coordinate(request.args.get("fromLat", 21.0285), "fromLat")
         from_lon = validate_coordinate(request.args.get("fromLon", 105.8542), "fromLon")
@@ -586,29 +543,31 @@ def astep_demo():
         validate_lat_lon(to_lat, to_lon)
     except ValueError:
         return jsonify({"error": "Invalid coords"}), 400
-    
+
     graph, _, _ = get_road_graph()
     start_node = nearest_node_id(graph, from_lat, from_lon, _ox)
     end_node = nearest_node_id(graph, to_lat, to_lon, _ox)
-    
+
     # A* with step tracking
     open_set = [(0, start_node)]
     came_from = {}
     g_score = {start_node: 0}
-    h_score = {start_node: haversine_distance(
-        graph.nodes[start_node]["y"], graph.nodes[start_node]["x"], to_lat, to_lon
-    )}
+    h_score = {
+        start_node: haversine_distance(
+            graph.nodes[start_node]["y"], graph.nodes[start_node]["x"], to_lat, to_lon
+        )
+    }
     f_score = {start_node: h_score[start_node]}
     closed_set = set()
     steps = []
     explored_nodes = []
     max_steps = 30  # Limit for visualization
-    
+
     step_count = 0
     while open_set and step_count < max_steps:
         step_count += 1
         current_f, current = heapq.heappop(open_set)
-        
+
         if current == end_node:
             # Reconstruct path
             path = [current]
@@ -616,55 +575,64 @@ def astep_demo():
                 current = came_from[current]
                 path.append(current)
             path.reverse()
-            
-            path_coords = [{"lat": graph.nodes[n]["y"], "lon": graph.nodes[n]["x"]} for n in path]
-            
-            return jsonify({
-                "success": True,
-                "path": path_coords,
-                "pathLength": len(path),
-                "steps": steps,
-                "exploredPath": [
-                    {"lat": graph.nodes[node]["y"], "lon": graph.nodes[node]["x"]}
-                    for node in explored_nodes
-                ],
-                "totalSteps": step_count,
-                "calcTime": round((time.time() - start_t) * 1000, 2),
-                "startNode": start_node,
-                "endNode": end_node,
-                "openSetSize": len(open_set),
-                "closedSetSize": len(closed_set),
-            })
-        
+
+            path_coords = [
+                {"lat": graph.nodes[n]["y"], "lon": graph.nodes[n]["x"]} for n in path
+            ]
+
+            return jsonify(
+                {
+                    "success": True,
+                    "path": path_coords,
+                    "pathLength": len(path),
+                    "steps": steps,
+                    "exploredPath": [
+                        {"lat": graph.nodes[node]["y"], "lon": graph.nodes[node]["x"]}
+                        for node in explored_nodes
+                    ],
+                    "totalSteps": step_count,
+                    "calcTime": round((time.time() - start_t) * 1000, 2),
+                    "startNode": start_node,
+                    "endNode": end_node,
+                    "openSetSize": len(open_set),
+                    "closedSetSize": len(closed_set),
+                }
+            )
+
         if current in closed_set:
             continue
         closed_set.add(current)
         explored_nodes.append(current)
-        
+
         # Record step
         current_lat = graph.nodes[current]["y"]
         current_lon = graph.nodes[current]["x"]
         h_current = haversine_distance(current_lat, current_lon, to_lat, to_lon)
-        
-        steps.append({
-            "step": step_count,
-            "currentNode": current,
-            "currentCoords": {"lat": round(current_lat, 5), "lon": round(current_lon, 5)},
-            "g": round(g_score.get(current, 0), 1),
-            "h": round(h_current, 1),
-            "f": round(f_score.get(current, 0), 1),
-            "openSetSize": len(open_set),
-            "closedSetSize": len(closed_set),
-            "formula": f"f(n) = {g_score.get(current, 0):.0f} + {h_current:.0f} = {f_score.get(current, 0):.0f}"
-        })
-        
+
+        steps.append(
+            {
+                "step": step_count,
+                "currentNode": current,
+                "currentCoords": {
+                    "lat": round(current_lat, 5),
+                    "lon": round(current_lon, 5),
+                },
+                "g": round(g_score.get(current, 0), 1),
+                "h": round(h_current, 1),
+                "f": round(f_score.get(current, 0), 1),
+                "openSetSize": len(open_set),
+                "closedSetSize": len(closed_set),
+                "formula": f"f(n) = {g_score.get(current, 0):.0f} + {h_current:.0f} = {f_score.get(current, 0):.0f}",
+            }
+        )
+
         for neighbor in graph.neighbors(current):
             if neighbor in closed_set:
                 continue
-            
+
             edge_data = graph[current][neighbor]
             edge_length = min(d.get("length", 10) for d in edge_data.values())
-            
+
             # Apply penalties
             mid_lat = (graph.nodes[current]["y"] + graph.nodes[neighbor]["y"]) / 2
             mid_lon = (graph.nodes[current]["x"] + graph.nodes[neighbor]["x"]) / 2
@@ -672,29 +640,34 @@ def astep_demo():
             rain_pen = rain_penalty_for_point(mid_lat, mid_lon)
             obs_pen = obstacle_penalty_for_point(mid_lat, mid_lon)
             total_weight = edge_length * traffic_pen * rain_pen * obs_pen
-            
+
             tentative_g = g_score[current] + total_weight
-            
-            if tentative_g < g_score.get(neighbor, float('inf')):
+
+            if tentative_g < g_score.get(neighbor, float("inf")):
                 came_from[neighbor] = current
                 g_score[neighbor] = tentative_g
                 h_neighbor = haversine_distance(
-                    graph.nodes[neighbor]["y"], graph.nodes[neighbor]["x"], to_lat, to_lon
+                    graph.nodes[neighbor]["y"],
+                    graph.nodes[neighbor]["x"],
+                    to_lat,
+                    to_lon,
                 )
                 h_score[neighbor] = h_neighbor
                 f_score[neighbor] = tentative_g + h_neighbor
                 heapq.heappush(open_set, (f_score[neighbor], neighbor))
-    
-    return jsonify({
-        "success": False,
-        "steps": steps,
-        "exploredPath": [
-            {"lat": graph.nodes[node]["y"], "lon": graph.nodes[node]["x"]}
-            for node in explored_nodes
-        ],
-        "totalSteps": step_count,
-        "calcTime": round((time.time() - start_t) * 1000, 2),
-    })
+
+    return jsonify(
+        {
+            "success": False,
+            "steps": steps,
+            "exploredPath": [
+                {"lat": graph.nodes[node]["y"], "lon": graph.nodes[node]["x"]}
+                for node in explored_nodes
+            ],
+            "totalSteps": step_count,
+            "calcTime": round((time.time() - start_t) * 1000, 2),
+        }
+    )
 
 
 @app.route("/api/insider")
@@ -702,7 +675,7 @@ def insider_comparison():
     """Compare A*, Dijkstra, Greedy Best-First, and BFS."""
     import heapq
     import time as py_time
-    
+
     try:
         from_lat = validate_coordinate(request.args.get("fromLat", 21.0285), "fromLat")
         from_lon = validate_coordinate(request.args.get("fromLon", 105.8542), "fromLon")
@@ -712,22 +685,29 @@ def insider_comparison():
         validate_lat_lon(to_lat, to_lon)
     except ValueError:
         return jsonify({"error": "Invalid coords"}), 400
-    
+
     graph, _, _ = get_road_graph()
     start_node = nearest_node_id(graph, from_lat, from_lon, _ox)
     end_node = nearest_node_id(graph, to_lat, to_lon, _ox)
-    
+
     def run_astar():
         """A* with penalties."""
         t0 = py_time.time()
         open_set = [(0, start_node)]
         came_from = {}
         g_score = {start_node: 0}
-        h_val = {start_node: haversine_distance(graph.nodes[start_node]["y"], graph.nodes[start_node]["x"], to_lat, to_lon)}
+        h_val = {
+            start_node: haversine_distance(
+                graph.nodes[start_node]["y"],
+                graph.nodes[start_node]["x"],
+                to_lat,
+                to_lon,
+            )
+        }
         f_score = {start_node: h_val[start_node]}
         closed = set()
         nodes_explored = 0
-        
+
         while open_set:
             _, current = heapq.heappop(open_set)
             if current == end_node:
@@ -737,28 +717,50 @@ def insider_comparison():
                     current = came_from[current]
                 path.append(start_node)
                 path.reverse()
-                return {"path_length": len(path), "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": True}
-            if current in closed: continue
+                return {
+                    "path_length": len(path),
+                    "nodes_explored": nodes_explored,
+                    "time_ms": round((py_time.time() - t0) * 1000, 2),
+                    "optimal": True,
+                }
+            if current in closed:
+                continue
             closed.add(current)
             nodes_explored += 1
-            
+
             for neighbor in graph.neighbors(current):
-                if neighbor in closed: continue
+                if neighbor in closed:
+                    continue
                 edge_data = graph[current][neighbor]
                 edge_len = min(d.get("length", 10) for d in edge_data.values())
                 mid_lat = (graph.nodes[current]["y"] + graph.nodes[neighbor]["y"]) / 2
                 mid_lon = (graph.nodes[current]["x"] + graph.nodes[neighbor]["x"]) / 2
-                w = edge_len * traffic_penalty_for_point(mid_lat, mid_lon) * rain_penalty_for_point(mid_lat, mid_lon) * obstacle_penalty_for_point(mid_lat, mid_lon)
+                w = (
+                    edge_len
+                    * traffic_penalty_for_point(mid_lat, mid_lon)
+                    * rain_penalty_for_point(mid_lat, mid_lon)
+                    * obstacle_penalty_for_point(mid_lat, mid_lon)
+                )
                 tg = g_score[current] + w
-                if tg < g_score.get(neighbor, float('inf')):
+                if tg < g_score.get(neighbor, float("inf")):
                     came_from[neighbor] = current
                     g_score[neighbor] = tg
-                    h = haversine_distance(graph.nodes[neighbor]["y"], graph.nodes[neighbor]["x"], to_lat, to_lon)
+                    h = haversine_distance(
+                        graph.nodes[neighbor]["y"],
+                        graph.nodes[neighbor]["x"],
+                        to_lat,
+                        to_lon,
+                    )
                     f = tg + h
                     f_score[neighbor] = f
                     heapq.heappush(open_set, (f, neighbor))
-        return {"path_length": 0, "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": False}
-    
+        return {
+            "path_length": 0,
+            "nodes_explored": nodes_explored,
+            "time_ms": round((py_time.time() - t0) * 1000, 2),
+            "optimal": False,
+        }
+
     def run_dijkstra():
         """Dijkstra (uninformed)."""
         t0 = py_time.time()
@@ -767,7 +769,7 @@ def insider_comparison():
         came_from = {}
         visited = set()
         nodes_explored = 0
-        
+
         while open_set:
             d, current = heapq.heappop(open_set)
             if current == end_node:
@@ -777,31 +779,45 @@ def insider_comparison():
                     current = came_from[current]
                 path.append(start_node)
                 path.reverse()
-                return {"path_length": len(path), "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": True}
-            if current in visited: continue
+                return {
+                    "path_length": len(path),
+                    "nodes_explored": nodes_explored,
+                    "time_ms": round((py_time.time() - t0) * 1000, 2),
+                    "optimal": True,
+                }
+            if current in visited:
+                continue
             visited.add(current)
             nodes_explored += 1
-            
+
             for neighbor in graph.neighbors(current):
-                if neighbor in visited: continue
+                if neighbor in visited:
+                    continue
                 edge_data = graph[current][neighbor]
                 w = min(d.get("length", 10) for d in edge_data.values())
                 nd = dist[current] + w
-                if nd < dist.get(neighbor, float('inf')):
+                if nd < dist.get(neighbor, float("inf")):
                     dist[neighbor] = nd
                     came_from[neighbor] = current
                     heapq.heappush(open_set, (nd, neighbor))
-        return {"path_length": 0, "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": False}
-    
+        return {
+            "path_length": 0,
+            "nodes_explored": nodes_explored,
+            "time_ms": round((py_time.time() - t0) * 1000, 2),
+            "optimal": False,
+        }
+
     def run_greedy():
         """Greedy Best-First (only heuristic)."""
         t0 = py_time.time()
-        h_start = haversine_distance(graph.nodes[start_node]["y"], graph.nodes[start_node]["x"], to_lat, to_lon)
+        h_start = haversine_distance(
+            graph.nodes[start_node]["y"], graph.nodes[start_node]["x"], to_lat, to_lon
+        )
         open_set = [(h_start, start_node)]
         came_from = {}
         visited = set()
         nodes_explored = 0
-        
+
         while open_set:
             _, current = heapq.heappop(open_set)
             if current == end_node:
@@ -811,27 +827,45 @@ def insider_comparison():
                     current = came_from[current]
                 path.append(start_node)
                 path.reverse()
-                return {"path_length": len(path), "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": False}
-            if current in visited: continue
+                return {
+                    "path_length": len(path),
+                    "nodes_explored": nodes_explored,
+                    "time_ms": round((py_time.time() - t0) * 1000, 2),
+                    "optimal": False,
+                }
+            if current in visited:
+                continue
             visited.add(current)
             nodes_explored += 1
-            
+
             for neighbor in graph.neighbors(current):
-                if neighbor in visited: continue
-                h = haversine_distance(graph.nodes[neighbor]["y"], graph.nodes[neighbor]["x"], to_lat, to_lon)
+                if neighbor in visited:
+                    continue
+                h = haversine_distance(
+                    graph.nodes[neighbor]["y"],
+                    graph.nodes[neighbor]["x"],
+                    to_lat,
+                    to_lon,
+                )
                 came_from[neighbor] = current
                 heapq.heappush(open_set, (h, neighbor))
-        return {"path_length": 0, "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": False}
-    
+        return {
+            "path_length": 0,
+            "nodes_explored": nodes_explored,
+            "time_ms": round((py_time.time() - t0) * 1000, 2),
+            "optimal": False,
+        }
+
     def run_bfs():
         """BFS (blind search)."""
         t0 = py_time.time()
         from collections import deque
+
         queue = deque([start_node])
         came_from = {start_node: None}
         visited = set([start_node])
         nodes_explored = 0
-        
+
         while queue:
             current = queue.popleft()
             if current == end_node:
@@ -840,35 +874,71 @@ def insider_comparison():
                     path.append(current)
                     current = came_from[current]
                 path.reverse()
-                return {"path_length": len(path), "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": True}
+                return {
+                    "path_length": len(path),
+                    "nodes_explored": nodes_explored,
+                    "time_ms": round((py_time.time() - t0) * 1000, 2),
+                    "optimal": True,
+                }
             nodes_explored += 1
-            
+
             for neighbor in graph.neighbors(current):
                 if neighbor not in visited:
                     visited.add(neighbor)
                     came_from[neighbor] = current
                     queue.append(neighbor)
-        return {"path_length": 0, "nodes_explored": nodes_explored, "time_ms": round((py_time.time()-t0)*1000, 2), "optimal": False}
-    
+        return {
+            "path_length": 0,
+            "nodes_explored": nodes_explored,
+            "time_ms": round((py_time.time() - t0) * 1000, 2),
+            "optimal": False,
+        }
+
     # Run all 4
     astar = run_astar()
     dijkstra = run_dijkstra()
     greedy = run_greedy()
     bfs = run_bfs()
-    
+
     # Find best path length for optimality check
-    best_path = min(p["path_length"] for p in [astar, dijkstra, greedy, bfs] if p["path_length"] > 0)
-    
-    return jsonify({
-        "algorithms": {
-            "A*": astar,
-            "Dijkstra": dijkstra,
-            "Greedy Best-First": greedy,
-            "BFS": bfs,
-        },
-        "best_path_length": best_path,
-        "from": {"lat": from_lat, "lon": from_lon},
-        "to": {"lat": to_lat, "lon": to_lon},
-    })
+    best_path = min(
+        p["path_length"] for p in [astar, dijkstra, greedy, bfs] if p["path_length"] > 0
+    )
+
+    return jsonify(
+        {
+            "algorithms": {
+                "A*": astar,
+                "Dijkstra": dijkstra,
+                "Greedy Best-First": greedy,
+                "BFS": bfs,
+            },
+            "best_path_length": best_path,
+            "from": {"lat": from_lat, "lon": from_lon},
+            "to": {"lat": to_lat, "lon": to_lon},
+        }
+    )
 
 
+@app.route("/api/classical/compare")
+def classical_compare():
+    try:
+        from_lat = validate_coordinate(request.args.get("fromLat", 21.0285), "fromLat")
+        from_lon = validate_coordinate(request.args.get("fromLon", 105.8542), "fromLon")
+        to_lat = validate_coordinate(request.args.get("toLat", 21.0355), "toLat")
+        to_lon = validate_coordinate(request.args.get("toLon", 105.8516), "toLon")
+        validate_lat_lon(from_lat, from_lon)
+        validate_lat_lon(to_lat, to_lon)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    graph, _, _ = get_road_graph()
+    start_node = nearest_node_id(graph, from_lat, from_lon, _ox)
+    end_node = nearest_node_id(graph, to_lat, to_lon, _ox)
+    payload = compare_classical_algorithms(graph, start_node, end_node, to_lat, to_lon)
+    payload["from"] = {"lat": from_lat, "lon": from_lon, "nodeId": start_node}
+    payload["to"] = {"lat": to_lat, "lon": to_lon, "nodeId": end_node}
+    payload["note"] = (
+        "Classical AI compare uses base edge length only (no rain/traffic/obstacle penalties)."
+    )
+    return jsonify(payload)

@@ -11,7 +11,6 @@ def create_metrics():
         "pathLengths": [],
     }
 
-
 def record_route_metrics(metrics, calc_time_ms, nodes_explored, path_length):
     metrics["totalCalculations"] += 1
     metrics["lastCalculationTime"] = calc_time_ms

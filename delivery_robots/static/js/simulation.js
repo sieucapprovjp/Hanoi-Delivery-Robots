@@ -18,6 +18,23 @@ class Simulation {
         this.totalBatteryConsumed = 0;
         this.lastDecisionCost = 0;
         this.latestDecision = null;
+        this.fleetAlgorithm = 'astar';
+        this.algorithmStats = {
+            astar: this.createAlgoStats(),
+            dijkstra: this.createAlgoStats(),
+            gbfs: this.createAlgoStats()
+        };
+    }
+
+    createAlgoStats() {
+        return {
+            routeCount: 0,
+            totalRouteTimeMs: 0,
+            totalNodesExplored: 0,
+            totalPathCost: 0,
+            deliveriesCompleted: 0,
+            rerouteCount: 0
+        };
     }
 
     async initialize() {
@@ -25,6 +42,7 @@ class Simulation {
         pathfindingManager = new Pathfinding();
         mapManager = new HanoiMap();
         mapManager.initializeMap();
+        window.mapManager = mapManager;
 
         const [startA, startB, startC, startD, startE] = await Promise.all([
             pathfindingManager.snapToRoad(21.0285, 105.8542),
@@ -36,11 +54,11 @@ class Simulation {
 
         // Robots
         this.robots = [
-            new DeliveryRobot(0, startA.lat, startA.lon, 'Robot α', '#4285f4'),
-            new DeliveryRobot(1, startB.lat, startB.lon, 'Robot β', '#34a853'),
-            new DeliveryRobot(2, startC.lat, startC.lon, 'Robot γ', '#fbbc04'),
-            new DeliveryRobot(3, startD.lat, startD.lon, 'Robot δ', '#ff6b6b'),
-            new DeliveryRobot(4, startE.lat, startE.lon, 'Robot ε', '#845ef7')
+            new DeliveryRobot(0, startA.lat, startA.lon, 'Robot α', '#4285f4', this.fleetAlgorithm),
+            new DeliveryRobot(1, startB.lat, startB.lon, 'Robot β', '#34a853', this.fleetAlgorithm),
+            new DeliveryRobot(2, startC.lat, startC.lon, 'Robot γ', '#fbbc04', this.fleetAlgorithm),
+            new DeliveryRobot(3, startD.lat, startD.lon, 'Robot δ', '#ff6b6b', this.fleetAlgorithm),
+            new DeliveryRobot(4, startE.lat, startE.lon, 'Robot ε', '#845ef7', this.fleetAlgorithm)
         ];
 
         this.robots.forEach(robot => robot.createMarker(mapManager.map));
@@ -53,6 +71,47 @@ class Simulation {
         console.log('✓ Ready - Click START!');
         logEvent('🚀 Click START to begin!');
         addDispatchInsight('Dispatch engine online. Monitoring queue pressure, weather, and traffic.', 'neutral');
+        this.updateFleetAlgorithmLabel();
+        this.updateAlgorithmComparison();
+    }
+
+    setFleetAlgorithm(algo) {
+        const normalized = (algo || '').toLowerCase();
+        if (!['astar', 'dijkstra', 'gbfs'].includes(normalized)) return;
+
+        this.fleetAlgorithm = normalized;
+        this.algorithmStats = {
+            astar: this.createAlgoStats(),
+            dijkstra: this.createAlgoStats(),
+            gbfs: this.createAlgoStats()
+        };
+
+        this.robots.forEach(robot => {
+            robot.routeAlgorithm = normalized;
+            if (robot.currentDelivery && robot.status === 'moving') {
+                robot.currentDeliveryAlgorithm = normalized;
+            }
+        });
+
+        this.updateFleetAlgorithmLabel();
+        this.updateRobotStatus();
+        this.updateAlgorithmComparison();
+        logEvent(`🧠 Fleet AI switched to ${normalized.toUpperCase()} for all robots`);
+        addDispatchInsight(`Fleet benchmark mode: all 5 robots now use ${normalized.toUpperCase()}. Metrics reset for fair comparison.`, 'neutral');
+    }
+
+    updateFleetAlgorithmLabel() {
+        const labelMap = {
+            astar: 'A*',
+            dijkstra: 'Dijkstra',
+            gbfs: 'GBFS'
+        };
+        const label = document.getElementById('fleet-algo-current');
+        if (label) label.textContent = labelMap[this.fleetAlgorithm] || 'A*';
+        const academicLabel = document.getElementById('academic-fleet-algo');
+        if (academicLabel) academicLabel.textContent = labelMap[this.fleetAlgorithm] || 'A*';
+        const select = document.getElementById('fleet-algo-select');
+        if (select) select.value = this.fleetAlgorithm;
     }
 
     async generateDelivery() {
@@ -149,10 +208,30 @@ class Simulation {
 
         delivery.priorityScore = this.calculatePriorityScore(delivery);
         this.pendingDeliveries.push(delivery);
-        this.updateDeliveryQueue();
+
+        // 🧠 Log delivery coordinates for k-means optimization
+        this.logDeliveryData(delivery);
     }
 
+    async logDeliveryData(delivery) {
+        try {
+            await fetch('/api/log_delivery', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    pickupLat: delivery.pickup.lat,
+                    pickupLon: delivery.pickup.lon,
+                    dropoffLat: delivery.destination.lat,
+                    dropoffLon: delivery.destination.lon
+                })
+            });
+        } catch (e) {
+            console.error('Failed to log delivery data', e);
+        }
+    }
+ 
     async assignDeliveries() {
+
         for (let i = this.pendingDeliveries.length - 1; i >= 0; i--) {
             this.pendingDeliveries.forEach(delivery => {
                 delivery.priorityScore = this.calculatePriorityScore(delivery);
@@ -216,6 +295,7 @@ class Simulation {
         this.updateRobotStatus();
         this.updateAnalytics();
         this.updateLatestDecision();
+        this.updateAlgorithmComparison();
     }
 
     start() {
@@ -249,6 +329,11 @@ class Simulation {
         this.totalBatteryConsumed = 0;
         this.lastDecisionCost = 0;
         this.latestDecision = null;
+        this.algorithmStats = {
+            astar: this.createAlgoStats(),
+            dijkstra: this.createAlgoStats(),
+            gbfs: this.createAlgoStats()
+        };
         
         const [startA, startB, startC, startD, startE] = await Promise.all([
             pathfindingManager.snapToRoad(21.0285, 105.8542),
@@ -270,24 +355,68 @@ class Simulation {
             robot.currentPath = [];
             robot.pathIndex = 0;
             robot.currentDelivery = null;
+            robot.currentDeliveryAlgorithm = null;
             robot.isRouting = false;
             robot.lastRouteEtaMinutes = 0;
             robot.lastRouteBreakdown = null;
+            robot.routeAlgorithm = this.fleetAlgorithm;
             robot.clearPathLine();
             if (robot.marker) robot.marker.setLatLng([robot.lat, robot.lon]);
         });
-
+ 
         for (let i = 0; i < 6; i++) await this.generateDelivery();
-        
+ 
         logEvent('🔄 Reset');
         addDispatchInsight('Dispatch state reset. Queue rebuilt and analytics cleared.', 'neutral');
         this.updateStats();
+        this.updateFleetAlgorithmLabel();
         this.updateRobotStatus();
         this.updateAnalytics();
         this.updateLatestDecision();
+        this.updateAlgorithmComparison();
     }
 
+    async optimizeHubs() {
+        logEvent('🧠 Optimizing hub locations...');
+        addDispatchInsight('Running k-means clustering on delivery hotspots to reposition fleet...', 'neutral');
+        
+        try {
+            const res = await fetch('/api/optimize-hubs', { method: 'POST' });
+            const data = await res.json();
+            
+            if (!res.ok) throw new Error(data.error || 'Optimization failed');
+            
+            const hubs = data.hubs;
+            
+            // Relocate robots to optimal centroids
+            this.robots.forEach((robot, i) => {
+                if (i < hubs.length) {
+                    const hub = hubs[i];
+                    robot.lat = hub.lat;
+                    robot.lon = hub.lon;
+                    robot.status = 'idle';
+                    robot.currentPath = [];
+                    robot.clearPathLine();
+                    if (robot.marker) robot.marker.setLatLng([robot.lat, robot.lon]);
+                }
+            });
+            
+            logEvent('✅ Hubs optimized!');
+            addDispatchInsight(`Fleet repositioned to ${hubs.length} optimal centroids. Check map for new starting points.`, 'good');
+            
+            // Optional: visualize hubs on map
+            if (window.mapManager) {
+                window.mapManager.drawHubs(hubs);
+            }
+            
+        } catch (e) {
+            logEvent('❌ Optimization failed');
+            addDispatchInsight(`Hub optimization error: ${e.message}`, 'warn');
+        }
+    }
+ 
     updateStats() {
+
         const el = id => document.getElementById(id);
         if (el('total-deliveries')) el('total-deliveries').textContent = this.totalDeliveries;
         if (el('total-distance')) el('total-distance').textContent = `${(this.totalDistance / 1000).toFixed(2)} km`;
@@ -315,12 +444,96 @@ class Simulation {
                 <div class="robot-detail">${robot.getStatusText()}</div>
                 <div class="robot-detail">📦 ${robot.totalDeliveries} | ${robot.totalDistance.toFixed(0)}m | ⏱ ${robot.getEtaText()}</div>
                 <div class="robot-detail">🎯 ${robot.routeMode || 'standby'} | 🔋 ${robot.battery.toFixed(0)}%</div>
+                <div class="robot-detail">🧠 <strong>${robot.routeAlgorithm.toUpperCase()}</strong></div>
                 <div class="battery-bar">
                     <div class="battery-fill" style="width:${robot.battery}%;background:${robot.battery>60?'#34a853':robot.battery>30?'#fbbc04':'#ea4335'}"></div>
                 </div>
             `;
             container.appendChild(card);
         });
+    }
+
+    recordRouteMetrics(algo, route) {
+        const bucket = this.algorithmStats[algo];
+        if (!bucket) return;
+
+        bucket.routeCount += 1;
+        bucket.totalRouteTimeMs += route.timeMs || 0;
+        bucket.totalNodesExplored += route.nodesExplored || 0;
+        bucket.totalPathCost += route.pathCost || route.distance || 0;
+    }
+
+    recordDeliveryCompleted(algo) {
+        const bucket = this.algorithmStats[algo];
+        if (bucket) bucket.deliveriesCompleted += 1;
+    }
+
+    recordReroute(algo) {
+        const bucket = this.algorithmStats[algo];
+        if (bucket) bucket.rerouteCount += 1;
+    }
+
+    calculateEfficiencyScore(stats) {
+        const totalPathCostKm = stats.totalPathCost / 1000;
+        const avgTimeMs = stats.routeCount > 0 ? stats.totalRouteTimeMs / stats.routeCount : 0;
+        const avgNodes = stats.routeCount > 0 ? stats.totalNodesExplored / stats.routeCount : 0;
+
+        const denominator = totalPathCostKm + (0.02 * avgTimeMs) + (0.005 * avgNodes) + (0.5 * stats.rerouteCount) + 1;
+        return stats.deliveriesCompleted / denominator;
+    }
+
+    updateAlgorithmComparison() {
+        const table = document.getElementById('algo-comparison-table');
+        if (!table) return;
+
+        const label = {
+            astar: 'A*',
+            dijkstra: 'Dijkstra',
+            gbfs: 'GBFS'
+        };
+
+        const rows = ['astar', 'dijkstra', 'gbfs'].map(algo => {
+            const stats = this.algorithmStats[algo];
+            const avgTimeMs = stats.routeCount > 0 ? stats.totalRouteTimeMs / stats.routeCount : 0;
+            const avgNodes = stats.routeCount > 0 ? stats.totalNodesExplored / stats.routeCount : 0;
+            const avgPathCost = stats.routeCount > 0 ? stats.totalPathCost / stats.routeCount : 0;
+            const efficiency = this.calculateEfficiencyScore(stats);
+            const isActive = algo === this.fleetAlgorithm;
+
+            return `
+                <tr style="background:${isActive ? '#e8f0fe' : 'transparent'};">
+                    <td><strong>${label[algo]}</strong></td>
+                    <td>${stats.deliveriesCompleted}</td>
+                    <td>${avgTimeMs.toFixed(1)} ms</td>
+                    <td>${avgNodes.toFixed(0)}</td>
+                    <td>${avgPathCost.toFixed(0)} m</td>
+                    <td>${stats.rerouteCount}</td>
+                    <td><strong>${efficiency.toFixed(3)}</strong></td>
+                </tr>
+            `;
+        }).join('');
+
+        table.innerHTML = `
+            <table style="width:100%;font-size:11px;border-collapse:collapse;">
+                <thead>
+                    <tr style="background:#f1f3f4;">
+                        <th style="padding:6px;text-align:left;">Algorithm</th>
+                        <th style="padding:6px;text-align:center;">Deliveries</th>
+                        <th style="padding:6px;text-align:center;">Avg Time</th>
+                        <th style="padding:6px;text-align:center;">Avg Nodes</th>
+                        <th style="padding:6px;text-align:center;">Avg Cost</th>
+                        <th style="padding:6px;text-align:center;">Reroutes</th>
+                        <th style="padding:6px;text-align:center;">Efficiency</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        `;
+
+        const academicTable = document.getElementById('academic-algo-comparison-table');
+        if (academicTable) {
+            academicTable.innerHTML = table.innerHTML;
+        }
     }
 
     updateLatestDecision() {
@@ -348,27 +561,6 @@ class Simulation {
                 <div>Chosen total cost: <strong style="color:#1a73e8;">${d.breakdown.totalCost.toFixed(0)}m</strong></div>
             </div>
         `;
-    }
-
-    updateDeliveryQueue() {
-        const container = document.getElementById('delivery-queue');
-        if (!container) return;
-        
-        container.innerHTML = '';
-
-        this.pendingDeliveries.slice(0, 10).forEach(d => {
-            const item = document.createElement('div');
-            item.className = 'delivery-item';
-            item.innerHTML = `
-                <div class="delivery-id">Order #${d.id} <span class="delivery-priority">Priority ${d.priorityScore.toFixed(1)}</span></div>
-                <div class="delivery-route">
-                    <span class="delivery-stop pickup">${d.theme?.pickupIcon || '📦'} Pickup ${d.pickup.name}</span>
-                    <span class="delivery-arrow">→</span>
-                    <span class="delivery-stop dropoff">${d.theme?.dropoffIcon || '📍'} Drop ${d.destination.name}</span>
-                </div>
-            `;
-            container.appendChild(item);
-        });
     }
 
     updateAnalytics() {
@@ -432,7 +624,14 @@ class Simulation {
 
         for (const robot of robots) {
             try {
-                const route = await pathfindingManager.getRoute(robot.lat, robot.lon, delivery.pickup.lat, delivery.pickup.lon);
+                const route = await pathfindingManager.getRoute(
+                    robot.lat,
+                    robot.lon,
+                    delivery.pickup.lat,
+                    delivery.pickup.lon,
+                    robot.roadMemory,
+                    robot.routeAlgorithm
+                );
                 const breakdown = pathfindingManager.estimateRouteCost(route);
                 const batteryRisk = robot.estimateBatteryRisk(breakdown.totalCost);
                 const totalScore = breakdown.totalCost + batteryRisk * 120 - delivery.priorityScore * 18;

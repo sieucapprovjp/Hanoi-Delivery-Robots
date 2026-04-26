@@ -1,6 +1,5 @@
 from .geo_utils import haversine_distance
 
-
 def nearest_node_id(graph, lat, lon, ox=None):
     if ox is not None:
         try:
@@ -19,7 +18,6 @@ def nearest_node_id(graph, lat, lon, ox=None):
 
     return best_node_id
 
-
 def edge_geometry_coordinates(graph, from_node, to_node, edge_data):
     geometry = edge_data.get("geometry")
 
@@ -32,7 +30,6 @@ def edge_geometry_coordinates(graph, from_node, to_node, edge_data):
         ]
 
     return [{"lat": lat, "lon": lon} for lon, lat in geometry.coords]
-
 
 def build_route_response(
     graph,
@@ -47,7 +44,6 @@ def build_route_response(
     traffic_cost = 0.0
     rain_cost = 0.0
     obstacle_cost = 0.0
-
     for idx in range(len(route_nodes) - 1):
         from_node = route_nodes[idx]
         to_node = route_nodes[idx + 1]
@@ -92,5 +88,4 @@ def build_route_response(
             "totalCost": round(total_cost, 1),
             "estimatedMinutes": round(total_cost / 180, 1),
         }
-
     return response

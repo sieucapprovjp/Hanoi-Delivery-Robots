@@ -1,11 +1,12 @@
 class Pathfinding {
-    async getRoute(startLat, startLon, endLat, endLon, roadMemory = {}) {
+    async getRoute(startLat, startLon, endLat, endLon, roadMemory = {}, algo = 'astar') {
         const params = new URLSearchParams({
             fromLat: startLat,
             fromLon: startLon,
             toLat: endLat,
             toLon: endLon,
-            memory: JSON.stringify(roadMemory)
+            memory: JSON.stringify(roadMemory),
+            algo
         });
 
         const response = await fetch(`/api/route?${params.toString()}`);

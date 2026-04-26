@@ -5,25 +5,33 @@ let trafficPolylines = [];
 let obstacleCircles = [];
 let weatherModeEnabled = false;
 let insiderLayers = [];
+let trafficPointA = null;
+let trafficPointMarkerA = null;
 
 function logEvent(message) {
-    const el = document.getElementById('event-log');
-    if (!el) return;
-    const entry = document.createElement('div');
-    entry.className = 'log-entry';
-    entry.innerHTML = `<span class="timestamp">[${new Date().toLocaleTimeString()}]</span>${message}`;
-    el.insertBefore(entry, el.firstChild);
-    while (el.children.length > 100) el.removeChild(el.lastChild);
+    fetch('/api/logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            message,
+            level: 'info',
+            source: 'ui',
+            ts: Date.now()
+        })
+    }).catch(() => {});
 }
 
 function addDispatchInsight(message, tone = 'neutral') {
-    const el = document.getElementById('dispatch-insights');
-    if (!el) return;
-    const entry = document.createElement('div');
-    entry.className = `dispatch-entry ${tone}`;
-    entry.innerHTML = `<span class="dispatch-time">${new Date().toLocaleTimeString()}</span><span class="dispatch-text">${message}</span>`;
-    el.insertBefore(entry, el.firstChild);
-    while (el.children.length > 20) el.removeChild(el.lastChild);
+    fetch('/api/logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            message,
+            level: tone,
+            source: 'dispatch',
+            ts: Date.now()
+        })
+    }).catch(() => {});
 }
 
 function togglePanel(btnId, panelSelector, onOpen, onClose) {
@@ -63,6 +71,11 @@ function setupControls() {
     document.getElementById('start-btn')?.addEventListener('click', () => simulation?.start());
     document.getElementById('pause-btn')?.addEventListener('click', () => simulation?.pause());
     document.getElementById('reset-btn')?.addEventListener('click', () => simulation?.reset());
+    document.getElementById('optimize-hubs-btn')?.addEventListener('click', () => simulation?.optimizeHubs());
+    document.getElementById('apply-fleet-algo-btn')?.addEventListener('click', () => {
+        const selected = document.getElementById('fleet-algo-select')?.value || 'astar';
+        simulation?.setFleetAlgorithm(selected);
+    });
     
     const slider = document.getElementById('speed-slider');
     const speedVal = document.getElementById('speed-value');
@@ -73,10 +86,8 @@ function setupControls() {
 
     // All panel toggles
     togglePanel('toggle-robots', '.robot-panel');
-    togglePanel('toggle-deliveries', '.delivery-panel');
-    togglePanel('toggle-log', '.log-panel');
-    togglePanel('toggle-dispatch', '.dispatch-panel');
-    togglePanel('toggle-analytics', '.analytics-panel');
+    // Hidden for simplified exam mode
+    // togglePanel('toggle-dispatch', '.dispatch-panel');
     togglePanel('toggle-computing', '.computing-panel', () => {
         const content = document.getElementById('computing-content');
         if (content && content.dataset.robotId && simulation?.robots) {
@@ -86,18 +97,17 @@ function setupControls() {
     });
     togglePanel('toggle-decision', '.decision-panel', fetchMetrics);
     togglePanel('toggle-weather', '.weather-panel', () => { weatherModeEnabled = true; }, () => { weatherModeEnabled = false; });
-    togglePanel('toggle-insider', '.insider-panel', null, clearInsiderLayers);
+    // togglePanel('toggle-insider', '.insider-panel', null, clearInsiderLayers);
 
     // Close buttons
-    document.getElementById('close-dispatch-panel')?.addEventListener('click', () => document.querySelector('.dispatch-panel').style.display = 'none');
-    document.getElementById('close-analytics-panel')?.addEventListener('click', () => document.querySelector('.analytics-panel').style.display = 'none');
+    // document.getElementById('close-dispatch-panel')?.addEventListener('click', () => document.querySelector('.dispatch-panel').style.display = 'none');
     document.getElementById('close-decision-panel')?.addEventListener('click', () => document.querySelector('.decision-panel').style.display = 'none');
     document.getElementById('close-weather-panel')?.addEventListener('click', () => { document.querySelector('.weather-panel').style.display = 'none'; weatherModeEnabled = false; });
     document.getElementById('close-computing-panel')?.addEventListener('click', () => document.querySelector('.computing-panel').style.display = 'none');
-    document.getElementById('close-insider-panel')?.addEventListener('click', () => {
-        document.querySelector('.insider-panel').style.display = 'none';
-        clearInsiderLayers();
-    });
+    // document.getElementById('close-insider-panel')?.addEventListener('click', () => {
+    //     document.querySelector('.insider-panel').style.display = 'none';
+    //     clearInsiderLayers();
+    // });
 }
 
 function setupWeather() {
@@ -109,7 +119,7 @@ function setupWeather() {
             weatherMode = this.dataset.mode;
             document.getElementById('rain-controls').style.display = weatherMode === 'rain' ? 'block' : 'none';
             document.getElementById('traffic-controls').style.display = weatherMode === 'traffic' ? 'block' : 'none';
-            document.getElementById('obstacle-controls').style.display = weatherMode === 'obstacle' ? 'block' : 'none';
+            document.getElementById('obstacle-controls').style.display = 'none';
         });
     });
 
@@ -132,6 +142,7 @@ function setupWeather() {
     // Actions
     document.getElementById('randomize-rain-btn')?.addEventListener('click', randomizeRain);
     document.getElementById('clear-rain-btn')?.addEventListener('click', clearRain);
+    document.getElementById('reset-traffic-points-btn')?.addEventListener('click', resetTrafficPoints);
     document.getElementById('randomize-traffic-btn')?.addEventListener('click', randomizeTraffic);
     document.getElementById('clear-traffic-btn')?.addEventListener('click', clearTraffic);
     document.getElementById('randomize-obstacle-btn')?.addEventListener('click', randomizeObstacles);
@@ -144,7 +155,7 @@ function setupWeather() {
             map.on('click', function(e) {
                 if (!weatherModeEnabled) return;
                 if (weatherMode === 'rain') addRainZone(e.latlng.lat, e.latlng.lng, +document.getElementById('rain-radius').value);
-                else if (weatherMode === 'obstacle') addObstacle(e.latlng.lat, e.latlng.lng, +document.getElementById('obstacle-radius').value, +document.getElementById('obstacle-severity').value);
+                else if (weatherMode === 'traffic') handleTrafficClick(e.latlng.lat, e.latlng.lng);
             });
             console.log('Map click listener ready');
         } else {
@@ -157,6 +168,66 @@ function setupWeather() {
     updateRainList().catch(()=>{});
     updateTrafficList().catch(()=>{});
     updateObstacleList().catch(()=>{});
+}
+
+function resetTrafficPoints() {
+    trafficPointA = null;
+    if (trafficPointMarkerA && window.map) window.map.removeLayer(trafficPointMarkerA);
+    trafficPointMarkerA = null;
+    logEvent('🔄 Traffic points reset');
+}
+
+function handleTrafficClick(lat, lon) {
+    if (!window.map) return;
+
+    const severity = +document.getElementById('traffic-severity')?.value || 0.7;
+
+    if (!trafficPointA) {
+        trafficPointA = { lat, lon };
+        if (trafficPointMarkerA) window.map.removeLayer(trafficPointMarkerA);
+        trafficPointMarkerA = L.circleMarker([lat, lon], {
+            radius: 7,
+            color: '#ea4335',
+            fillColor: '#ea4335',
+            fillOpacity: 1
+        }).addTo(window.map);
+        trafficPointMarkerA.bindPopup('<strong>Traffic start</strong><br>Click another point to set the end.');
+        logEvent('🚗 Traffic start set');
+        return;
+    }
+
+    const trafficPointB = { lat, lon };
+    addTrafficRoute(trafficPointA, trafficPointB, severity).finally(() => resetTrafficPoints());
+}
+
+async function addTrafficRoute(start, end, severity) {
+    const res = await fetch('/api/traffic/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            startLat: start.lat,
+            startLon: start.lon,
+            endLat: end.lat,
+            endLon: end.lon,
+            severity
+        })
+    });
+    const d = await res.json();
+    if (!res.ok) {
+        logEvent('❌ Traffic: ' + (d.error || res.status));
+        return;
+    }
+
+    const route = d.route;
+    if (route?.path?.length) {
+        trafficPolylines.push(
+            L.polyline(route.path.map(p => [p.lat, p.lon]), { color: '#ea4335', weight: 5, opacity: 0.7 })
+                .addTo(window.map)
+                .bindPopup(`<strong>${route.name}</strong><br>Severity: ${route.severity.toFixed(2)}`)
+        );
+    }
+    updateTrafficList().catch(() => {});
+    logEvent('🚗 ' + route.name);
 }
 
 function clearInsiderLayers() {
