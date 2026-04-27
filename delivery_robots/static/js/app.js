@@ -100,6 +100,14 @@ function setupControls() {
     // togglePanel('toggle-insider', '.insider-panel', null, clearInsiderLayers);
 
     // Close buttons
+    document.getElementById('close-panel')?.addEventListener('click', () => {
+        const panel = document.querySelector('.control-panel');
+        if (panel) panel.style.display = 'none';
+    });
+    document.getElementById('close-robot-panel')?.addEventListener('click', () => {
+        const panel = document.querySelector('.robot-panel');
+        if (panel) panel.style.display = 'none';
+    });
     // document.getElementById('close-dispatch-panel')?.addEventListener('click', () => document.querySelector('.dispatch-panel').style.display = 'none');
     document.getElementById('close-decision-panel')?.addEventListener('click', () => document.querySelector('.decision-panel').style.display = 'none');
     document.getElementById('close-weather-panel')?.addEventListener('click', () => { document.querySelector('.weather-panel').style.display = 'none'; weatherModeEnabled = false; });
