@@ -16,7 +16,7 @@ Trạng thái của toàn bộ ứng dụng (Application State) được quản 
 Toàn bộ logic backend nằm trong thư mục `delivery_robots/`, được phân chia thành các sub-package như sau:
 
 - **`core/`**: Chứa các cấu trúc dữ liệu cốt lõi, quản lý môi trường và bản đồ (Environment, Graph, Hubs).
-- **`algorithms/`**: Nơi triển khai các thuật toán tìm đường (A*, Dijkstra, GBFS, Insider) và logic tính toán trọng số tùy chỉnh.
+- **`algorithms/`**: Nơi triển khai các thuật toán tìm đường (A*, Dijkstra, GBFS, Insider) và module điều phối (**Dispatching**) phân bổ nhiệm vụ cho Robot.
 - **`routes/`**: Nơi định nghĩa các API endpoints chia theo nhóm (main_routes, environment_routes).
 - **`utils/`**: Các hàm tiện ích hỗ trợ về địa lý (Geo), đánh giá hiệu suất thuật toán (Metrics), phân tích tuyến đường và kiểm tra dữ liệu đầu vào (Validation).
 
@@ -67,11 +67,15 @@ Cung cấp các API chuyên sâu phục vụ mục đích Debug và Vẽ trực 
 - `run_astep_demo`: Chạy A* step-by-step. Thuật toán giới hạn vòng lặp (`max_steps=30`) và ghi nhận lại lịch sử mở từng node (ghi lại `g`, `h`, `f`), kích thước danh sách `open_set`, `closed_set` tại mỗi bước.
 - `run_insider_comparison`: Tính toán đồng thời A*, Dijkstra, GBFS, và BFS với MỌI ràng buộc môi trường (có penalty) để so sánh về chi phí (Nodes Explored, Time) trong điều kiện thực tế khắc nghiệt.
 
-### 3.4. Logic Phân chia Nhiệm vụ (Task Allocation / Dispatching)
-*Lưu ý kiến trúc:* 
-- Bản thân logic gán đơn hàng cho robot **được thực hiện ở phía Frontend** (nằm trong class `Simulation` của file `simulation.js`).
-- Tuy nhiên, để Frontend ra quyết định, Backend đóng vai trò như hệ thống **Oracle**. Frontend liên tục gọi API Route của Backend để lấy chi phí thực tế (`totalCost`) từ vị trí mỗi robot đến điểm đón khách hàng. 
-- Backend cung cấp các metric gồm quãng đường, thời gian ETA dự kiến, và rủi ro hết pin (battery risk) dựa trên thuật toán Pathfinding để Frontend tính điểm (Priority Score) và chọn Robot ưu việt nhất.
+### 3.4. Logic Phân chia Nhiệm vụ (Task Allocation / Dispatching - `dispatch/allocation.py`)
+Mô-đun này chịu trách nhiệm ghép nối tối ưu giữa đơn hàng (Deliveries) và Robot:
+- **Priority Score (`calculate_priority_score`)**: Tính toán độ ưu tiên của đơn hàng dựa trên thời gian chờ (`wait_minutes`) và loại hình địa điểm (ví dụ: Nhà hàng có trọng số cao hơn Nhà dân). Công thức: `p_weight + d_weight + wait_minutes * 2.8`.
+- **Hệ thống Điều phối (`assign_deliveries`)**:
+    - Sắp xếp đơn hàng theo điểm ưu tiên giảm dần.
+    - Với mỗi đơn hàng, tính toán điểm số tổng hợp (`totalScore`) cho từng robot rảnh rỗi.
+    - **Total Score** bao gồm: Chi phí đường đi (`totalCost`), Rủi ro pin (`batteryRisk`) và Điểm ưu tiên của đơn hàng.
+    - Kết quả trả về bao gồm danh sách gán (assignments) kèm theo **toàn bộ dữ liệu tuyến đường (Route Payload)** để Frontend không cần gọi thêm API tìm đường sau khi đã gán nhiệm vụ.
+
 
 ---
 
@@ -81,6 +85,7 @@ Các API của hệ thống chia làm 2 nhóm chính: điều khiển ứng dụ
 
 ### 4.1. Main Routes (`/api/...`)
 - `GET /api/route`: Trả về mảng tọa độ đường đi tối ưu giữa `fromLat`, `fromLon` và `toLat`, `toLon` dựa trên thuật toán `algo` (astar, dijkstra, gbfs). Bao gồm `costBreakdown` chi tiết các loại penalty.
+- `POST /api/dispatch/assign`: Endpoint trung tâm để phân bổ nhiệm vụ. Nhận vào danh sách Robots và Deliveries hiện tại, trả về danh sách gán tối ưu kèm lộ trình chi tiết cho từng cặp.
 - `GET /api/snap`: Tìm node giao thông gần nhất của tọa độ cho trước (chức năng Snap to road).
 - `POST /api/log_delivery`: Ghi nhận tọa độ giao/nhận hàng thành công phục vụ cho thuật toán tối ưu sau này.
 - `POST /api/optimize-hubs`: Gọi hàm K-Means lấy danh sách 5 tọa độ Hub mới.
