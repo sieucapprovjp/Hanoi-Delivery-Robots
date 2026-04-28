@@ -1,0 +1,35 @@
+{
+  "currentTime": 1700000000000,
+  "robots": [
+    {
+      "id": 0,
+      "name": "Robot alpha",
+      "lat": 21.0285,
+      "lon": 105.8542,
+      "battery": 100,
+      "roadMemory": {},
+      "routeAlgorithm": "astar"
+    }
+  ],
+  "deliveries": [
+    {
+      "id": 1,
+      "pickup": {
+        "lat": 21.0355,
+        "lon": 105.8516,
+        "name": "Dong Xuan Market"
+      },
+      "destination": {
+        "lat": 21.0240,
+        "lon": 105.8480,
+        "name": "Trang Tien Plaza"
+      },
+      "status": "pending",
+      "createdAt": 1699999900000,
+      "theme": {
+        "pickupCategory": "market",
+        "dropoffCategory": "retail"
+      }
+    }
+  ]
+}

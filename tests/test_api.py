@@ -3,7 +3,6 @@ import importlib
 
 import networkx as nx
 
-import delivery_robots as appmod
 appcore = importlib.import_module("delivery_robots.app")
 
 

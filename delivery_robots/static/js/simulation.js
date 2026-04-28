@@ -203,10 +203,8 @@ class Simulation {
                 pickupIcon: pickup.icon,
                 dropoffIcon: dest.icon
             },
-            priorityScore: 0
         };
 
-        delivery.priorityScore = this.calculatePriorityScore(delivery);
         this.pendingDeliveries.push(delivery);
 
         // 🧠 Log delivery coordinates for k-means optimization
@@ -229,7 +227,7 @@ class Simulation {
             console.error('Failed to log delivery data', e);
         }
     }
- 
+
     async assignDeliveries() {
         const candidateRobots = this.robots.filter(r => r.status === 'idle' && r.currentLoad < r.capacity && !r.isRouting);
         if (candidateRobots.length === 0 || this.pendingDeliveries.length === 0) return;
@@ -261,7 +259,7 @@ class Simulation {
                 const deliveryIndex = this.pendingDeliveries.findIndex(d => d.id === best.deliveryId);
                 if (deliveryIndex === -1) continue;
                 const delivery = this.pendingDeliveries[deliveryIndex];
-                
+
                 const robot = this.robots.find(r => r.id === best.robotId);
                 if (!robot) continue;
 
@@ -279,7 +277,7 @@ class Simulation {
                     pickupName: delivery.pickup.name,
                     destinationName: delivery.destination.name
                 };
-                
+
                 addDispatchInsight(
                     `${robot.name} assigned to order #${delivery.id} with priority ${best.priorityScore.toFixed(1)}. Cost breakdown: base ${best.breakdown.baseDistance.toFixed(0)}m, traffic +${best.breakdown.trafficPenalty.toFixed(0)}m, rain +${best.breakdown.rainPenalty.toFixed(0)}m, obstacles +${best.breakdown.obstaclePenalty.toFixed(0)}m, battery risk +${best.batteryRisk.toFixed(1)}.`,
                     'good'
@@ -329,13 +327,13 @@ class Simulation {
         if (this.running) return;
         this.running = true;
         this.lastDeliveryTime = Date.now();
-        
+
         const loop = async () => {
             if (!this.running) return;
             await this.update();
             requestAnimationFrame(loop);
         };
-        
+
         requestAnimationFrame(loop);
         logEvent('▶ Started!');
     }
@@ -361,7 +359,7 @@ class Simulation {
             dijkstra: this.createAlgoStats(),
             gbfs: this.createAlgoStats()
         };
-        
+
         const [startA, startB, startC, startD, startE] = await Promise.all([
             pathfindingManager.snapToRoad(21.0285, 105.8542),
             pathfindingManager.snapToRoad(21.0355, 105.8516),
@@ -370,7 +368,7 @@ class Simulation {
             pathfindingManager.snapToRoad(21.0300, 105.8530)
         ]);
         const starts = [startA, startB, startC, startD, startE];
-        
+
         this.robots.forEach((robot, i) => {
             robot.lat = starts[i].lat;
             robot.lon = starts[i].lon;
@@ -390,9 +388,9 @@ class Simulation {
             robot.clearPathLine();
             if (robot.marker) robot.marker.setLatLng([robot.lat, robot.lon]);
         });
- 
+
         for (let i = 0; i < 6; i++) await this.generateDelivery();
- 
+
         logEvent('🔄 Reset');
         addDispatchInsight('Dispatch state reset. Queue rebuilt and analytics cleared.', 'neutral');
         this.updateStats();
@@ -406,15 +404,15 @@ class Simulation {
     async optimizeHubs() {
         logEvent('🧠 Optimizing hub locations...');
         addDispatchInsight('Running k-means clustering on delivery hotspots to reposition fleet...', 'neutral');
-        
+
         try {
             const res = await fetch('/api/optimize-hubs', { method: 'POST' });
             const data = await res.json();
-            
+
             if (!res.ok) throw new Error(data.error || 'Optimization failed');
-            
+
             const hubs = data.hubs;
-            
+
             // Relocate robots to optimal centroids
             this.robots.forEach((robot, i) => {
                 if (i < hubs.length) {
@@ -427,39 +425,39 @@ class Simulation {
                     if (robot.marker) robot.marker.setLatLng([robot.lat, robot.lon]);
                 }
             });
-            
+
             logEvent('✅ Hubs optimized!');
             addDispatchInsight(`Fleet repositioned to ${hubs.length} optimal centroids. Check map for new starting points.`, 'good');
-            
+
             // Optional: visualize hubs on map
             if (window.mapManager) {
                 window.mapManager.drawHubs(hubs);
             }
-            
+
         } catch (e) {
             logEvent('❌ Optimization failed');
             addDispatchInsight(`Hub optimization error: ${e.message}`, 'warn');
         }
     }
- 
+
     updateStats() {
 
         const el = id => document.getElementById(id);
         if (el('total-deliveries')) el('total-deliveries').textContent = this.totalDeliveries;
         if (el('total-distance')) el('total-distance').textContent = `${(this.totalDistance / 1000).toFixed(2)} km`;
-        
+
         const avgBattery = this.robots.reduce((sum, r) => sum + r.battery, 0) / this.robots.length;
         if (el('avg-battery')) el('avg-battery').textContent = `${avgBattery.toFixed(0)}%`;
-        
+
         const min = Math.floor(this.simulationTime / 60);
         const sec = Math.floor(this.simulationTime % 60);
-        if (el('sim-time')) el('sim-time').textContent = `${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+        if (el('sim-time')) el('sim-time').textContent = `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
     }
 
     updateRobotStatus() {
         const container = document.getElementById('robot-status');
         if (!container) return;
-        
+
         container.innerHTML = '';
 
         this.robots.forEach(robot => {
@@ -473,7 +471,7 @@ class Simulation {
                 <div class="robot-detail">🎯 ${robot.routeMode || 'standby'} | 🔋 ${robot.battery.toFixed(0)}%</div>
                 <div class="robot-detail">🧠 <strong>${robot.routeAlgorithm.toUpperCase()}</strong></div>
                 <div class="battery-bar">
-                    <div class="battery-fill" style="width:${robot.battery}%;background:${robot.battery>60?'#34a853':robot.battery>30?'#fbbc04':'#ea4335'}"></div>
+                    <div class="battery-fill" style="width:${robot.battery}%;background:${robot.battery > 60 ? '#34a853' : robot.battery > 30 ? '#fbbc04' : '#ea4335'}"></div>
                 </div>
             `;
             container.appendChild(card);
