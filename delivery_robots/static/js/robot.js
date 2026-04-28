@@ -126,43 +126,50 @@ class DeliveryRobot {
     }
 
     async arriveAtWaypoint() {
-        if (this.routeMode === CONFIG.ROBOT.ROUTE_MODES.CHARGING && this.chargingStation) {
-            this.startCharging();
-            return;
-        }
+        if (this.isRouting) return;
+        this.isRouting = true;
 
-        if (this.currentDelivery && this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_PICKUP) {
-            this.deliveryPhase = CONFIG.ROBOT.PHASES.TO_DROPOFF;
-            this.routeTarget = {
-                lat: this.currentDelivery.destination.lat,
-                lon: this.currentDelivery.destination.lon
-            };
-            logEvent(`📍 ${this.name} picked up order #${this.currentDelivery.id}`);
-            addDispatchInsight(`${this.name} completed pickup and is now committing to the final dropoff leg.`, CONFIG.UI.LOG_LEVELS.SUCCESS);
-            await this.buildRouteToTarget(this.currentDelivery.destination.lat, this.currentDelivery.destination.lon);
-            return;
-        }
-
-        if (this.currentDelivery && this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_DROPOFF) {
-            this.currentLoad--;
-            this.totalDeliveries++;
-            if (typeof simulation !== 'undefined' && simulation && typeof simulation.recordDeliveryCompleted === 'function') {
-                simulation.recordDeliveryCompleted(this.currentDeliveryAlgorithm || this.routeAlgorithm);
+        try {
+            if (this.routeMode === CONFIG.ROBOT.ROUTE_MODES.CHARGING && this.chargingStation) {
+                this.startCharging();
+                return;
             }
-            logEvent(`✅ ${this.name} completed delivery #${this.currentDelivery.id}`);
-            mapManager.clearDeliveryMarkers(this.currentDelivery.id);
-            this.currentDelivery = null;
-            this.currentDeliveryAlgorithm = null;
-        }
 
-        this.status = CONFIG.ROBOT.STATUSES.IDLE;
-        this.currentPath = [];
-        this.pathIndex = 0;
-        this.routeMode = null;
-        this.routeDeliveryId = null;
-        this.routeTarget = null;
-        this.deliveryPhase = null;
-        this.clearPathLine();
+            if (this.currentDelivery && this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_PICKUP) {
+                this.deliveryPhase = CONFIG.ROBOT.PHASES.TO_DROPOFF;
+                this.routeTarget = {
+                    lat: this.currentDelivery.destination.lat,
+                    lon: this.currentDelivery.destination.lon
+                };
+                logEvent(`📍 ${this.name} picked up order #${this.currentDelivery.id}`);
+                addDispatchInsight(`${this.name} completed pickup and is now committing to the final dropoff leg.`, CONFIG.UI.LOG_LEVELS.SUCCESS);
+                await this.buildRouteToTarget(this.currentDelivery.destination.lat, this.currentDelivery.destination.lon);
+                return;
+            }
+
+            if (this.currentDelivery && this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_DROPOFF) {
+                this.currentLoad--;
+                this.totalDeliveries++;
+                if (typeof simulation !== 'undefined' && simulation && typeof simulation.recordDeliveryCompleted === 'function') {
+                    simulation.recordDeliveryCompleted(this.currentDeliveryAlgorithm || this.routeAlgorithm);
+                }
+                logEvent(`✅ ${this.name} completed delivery #${this.currentDelivery.id}`);
+                mapManager.clearDeliveryMarkers(this.currentDelivery.id);
+                this.currentDelivery = null;
+                this.currentDeliveryAlgorithm = null;
+            }
+
+            this.status = CONFIG.ROBOT.STATUSES.IDLE;
+            this.currentPath = [];
+            this.pathIndex = 0;
+            this.routeMode = null;
+            this.routeDeliveryId = null;
+            this.routeTarget = null;
+            this.deliveryPhase = null;
+            this.clearPathLine();
+        } finally {
+            this.isRouting = false;
+        }
     }
 
     async goCharge() {

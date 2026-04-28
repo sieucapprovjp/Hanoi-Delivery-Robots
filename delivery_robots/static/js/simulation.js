@@ -43,13 +43,25 @@ class Simulation {
         mapManager.initializeMap();
         window.mapManager = mapManager;
 
-        const [startA, startB, startC, startD, startE] = await Promise.all(
-            CONFIG.DATA.LOCATIONS.slice(0, 5).map(loc => pathfindingManager.snapToRoad(loc.lat, loc.lon))
+        // Pre-snap all locations once to avoid redundant API calls
+        console.log('📍 Snapping locations to road network...');
+        this.snappedLocations = await Promise.all(
+            CONFIG.DATA.LOCATIONS.map(async location => {
+                try {
+                    const snapped = await pathfindingManager.snapToRoad(location.lat, location.lon);
+                    return { ...location, lat: snapped.lat, lon: snapped.lon };
+                } catch (e) {
+                    console.warn(`Failed to snap ${location.name}, using original coords`);
+                    return location;
+                }
+            })
         );
+
+        const initialStarts = this.snappedLocations.slice(0, 5);
 
         // Robots
         this.robots = CONFIG.SIMULATION.INITIAL_ROBOTS.map((r, i) => {
-            const start = [startA, startB, startC, startD, startE][i];
+            const start = initialStarts[i] || initialStarts[0];
             return new DeliveryRobot(i, start.lat, start.lon, r.name, r.color, this.fleetAlgorithm);
         });
 
@@ -57,7 +69,7 @@ class Simulation {
 
         // Initial deliveries
         for (let i = 0; i < CONFIG.SIMULATION.INITIAL_DELIVERY_COUNT; i++) {
-            await this.generateDelivery();
+            this.generateDelivery(); // No longer async/blocking
         }
 
         console.log('✓ Ready - Click START!');
@@ -105,14 +117,8 @@ class Simulation {
         if (select) select.value = this.fleetAlgorithm;
     }
 
-    async generateDelivery() {
-        const baseLocations = CONFIG.DATA.LOCATIONS;
-        const locations = await Promise.all(
-            baseLocations.map(async location => {
-                const snapped = await pathfindingManager.snapToRoad(location.lat, location.lon);
-                return { ...location, lat: snapped.lat, lon: snapped.lon };
-            })
-        );
+    generateDelivery() {
+        const locations = this.snappedLocations || CONFIG.DATA.LOCATIONS;
         const pickupGroups = CONFIG.SIMULATION.PICKUP_WEIGHTS;
         const dropoffGroups = CONFIG.SIMULATION.DROPOFF_WEIGHTS;
 
@@ -161,7 +167,7 @@ class Simulation {
 
         this.pendingDeliveries.push(delivery);
 
-        // 🧠 Log delivery coordinates for k-means optimization
+        // 🧠 Log delivery coordinates for k-means optimization (fire and forget)
         this.logDeliveryData(delivery);
     }
 
@@ -183,9 +189,12 @@ class Simulation {
     }
 
     async assignDeliveries() {
+        if (this.isAssigning) return;
+
         const candidateRobots = this.robots.filter(r => r.status === CONFIG.ROBOT.STATUSES.IDLE && r.currentLoad < r.capacity && !r.isRouting);
         if (candidateRobots.length === 0 || this.pendingDeliveries.length === 0) return;
 
+        this.isAssigning = true;
         try {
             const response = await fetch(CONFIG.API.DISPATCH_ASSIGN, {
                 method: 'POST',
@@ -217,9 +226,7 @@ class Simulation {
                 const robot = this.robots.find(r => r.id === best.robotId);
                 if (!robot) continue;
 
-                // Sync the priority score back so the UI can show it if needed
                 delivery.priorityScore = best.priorityScore;
-
                 this.lastDecisionCost = best.totalScore;
                 this.latestDecision = {
                     robotName: best.robotName,
@@ -233,7 +240,7 @@ class Simulation {
                 };
 
                 addDispatchInsight(
-                    `${robot.name} assigned to order #${delivery.id} with priority ${best.priorityScore.toFixed(1)}. Cost breakdown: base ${best.breakdown.baseDistance.toFixed(0)}m, traffic +${best.breakdown.trafficPenalty.toFixed(0)}m, rain +${best.breakdown.rainPenalty.toFixed(0)}m, obstacles +${best.breakdown.obstaclePenalty.toFixed(0)}m, battery risk +${best.batteryRisk.toFixed(1)}.`,
+                    `${robot.name} assigned to order #${delivery.id} with priority ${best.priorityScore.toFixed(1)}.`,
                     CONFIG.UI.LOG_LEVELS.SUCCESS
                 );
 
@@ -244,17 +251,19 @@ class Simulation {
             }
         } catch (e) {
             console.error('Dispatch assignment error:', e);
+        } finally {
+            this.isAssigning = false;
         }
     }
 
-    async update() {
+    update() {
         if (!this.running) return;
 
         this.simulationTime += CONFIG.SIMULATION.TIME_DELTA * this.speed;
 
-        // Generate deliveries
+        // Generate deliveries (non-blocking)
         if (Date.now() - this.lastDeliveryTime > this.deliveryInterval / this.speed) {
-            await this.generateDelivery();
+            this.generateDelivery();
             this.lastDeliveryTime = Date.now();
         }
 
@@ -265,8 +274,10 @@ class Simulation {
         this.totalBatteryConsumed += Math.max(0, batteryBefore - batteryAfter);
         this.totalDistance = this.robots.reduce((sum, r) => sum + r.totalDistance, 0);
 
-        // Assign pending deliveries
-        await this.assignDeliveries();
+        // Assign pending deliveries (non-blocking)
+        if (!this.isAssigning) {
+            this.assignDeliveries();
+        }
 
         // Update UI
         this.totalDeliveries = this.robots.reduce((sum, r) => sum + r.totalDeliveries, 0);
@@ -313,12 +324,11 @@ class Simulation {
             this.algorithmStats[algo] = this.createAlgoStats();
         });
 
-        const starts = await Promise.all(
-            CONFIG.DATA.LOCATIONS.slice(0, 5).map(loc => pathfindingManager.snapToRoad(loc.lat, loc.lon))
-        );
+        const starts = this.snappedLocations.slice(0, 5);
         this.robots.forEach((robot, i) => {
-            robot.lat = starts[i].lat;
-            robot.lon = starts[i].lon;
+            const start = starts[i] || starts[0];
+            robot.lat = start.lat;
+            robot.lon = start.lon;
             robot.battery = CONFIG.ROBOT.INITIAL_BATTERY;
             robot.status = CONFIG.ROBOT.STATUSES.IDLE;
             robot.currentLoad = 0;
@@ -337,9 +347,9 @@ class Simulation {
         });
 
         this.robots.forEach(robot => robot.createMarker(mapManager.map));
-        
+
         for (let i = 0; i < CONFIG.SIMULATION.INITIAL_DELIVERY_COUNT; i++) {
-            await this.generateDelivery();
+            this.generateDelivery();
         }
 
         logEvent('🔄 Reset');

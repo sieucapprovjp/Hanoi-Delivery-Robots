@@ -1,4 +1,6 @@
 import networkx as nx
+import numpy as np
+from sklearn.neighbors import BallTree
 
 
 def _build_traffic_routes(
@@ -73,5 +75,16 @@ def get_road_graph(
                 rain_penalty_for_point,
                 obstacle_penalty_for_point,
             )
+
+            # Initialize spatial index (BallTree) for fast nearest neighbor lookups
+            nodes_data = list(state["road_graph"].nodes(data=True))
+            state["spatial_node_ids"] = np.array([node[0] for node in nodes_data])
+            coords = np.array(
+                [
+                    (np.radians(data["y"]), np.radians(data["x"]))
+                    for _, data in nodes_data
+                ]
+            )
+            state["spatial_tree"] = BallTree(coords, metric="haversine")
 
     return state["road_graph"], state["projected_road_graph"], state["traffic_routes"]
