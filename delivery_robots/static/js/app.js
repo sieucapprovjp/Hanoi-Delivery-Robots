@@ -1,5 +1,5 @@
 // Globals
-let weatherMode = 'rain';
+let weatherMode = CONFIG.UI.INITIAL_WEATHER;
 let rainCircles = [];
 let trafficPolylines = [];
 let obstacleCircles = [];
@@ -9,35 +9,35 @@ let trafficPointA = null;
 let trafficPointMarkerA = null;
 
 function logEvent(message) {
-    fetch('/api/logs', {
+    fetch(CONFIG.API.LOGS, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             message,
-            level: 'info',
-            source: 'ui',
+            level: CONFIG.UI.LOG_LEVELS.INFO,
+            source: CONFIG.UI.LOG_SOURCES.UI,
             ts: Date.now()
         })
-    }).catch(() => {});
+    }).catch(() => { });
 }
 
-function addDispatchInsight(message, tone = 'neutral') {
-    fetch('/api/logs', {
+function addDispatchInsight(message, tone = CONFIG.UI.LOG_LEVELS.NEUTRAL) {
+    fetch(CONFIG.API.LOGS, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             message,
             level: tone,
-            source: 'dispatch',
+            source: CONFIG.UI.LOG_SOURCES.DISPATCH,
             ts: Date.now()
         })
-    }).catch(() => {});
+    }).catch(() => { });
 }
 
 function togglePanel(btnId, panelSelector, onOpen, onClose) {
     const btn = document.getElementById(btnId);
     if (!btn) { console.error('Missing button:', btnId); return; }
-    btn.addEventListener('click', function(e) {
+    btn.addEventListener('click', function (e) {
         e.preventDefault();
         e.stopPropagation();
         const panel = document.querySelector(panelSelector);
@@ -73,10 +73,10 @@ function setupControls() {
     document.getElementById('reset-btn')?.addEventListener('click', () => simulation?.reset());
     document.getElementById('optimize-hubs-btn')?.addEventListener('click', () => simulation?.optimizeHubs());
     document.getElementById('apply-fleet-algo-btn')?.addEventListener('click', () => {
-        const selected = document.getElementById('fleet-algo-select')?.value || 'astar';
+        const selected = document.getElementById('fleet-algo-select')?.value || CONFIG.SIMULATION.DEFAULT_ALGORITHM;
         simulation?.setFleetAlgorithm(selected);
     });
-    
+
     const slider = document.getElementById('speed-slider');
     const speedVal = document.getElementById('speed-value');
     slider?.addEventListener('input', (e) => {
@@ -121,12 +121,12 @@ function setupControls() {
 function setupWeather() {
     // Mode tabs
     document.querySelectorAll('.weather-panel .mode-tab').forEach(tab => {
-        tab.addEventListener('click', function() {
-            document.querySelectorAll('.weather-panel .mode-tab').forEach(t => { t.style.background = '#e8eaed'; t.style.color = '#3c4043'; });
-            this.style.background = '#1a73e8'; this.style.color = 'white';
+        tab.addEventListener('click', function () {
+            document.querySelectorAll('.weather-panel .mode-tab').forEach(t => { t.style.background = CONFIG.UI.COLORS.background; t.style.color = CONFIG.UI.COLORS.text; });
+            this.style.background = CONFIG.ROBOT.COLORS.info; this.style.color = CONFIG.UI.COLORS.surface;
             weatherMode = this.dataset.mode;
-            document.getElementById('rain-controls').style.display = weatherMode === 'rain' ? 'block' : 'none';
-            document.getElementById('traffic-controls').style.display = weatherMode === 'traffic' ? 'block' : 'none';
+            document.getElementById('rain-controls').style.display = weatherMode === CONFIG.UI.WEATHER_MODES.RAIN ? 'block' : 'none';
+            document.getElementById('traffic-controls').style.display = weatherMode === CONFIG.UI.WEATHER_MODES.TRAFFIC ? 'block' : 'none';
             document.getElementById('obstacle-controls').style.display = 'none';
         });
     });
@@ -140,9 +140,9 @@ function setupWeather() {
 
     // Algo buttons
     document.querySelectorAll('.algo-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            document.querySelectorAll('.algo-btn').forEach(b => { b.style.background = '#e8eaed'; b.style.color = '#3c4043'; });
-            this.style.background = '#1a73e8'; this.style.color = 'white';
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('.algo-btn').forEach(b => { b.style.background = CONFIG.UI.COLORS.background; b.style.color = CONFIG.UI.COLORS.text; });
+            this.style.background = CONFIG.ROBOT.COLORS.info; this.style.color = CONFIG.UI.COLORS.surface;
             if (window.simulation) window.simulation.schedulingAlgorithm = this.dataset.algo;
         });
     });
@@ -160,10 +160,10 @@ function setupWeather() {
     const setupMapClick = () => {
         const map = window.map;
         if (map && typeof map.on === 'function') {
-            map.on('click', function(e) {
+            map.on('click', function (e) {
                 if (!weatherModeEnabled) return;
-                if (weatherMode === 'rain') addRainZone(e.latlng.lat, e.latlng.lng, +document.getElementById('rain-radius').value);
-                else if (weatherMode === 'traffic') handleTrafficClick(e.latlng.lat, e.latlng.lng);
+                if (weatherMode === CONFIG.UI.WEATHER_MODES.RAIN) addRainZone(e.latlng.lat, e.latlng.lng, +document.getElementById('rain-radius').value);
+                else if (weatherMode === CONFIG.UI.WEATHER_MODES.TRAFFIC) handleTrafficClick(e.latlng.lat, e.latlng.lng);
             });
             console.log('Map click listener ready');
         } else {
@@ -173,9 +173,9 @@ function setupWeather() {
     };
     setTimeout(setupMapClick, 500);
 
-    updateRainList().catch(()=>{});
-    updateTrafficList().catch(()=>{});
-    updateObstacleList().catch(()=>{});
+    updateRainList().catch(() => { });
+    updateTrafficList().catch(() => { });
+    updateObstacleList().catch(() => { });
 }
 
 function resetTrafficPoints() {
@@ -188,15 +188,15 @@ function resetTrafficPoints() {
 function handleTrafficClick(lat, lon) {
     if (!window.map) return;
 
-    const severity = +document.getElementById('traffic-severity')?.value || 0.7;
+    const severity = +document.getElementById('traffic-severity')?.value || CONFIG.SIMULATION.DEFAULT_TRAFFIC_SEVERITY;
 
     if (!trafficPointA) {
         trafficPointA = { lat, lon };
         if (trafficPointMarkerA) window.map.removeLayer(trafficPointMarkerA);
         trafficPointMarkerA = L.circleMarker([lat, lon], {
-            radius: 7,
-            color: '#ea4335',
-            fillColor: '#ea4335',
+            radius: CONFIG.UI.RADII.markerLarge,
+            color: CONFIG.ROBOT.COLORS.error,
+            fillColor: CONFIG.ROBOT.COLORS.error,
             fillOpacity: 1
         }).addTo(window.map);
         trafficPointMarkerA.bindPopup('<strong>Traffic start</strong><br>Click another point to set the end.');
@@ -209,7 +209,7 @@ function handleTrafficClick(lat, lon) {
 }
 
 async function addTrafficRoute(start, end, severity) {
-    const res = await fetch('/api/traffic/add', {
+    const res = await fetch(CONFIG.API.TRAFFIC_ADD, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -229,12 +229,12 @@ async function addTrafficRoute(start, end, severity) {
     const route = d.route;
     if (route?.path?.length) {
         trafficPolylines.push(
-            L.polyline(route.path.map(p => [p.lat, p.lon]), { color: '#ea4335', weight: 5, opacity: 0.7 })
+            L.polyline(route.path.map(p => [p.lat, p.lon]), { color: CONFIG.ROBOT.COLORS.error, weight: CONFIG.UI.WEIGHTS.thick, opacity: CONFIG.UI.OPACITY.high })
                 .addTo(window.map)
                 .bindPopup(`<strong>${route.name}</strong><br>Severity: ${route.severity.toFixed(2)}`)
         );
     }
-    updateTrafficList().catch(() => {});
+    updateTrafficList().catch(() => { });
     logEvent('🚗 ' + route.name);
 }
 
@@ -254,9 +254,9 @@ function renderAStarOverlay(data) {
     const exploredPath = data.exploredPath || [];
     exploredPath.forEach((point, index) => {
         const marker = L.circleMarker([point.lat, point.lon], {
-            radius: index === exploredPath.length - 1 ? 5 : 4,
-            color: index === exploredPath.length - 1 ? '#ff9800' : '#4285f4',
-            fillColor: index === exploredPath.length - 1 ? '#ff9800' : '#90caf9',
+            radius: index === exploredPath.length - 1 ? CONFIG.UI.RADII.markerMedium : CONFIG.UI.RADII.markerSmall,
+            color: index === exploredPath.length - 1 ? CONFIG.ROBOT.COLORS.highlight : CONFIG.ROBOT.COLORS.info,
+            fillColor: index === exploredPath.length - 1 ? CONFIG.ROBOT.COLORS.highlight : CONFIG.UI.COLORS.highlight,
             fillOpacity: 0.75,
             weight: 1
         }).addTo(window.map);
@@ -264,9 +264,8 @@ function renderAStarOverlay(data) {
     });
 
     if (data.path?.length) {
-        const pathLine = L.polyline(
-            data.path.map(point => [point.lat, point.lon]),
-            { color: '#9c27b0', weight: 5, opacity: 0.85 }
+        const pathLine = L.polyline(data.path.map(p => [p.lat, p.lon]),
+            { color: CONFIG.UI.COLORS.secondary, weight: CONFIG.UI.WEIGHTS.thick, opacity: CONFIG.UI.OPACITY.overlay }
         ).addTo(window.map);
         insiderLayers.push(pathLine);
 
@@ -274,12 +273,12 @@ function renderAStarOverlay(data) {
         const end = data.path[data.path.length - 1];
         insiderLayers.push(
             L.circleMarker([start.lat, start.lon], {
-                radius: 7, color: '#34a853', fillColor: '#34a853', fillOpacity: 1
+                radius: CONFIG.UI.RADII.markerLarge, color: CONFIG.UI.COLORS.success, fillColor: CONFIG.UI.COLORS.success, fillOpacity: CONFIG.UI.OPACITY.full
             }).addTo(window.map)
         );
         insiderLayers.push(
             L.circleMarker([end.lat, end.lon], {
-                radius: 7, color: '#ea4335', fillColor: '#ea4335', fillOpacity: 1
+                radius: CONFIG.UI.RADII.markerLarge, color: CONFIG.ROBOT.COLORS.error, fillColor: CONFIG.ROBOT.COLORS.error, fillOpacity: 1
             }).addTo(window.map)
         );
     }
@@ -287,113 +286,113 @@ function renderAStarOverlay(data) {
 
 // ===== WEATHER ACTIONS =====
 async function addRainZone(lat, lon, radius) {
-    const res = await fetch('/api/rain/add', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({lat, lon, radius}) });
+    const res = await fetch(CONFIG.API.RAIN_ADD, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat, lon, radius }) });
     const d = await res.json();
     if (res.ok) { displayRainZone(d.rainZone); updateRainList(); logEvent('🌧️ ' + d.rainZone.name); }
 }
 
 function displayRainZone(z) {
     if (!window.map) return;
-    const c = L.circle([z.center.lat, z.center.lon], { color: '#4285f4', fillColor: '#4285f4', fillOpacity: 0.2, radius: z.radius }).addTo(window.map);
+    const c = L.circle([z.center.lat, z.center.lon], { color: CONFIG.ROBOT.COLORS.info, fillColor: CONFIG.ROBOT.COLORS.info, fillOpacity: 0.2, radius: z.radius }).addTo(window.map);
     c.bindPopup(`<strong>${z.name}</strong><br>Radius: ${Math.round(z.radius)}m`);
     rainCircles.push(c);
 }
 
 async function updateRainList() {
-    const d = await (await fetch('/api/rain/list')).json();
+    const d = await (await fetch(CONFIG.API.RAIN_LIST)).json();
     const el = document.getElementById('rain-list');
     if (!el) return;
-    el.innerHTML = d.rainZones.length ? d.rainZones.map((z, i) => `<div style="padding:4px 0;border-bottom:1px solid #e0e0e0;"><strong>${i+1}. ${z.name}</strong><br>${z.center.lat.toFixed(4)}, ${z.center.lon.toFixed(4)} | ${Math.round(z.radius)}m</div>`).join('') : 'No rain zones';
+    el.innerHTML = d.rainZones.length ? d.rainZones.map((z, i) => `<div style="padding:4px 0;border-bottom:1px solid ${CONFIG.UI.COLORS.border};"><strong>${i + 1}. ${z.name}</strong><br>${z.center.lat.toFixed(4)}, ${z.center.lon.toFixed(4)} | ${Math.round(z.radius)}m</div>`).join('') : 'No rain zones';
 }
 
 async function randomizeRain() {
-    const d = await (await fetch('/api/rain/randomize', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({count:3,minRadius:100,maxRadius:200}) })).json();
+    const d = await (await fetch(CONFIG.API.RAIN_RANDOMIZE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: CONFIG.SIMULATION.RANDOM_RAIN_COUNT, minRadius: CONFIG.SIMULATION.RANDOM_RAIN_MIN_RADIUS, maxRadius: CONFIG.SIMULATION.RANDOM_RAIN_MAX_RADIUS }) })).json();
     rainCircles.forEach(c => window.map.removeLayer(c)); rainCircles = [];
     d.rainZones.forEach(z => displayRainZone(z)); updateRainList(); logEvent('🎲 Rain');
 }
 
 async function clearRain() {
-    await fetch('/api/rain/clear', {method:'POST'});
+    await fetch(CONFIG.API.RAIN_CLEAR, { method: 'POST' });
     rainCircles.forEach(c => window.map.removeLayer(c)); rainCircles = []; updateRainList(); logEvent('🗑️ Rain');
 }
 
 async function randomizeTraffic() {
-    const d = await (await fetch('/api/traffic/randomize', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({count:3}) })).json();
+    const d = await (await fetch(CONFIG.API.TRAFFIC_RANDOMIZE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: CONFIG.SIMULATION.RANDOM_TRAFFIC_COUNT }) })).json();
     trafficPolylines.forEach(p => window.map.removeLayer(p)); trafficPolylines = [];
     d.routes.forEach(r => {
-        trafficPolylines.push(L.polyline(r.path.map(p=>[p.lat,p.lon]), {color:'#ea4335',weight:5,opacity:0.7}).addTo(window.map));
+        trafficPolylines.push(L.polyline(r.path.map(p => [p.lat, p.lon]), { color: CONFIG.ROBOT.COLORS.error, weight: CONFIG.UI.WEIGHTS.thick, opacity: CONFIG.UI.OPACITY.high }).addTo(window.map));
     });
     updateTrafficList(); logEvent('🎲 Traffic');
 }
 
 async function clearTraffic() {
-    await fetch('/api/traffic/clear', {method:'POST'});
+    await fetch(CONFIG.API.TRAFFIC_CLEAR, { method: 'POST' });
     trafficPolylines.forEach(p => window.map.removeLayer(p)); trafficPolylines = []; updateTrafficList(); logEvent('🗑️ Traffic');
 }
 
 async function updateTrafficList() {
-    const d = await (await fetch('/api/traffic/list')).json();
+    const d = await (await fetch(CONFIG.API.TRAFFIC_LIST)).json();
     const el = document.getElementById('traffic-list');
     if (!el) return;
-    el.innerHTML = d.routes.length ? d.routes.map((r,i)=>`<div style="padding:4px 0;border-bottom:1px solid #e0e0e0;"><strong>${i+1}. ${r.name}</strong><br>Severity: ${r.severity.toFixed(2)}</div>`).join('') : 'No traffic routes';
+    el.innerHTML = d.routes.length ? d.routes.map((r, i) => `<div style="padding:4px 0;border-bottom:1px solid ${CONFIG.UI.COLORS.border};"><strong>${i + 1}. ${r.name}</strong><br>Severity: ${r.severity.toFixed(2)}</div>`).join('') : 'No traffic routes';
 }
 
 async function addObstacle(lat, lon, radius, severity) {
-    const res = await fetch('/api/obstacle/add', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({lat,lon,radius,severity,type:'roadblock'}) });
+    const res = await fetch(CONFIG.API.OBSTACLE_ADD, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat, lon, radius, severity, type: CONFIG.SIMULATION.DEFAULT_OBSTACLE_TYPE }) });
     const d = await res.json();
     if (res.ok) { displayObstacle(d.obstacle); updateObstacleList(); logEvent('🚧 ' + d.obstacle.name); }
 }
 
 function displayObstacle(o) {
     if (!window.map) return;
-    const colors = {roadblock:'#ff6b6b',construction:'#ffa94d',accident:'#ffd43b'};
-    const c = L.circle([o.center.lat, o.center.lon], { color: colors[o.type]||'#ff6b6b', fillColor: colors[o.type]||'#ff6b6b', fillOpacity: 0.3, radius: o.radius }).addTo(window.map);
+    const colors = CONFIG.DATA.OBSTACLE_COLORS;
+    const c = L.circle([o.center.lat, o.center.lon], { color: colors[o.type] || CONFIG.ROBOT.COLORS.error, fillColor: colors[o.type] || CONFIG.ROBOT.COLORS.error, fillOpacity: CONFIG.UI.OPACITY.medium, radius: o.radius }).addTo(window.map);
     c.bindPopup(`<strong>${o.name}</strong><br>Severity: ${o.severity.toFixed(1)}`);
     obstacleCircles.push(c);
 }
 
 async function updateObstacleList() {
-    const d = await (await fetch('/api/obstacle/list')).json();
+    const d = await (await fetch(CONFIG.API.OBSTACLE_LIST)).json();
     const el = document.getElementById('obstacle-list');
     if (!el) return;
-    el.innerHTML = d.obstacles.length ? d.obstacles.map((o,i)=>`<div style="padding:4px 0;border-bottom:1px solid #e0e0e0;"><strong>${i+1}. ${o.name}</strong><br>${Math.round(o.radius)}m | Sev: ${o.severity.toFixed(1)}</div>`).join('') : 'No obstacles';
+    el.innerHTML = d.obstacles.length ? d.obstacles.map((o, i) => `<div style="padding:4px 0;border-bottom:1px solid ${CONFIG.UI.COLORS.border};"><strong>${i + 1}. ${o.name}</strong><br>${Math.round(o.radius)}m | Sev: ${o.severity.toFixed(1)}</div>`).join('') : 'No obstacles';
 }
 
 async function randomizeObstacles() {
-    const d = await (await fetch('/api/obstacle/randomize', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({count:4}) })).json();
+    const d = await (await fetch(CONFIG.API.OBSTACLE_RANDOMIZE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: CONFIG.SIMULATION.RANDOM_OBSTACLE_COUNT }) })).json();
     obstacleCircles.forEach(c => window.map.removeLayer(c)); obstacleCircles = [];
     d.obstacles.forEach(o => displayObstacle(o)); updateObstacleList(); logEvent('🎲 Obstacles');
 }
 
 async function clearObstacles() {
-    await fetch('/api/obstacle/clear', {method:'POST'});
+    await fetch(CONFIG.API.OBSTACLE_CLEAR, { method: 'POST' });
     obstacleCircles.forEach(c => window.map.removeLayer(c)); obstacleCircles = []; updateObstacleList(); logEvent('🗑️ Obstacles');
 }
 
 // ===== METRICS =====
 async function fetchMetrics() {
     try {
-        const d = await (await fetch('/api/metrics')).json();
+        const d = await (await fetch(CONFIG.API.METRICS)).json();
         const el = id => document.getElementById(id);
-        if(el('metric-total-calc')) el('metric-total-calc').textContent = d.pathfinding.totalCalculations;
-        if(el('metric-avg-time')) el('metric-avg-time').textContent = d.pathfinding.avgCalculationTime + 'ms';
-        if(el('metric-last-time')) el('metric-last-time').textContent = d.pathfinding.lastCalculationTime + 'ms';
-        if(el('metric-nodes')) el('metric-nodes').textContent = d.pathfinding.avgNodesExplored.toFixed(0);
-        if(el('metric-min-time')) el('metric-min-time').textContent = d.pathfinding.minCalculationTime + 'ms';
-        if(el('metric-max-time')) el('metric-max-time').textContent = d.pathfinding.maxCalculationTime + 'ms';
-        if(el('metric-path-length')) el('metric-path-length').textContent = d.pathfinding.avgPathLength;
-        if(el('metric-graph-nodes')) el('metric-graph-nodes').textContent = d.graph.totalNodes;
-        if(el('metric-graph-edges')) el('metric-graph-edges').textContent = d.graph.totalEdges;
-        if(el('metric-rain-count')) el('metric-rain-count').textContent = d.activeFactors.rainZones;
-        if(el('metric-traffic-count')) el('metric-traffic-count').textContent = d.activeFactors.trafficRoutes;
-        if(el('metric-obstacle-count')) el('metric-obstacle-count').textContent = d.activeFactors.obstacles;
-    } catch(e) { console.error('Metrics:', e); }
+        if (el('metric-total-calc')) el('metric-total-calc').textContent = d.pathfinding.totalCalculations;
+        if (el('metric-avg-time')) el('metric-avg-time').textContent = d.pathfinding.avgCalculationTime + 'ms';
+        if (el('metric-last-time')) el('metric-last-time').textContent = d.pathfinding.lastCalculationTime + 'ms';
+        if (el('metric-nodes')) el('metric-nodes').textContent = d.pathfinding.avgNodesExplored.toFixed(0);
+        if (el('metric-min-time')) el('metric-min-time').textContent = d.pathfinding.minCalculationTime + 'ms';
+        if (el('metric-max-time')) el('metric-max-time').textContent = d.pathfinding.maxCalculationTime + 'ms';
+        if (el('metric-path-length')) el('metric-path-length').textContent = d.pathfinding.avgPathLength;
+        if (el('metric-graph-nodes')) el('metric-graph-nodes').textContent = d.graph.totalNodes;
+        if (el('metric-graph-edges')) el('metric-graph-edges').textContent = d.graph.totalEdges;
+        if (el('metric-rain-count')) el('metric-rain-count').textContent = d.activeFactors.rainZones;
+        if (el('metric-traffic-count')) el('metric-traffic-count').textContent = d.activeFactors.trafficRoutes;
+        if (el('metric-obstacle-count')) el('metric-obstacle-count').textContent = d.activeFactors.obstacles;
+    } catch (e) { console.error('Metrics:', e); }
 }
 
 setInterval(() => {
     const p = document.querySelector('.decision-panel');
     if (p && p.style.display === 'block') fetchMetrics();
-}, 3000);
+}, CONFIG.UI.METRICS_REFRESH_INTERVAL_MS);
 
 // Auto-refresh computing panel every 2s
 setInterval(() => {
@@ -406,34 +405,34 @@ setInterval(() => {
             if (robot) content.innerHTML = robot.getComputingDetails();
         }
     }
-}, 2000);
+}, CONFIG.UI.COMPUTING_PANEL_REFRESH_INTERVAL_MS);
 
 // ===== A* Visualization =====
 async function showAStarProcess(robotId) {
     const el = document.getElementById(`astep-visual-${robotId}`);
     if (!el || !simulation?.robots) return;
-    
+
     const robot = simulation.robots.find(r => r.id === robotId);
     if (!robot || !robot.routeTarget) {
         el.style.display = 'block';
         el.innerHTML = '<div style="padding:10px;text-align:center;color:#5f6368;">Robot has no active route. Wait for it to accept a delivery.</div>';
         return;
     }
-    
+
     el.style.display = 'block';
     el.innerHTML = '<div style="padding:10px;text-align:center;">⏳ Computing A*...</div>';
-    
+
     try {
-        const d = await (await fetch(`/api/astep?fromLat=${robot.lat}&fromLon=${robot.lon}&toLat=${robot.routeTarget.lat}&toLon=${robot.routeTarget.lon}`)).json();
-        
+        const d = await (await fetch(`${CONFIG.API.ASTEP}?fromLat=${robot.lat}&fromLon=${robot.lon}&toLat=${robot.routeTarget.lat}&toLon=${robot.routeTarget.lon}`)).json();
+
         if (!d.steps || d.steps.length === 0) {
             el.innerHTML = '<div style="padding:10px;text-align:center;color:#ea4335;">No steps recorded</div>';
             return;
         }
-        
+
         // Build step-by-step visualization
         let html = `
-            <div style="margin:8px 0;background:linear-gradient(135deg,#e3f2fd,#bbdefb);border-radius:10px;padding:12px;">
+            <div style="background:${CONFIG.UI.GRADIENTS.info};padding:12px;border-radius:10px;margin-bottom:12px;border:1px solid ${CONFIG.UI.COLORS.infoBorder};box-shadow:0 2px 8px rgba(26,115,232,${CONFIG.UI.OPACITY.low});">
                 <div style="font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
                     🔬 A* Step-by-Step Calculation
                     <span style="font-size:10px;color:#5f6368;font-weight:400;">(${d.calcTime}ms, ${d.totalSteps} steps)</span>
@@ -444,63 +443,63 @@ async function showAStarProcess(robotId) {
                     <div style="display:flex;gap:8px;font-size:9px;color:#5f6368;">
                         <span>Open Set: <strong>${d.openSetSize}</strong></span>
                         <span>Closed Set: <strong>${d.closedSetSize}</strong></span>
-                        <span>Path: <strong style="color:#1a73e8;">${d.pathLength} nodes</strong></span>
+                        <span>Path: <strong style="color:${CONFIG.UI.COLORS.primary};">${d.pathLength} nodes</strong></span>
                     </div>
                 </div>
         `;
-        
+
         // Show first 3 steps in detail, then summary
         d.steps.slice(0, 3).forEach(s => {
-            const color = s.step === 1 ? '#34a853' : s.step === 2 ? '#1a73e8' : '#ff9800';
+            const color = s.step === 1 ? CONFIG.ROBOT.COLORS.good : s.step === 2 ? CONFIG.ROBOT.COLORS.info : CONFIG.ROBOT.COLORS.highlight;
             html += `
-                <div style="background:white;border-radius:8px;padding:8px;margin:6px 0;border-left:4px solid ${color};">
+                <div style="background:${CONFIG.UI.COLORS.surface};border-radius:8px;padding:8px;margin:6px 0;border-left:4px solid ${color};">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
                         <span style="font-size:11px;font-weight:700;color:${color};">Step ${s.step}</span>
-                        <span style="font-size:9px;color:#5f6368;">Node ${s.currentNode}</span>
+                        <span style="font-size:9px;color:${CONFIG.UI.COLORS.textLight};">Node ${s.currentNode}</span>
                     </div>
-                    <div style="font-size:10px;font-family:monospace;background:#f8f9fa;padding:4px 6px;border-radius:4px;margin:3px 0;">
+                    <div style="font-size:10px;font-family:monospace;background:${CONFIG.UI.COLORS.background};padding:4px 6px;border-radius:4px;margin:3px 0;">
                         ${s.formula}
                     </div>
-                    <div style="display:flex;gap:12px;font-size:9px;color:#5f6368;">
+                    <div style="display:flex;gap:12px;font-size:9px;color:${CONFIG.UI.COLORS.textLight};">
                         <span>g=${s.g}</span><span>h=${s.h}</span><span>f=${s.f}</span>
                         <span>Open:${s.openSetSize}</span><span>Closed:${s.closedSetSize}</span>
                     </div>
                 </div>
             `;
         });
-        
+
         if (d.steps.length > 3) {
             html += `
-                <div style="text-align:center;padding:6px;font-size:10px;color:#5f6368;background:white;border-radius:6px;margin:4px 0;">
+                <div style="text-align:center;padding:6px;font-size:10px;color:${CONFIG.UI.COLORS.textLight};background:${CONFIG.UI.COLORS.surface};border-radius:6px;margin:4px 0;">
                     ... ${d.steps.length - 3} more steps ...
                 </div>
-                <div style="background:white;border-radius:8px;padding:8px;margin:6px 0;border-left:4px solid #34a853;">
-                    <div style="font-size:11px;font-weight:700;color:#34a853;">✅ Goal Reached! (Step ${d.totalSteps})</div>
-                    <div style="font-size:10px;color:#5f6368;">Path reconstructed: ${d.pathLength} nodes</div>
+                <div style="background:${CONFIG.UI.COLORS.surface};border-radius:8px;padding:8px;margin:6px 0;border-left:4px solid ${CONFIG.ROBOT.COLORS.good};">
+                    <div style="font-size:11px;font-weight:700;color:${CONFIG.ROBOT.COLORS.good};">✅ Goal Reached! (Step ${d.totalSteps})</div>
+                    <div style="font-size:10px;color:${CONFIG.UI.COLORS.textLight};">Path reconstructed: ${d.pathLength} nodes</div>
                 </div>
             `;
         }
-        
+
         // Show penalties applied
         const hasRain = rainCircles.length > 0;
         const hasTraffic = trafficPolylines.length > 0;
         const hasObstacles = obstacleCircles.length > 0;
-        
+
         html += `
-                <div style="background:white;border-radius:8px;padding:8px;margin:6px 0;">
+                <div style="background:${CONFIG.UI.COLORS.surface};border-radius:8px;padding:8px;margin:6px 0;">
                     <div style="font-size:10px;font-weight:700;margin-bottom:4px;">⚙️ Penalties Applied:</div>
                     <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:9px;">
-                        ${hasRain ? '<span style="background:#e3f2fd;padding:3px 6px;border-radius:4px;">🌧️ Rain: 2×</span>' : ''}
-                        ${hasTraffic ? '<span style="background:#fce4ec;padding:3px 6px;border-radius:4px;">🚗 Traffic: 1.5-4×</span>' : ''}
-                        ${hasObstacles ? '<span style="background:#fff3e0;padding:3px 6px;border-radius:4px;">🚧 Obstacles: 1.2-6×</span>' : ''}
+                        ${hasRain ? `<span style="background:${CONFIG.UI.COLORS.rainBg};padding:3px 6px;border-radius:4px;">🌧️ Rain: ${CONFIG.ROBOT.RAIN_REROUTE_THRESHOLD}×</span>` : ''}
+                        ${hasTraffic ? `<span style="background:${CONFIG.UI.COLORS.trafficBg};padding:3px 6px;border-radius:4px;">🚗 Traffic: ${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER}-${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER * 2.5}×</span>` : ''}
+                        ${hasObstacles ? `<span style="background:${CONFIG.UI.COLORS.obstacleBg};padding:3px 6px;border-radius:4px;">🚧 Obstacles: ${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER}-${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER * 3}×</span>` : ''}
                     </div>
                 </div>
             </div>
         `;
-        
+
         el.innerHTML = html;
         renderAStarOverlay(d);
-    } catch(e) {
+    } catch (e) {
         el.innerHTML = `<div style="padding:10px;text-align:center;color:#ea4335;">Error: ${e.message}</div>`;
     }
 }
@@ -513,27 +512,29 @@ async function runInsiderComparison() {
     const el = document.getElementById('comparison-table');
     if (!el) return;
     el.innerHTML = '<div style="padding:10px;text-align:center;">⏳ Running 4 algorithms...</div>';
-    
+
     try {
-        const d = await (await fetch('/api/insider?fromLat=21.0285&fromLon=105.8542&toLat=21.0355&toLon=105.8516')).json();
-        
+        const from = CONFIG.DATA.LOCATIONS[0];
+        const to = CONFIG.DATA.LOCATIONS[1];
+        const d = await (await fetch(`${CONFIG.API.INSIDER}?fromLat=${from.lat}&fromLon=${from.lon}&toLat=${to.lat}&toLon=${to.lon}`)).json();
+
         const algos = d.algorithms;
         const best = d.best_path_length;
-        
+
         const rows = [
             { name: "A* (Informed)", ...algos["A*"], icon: "⭐" },
             { name: "Dijkstra (Uninformed)", ...algos["Dijkstra"], icon: "🔵" },
             { name: "Greedy Best-First", ...algos["Greedy Best-First"], icon: "🟡" },
             { name: "BFS (Blind)", ...algos["BFS"], icon: "🟢" },
         ];
-        
+
         // Find the best time
         const bestTime = Math.min(...rows.map(r => r.time_ms));
-        
+
         let html = `
             <table style="width:100%;border-collapse:collapse;font-size:10px;">
                 <thead>
-                    <tr style="background:linear-gradient(135deg,#9c27b0,#673ab7);color:white;">
+                    <tr style="background:${CONFIG.UI.GRADIENTS.purple};color:${CONFIG.UI.COLORS.surface};">
                         <th style="padding:6px;text-align:left;">Algorithm</th>
                         <th style="padding:6px;text-align:center;">Nodes</th>
                         <th style="padding:6px;text-align:center;">Path</th>
@@ -544,18 +545,18 @@ async function runInsiderComparison() {
                 </thead>
                 <tbody>
         `;
-        
+
         rows.forEach(r => {
-            const bg = r.name.startsWith("A*") ? '#ede7f6' : '#f8f9fa';
+            const bg = r.name.startsWith("A*") ? '#ede7f6' : CONFIG.UI.COLORS.background;
             const bold = r.name.startsWith("A*") ? 'font-weight:700;' : '';
-            const optimal = r.optimal ? '<span style="color:#34a853;">✅ Yes</span>' : '<span style="color:#ea4335;">❌ No</span>';
+            const optimal = r.optimal ? `<span style="color:${CONFIG.UI.COLORS.success};">✅ Yes</span>` : `<span style="color:${CONFIG.UI.COLORS.error};">❌ No</span>`;
             const eff = best > 0 ? ((r.path_length / best) * 100).toFixed(0) + '%' : 'N/A';
-            const effColor = eff === '100%' ? '#34a853' : '#ea4335';
+            const effColor = eff === '100%' ? CONFIG.UI.COLORS.success : CONFIG.UI.COLORS.error;
             const timeBadge = r.time_ms === bestTime ? '⚡ ' : '';
-            const timeColor = r.time_ms === bestTime ? '#34a853' : '#5f6368';
-            
+            const timeColor = r.time_ms === bestTime ? CONFIG.UI.COLORS.success : CONFIG.UI.COLORS.textLight;
+
             html += `
-                <tr style="background:${bg};border-bottom:1px solid #e0e0e0;">
+                <tr style="background:${bg};border-bottom:1px solid ${CONFIG.UI.COLORS.border};">
                     <td style="padding:6px;${bold}">${r.icon} ${r.name}</td>
                     <td style="padding:6px;text-align:center;${bold}">${r.nodes_explored}</td>
                     <td style="padding:6px;text-align:center;${bold}">${r.path_length} nodes</td>
@@ -565,22 +566,22 @@ async function runInsiderComparison() {
                 </tr>
             `;
         });
-        
+
         html += `</tbody></table>`;
-        
+
         // Key insight
         const astarNodes = algos["A*"].nodes_explored;
         const dijkstraNodes = algos["Dijkstra"].nodes_explored;
         const speedup = dijkstraNodes > 0 ? ((1 - astarNodes / dijkstraNodes) * 100).toFixed(0) : 0;
-        
+
         html += `
-            <div style="margin-top:8px;padding:8px;background:#e8f5e9;border-radius:6px;font-size:10px;">
-                <strong>💡 Key Insight:</strong> A* explored <strong>${astarNodes}</strong> nodes vs Dijkstra's <strong>${dijkstraNodes}</strong> — that's <strong style="color:#34a853;">${speedup}% fewer nodes</strong> while finding the same optimal path!
+            <div style="margin-top:8px;padding:8px;background:${CONFIG.UI.GRADIENTS.success};border-radius:6px;font-size:10px;">
+                <strong>💡 Key Insight:</strong> A* explored <strong>${astarNodes}</strong> nodes vs Dijkstra's <strong>${dijkstraNodes}</strong> — that's <strong style="color:${CONFIG.UI.COLORS.success};">${speedup}% fewer nodes</strong> while finding the same optimal path!
             </div>
         `;
-        
+
         el.innerHTML = html;
-    } catch(e) {
+    } catch (e) {
         el.innerHTML = `<div style="padding:10px;text-align:center;color:#ea4335;">Error: ${e.message}</div>`;
     }
 }
@@ -589,17 +590,19 @@ async function runAStarVisualization() {
     const el = document.getElementById('astep-visualizer');
     if (!el) return;
     el.innerHTML = '<div style="padding:10px;text-align:center;">⏳ Running A* step-by-step...</div>';
-    
+
     try {
-        const d = await (await fetch('/api/astep?fromLat=21.0285&fromLon=105.8542&toLat=21.0355&toLon=105.8516')).json();
-        
+        const from = CONFIG.DATA.LOCATIONS[0];
+        const to = CONFIG.DATA.LOCATIONS[1];
+        const d = await (await fetch(`${CONFIG.API.ASTEP}?fromLat=${from.lat}&fromLon=${from.lon}&toLat=${to.lat}&toLon=${to.lon}`)).json();
+
         if (!d.steps || d.steps.length === 0) {
             el.innerHTML = '<div style="padding:10px;text-align:center;color:#ea4335;">No steps to visualize</div>';
             return;
         }
 
         renderAStarOverlay(d);
-        
+
         let html = `
             <div style="font-size:11px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
                 🔬 A* Expansion (${d.totalSteps} steps, ${d.calcTime}ms)
@@ -611,49 +614,49 @@ async function runAStarVisualization() {
                 <span>→ Path: ${d.pathLength} nodes</span>
             </div>
         `;
-        
+
         // Show steps with node visualization
         d.steps.forEach((s, i) => {
-            const color = i === 0 ? '#34a853' : i === d.steps.length - 1 ? '#ea4335' : '#4285f4';
-            const bg = i === 0 ? '#e8f5e9' : i === d.steps.length - 1 ? '#fce4ec' : '#f8f9fa';
-            
+            const color = i === 0 ? CONFIG.UI.COLORS.success : i === d.steps.length - 1 ? CONFIG.UI.COLORS.error : CONFIG.ROBOT.COLORS.info;
+            const bg = i === 0 ? CONFIG.UI.COLORS.successLight : i === d.steps.length - 1 ? CONFIG.UI.COLORS.errorLight : CONFIG.UI.COLORS.background;
+
             html += `
                 <div style="background:${bg};border-radius:6px;padding:6px 8px;margin:4px 0;border-left:3px solid ${color};font-size:10px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;">
                         <span style="font-weight:700;color:${color};">Step ${s.step}</span>
                         <span style="font-family:monospace;font-size:9px;">Node ${s.currentNode}</span>
                     </div>
-                    <div style="font-family:monospace;font-size:9px;background:white;padding:3px 6px;border-radius:3px;margin:3px 0;">
+                    <div style="font-family:monospace;font-size:9px;background:${CONFIG.UI.COLORS.surface};padding:3px 6px;border-radius:3px;margin:3px 0;">
                         ${s.formula}
                     </div>
-                    <div style="display:flex;gap:12px;font-size:9px;color:#5f6368;">
+                    <div style="display:flex;gap:12px;font-size:9px;color:${CONFIG.UI.COLORS.textLight};">
                         <span>g=${s.g}</span><span>h=${s.h}</span><span>f=${s.f}</span>
                         <span>Open: ${s.openSetSize}</span><span>Closed: ${s.closedSetSize}</span>
                     </div>
                     <!-- Node bar visualization -->
-                    <div style="margin-top:4px;height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden;">
-                        <div style="width:${Math.min(100, (s.closedSetSize / d.closedSetSize) * 100)}%;height:100%;background:linear-gradient(90deg,#4285f4,#ff9800);border-radius:3px;transition:width 0.3s;"></div>
+                    <div style="margin-top:4px;height:6px;background:${CONFIG.UI.COLORS.border};border-radius:3px;overflow:hidden;">
+                        <div style="width:${Math.min(100, (s.closedSetSize / d.closedSetSize) * 100)}%;height:100%;background:${CONFIG.UI.GRADIENTS.expansion};border-radius:3px;transition:width 0.3s;"></div>
                     </div>
                 </div>
             `;
         });
-        
+
         if (d.success) {
             html += `
-                <div style="margin-top:8px;padding:8px;background:#e8f5e9;border-radius:6px;text-align:center;font-size:11px;font-weight:700;color:#34a853;">
+                <div style="margin-top:8px;padding:8px;background:${CONFIG.UI.COLORS.successLight};border-radius:6px;text-align:center;font-size:11px;font-weight:700;color:${CONFIG.UI.COLORS.success};">
                     ✅ Goal reached! Optimal path found with ${d.pathLength} nodes
                 </div>
             `;
         }
         html += `
-            <div style="margin-top:8px;padding:8px;background:#fff8e1;border-radius:6px;font-size:10px;color:#5f6368;">
+            <div style="margin-top:8px;padding:8px;background:${CONFIG.UI.COLORS.warnLight};border-radius:6px;font-size:10px;color:${CONFIG.UI.COLORS.textLight};">
                 Blue markers show exploration order on the map, orange shows the latest expanded node, green is the start, red is the goal, and purple is the final chosen path.
             </div>
         `;
-        
+
         el.innerHTML = html;
-    } catch(e) {
-        el.innerHTML = `<div style="padding:10px;text-align:center;color:#ea4335;">Error: ${e.message}</div>`;
+    } catch (e) {
+        el.innerHTML = `<div style="padding:10px;text-align:center;color:${CONFIG.UI.COLORS.error};">Error: ${e.message}</div>`;
     }
 }
 
@@ -664,7 +667,7 @@ document.getElementById('run-astar-viz-btn')?.addEventListener('click', runAStar
 // ===== CLOCK =====
 async function updateClock() {
     try {
-        const d = await (await fetch('/api/clock')).json();
+        const d = await (await fetch(CONFIG.API.CLOCK)).json();
         const cl = document.getElementById('clock-time');
         if (cl) cl.textContent = d.time.display;
         const rh = document.getElementById('rush-hour-display');
@@ -672,7 +675,7 @@ async function updateClock() {
         if (d.rushHour.isActive) {
             if (rh) { rh.style.display = 'inline-block'; if (rm) rm.textContent = d.rushHour.multiplier.toFixed(1); }
         } else { if (rh) rh.style.display = 'none'; }
-    } catch(e) {}
+    } catch (e) { }
 }
 
 window.addEventListener('load', () => {

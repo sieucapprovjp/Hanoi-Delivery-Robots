@@ -26,6 +26,7 @@ Thumbs.db
 
 # Qwen Code
 .qwen/
+.agents/
 
 # Cache
 cache/

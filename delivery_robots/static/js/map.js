@@ -12,40 +12,24 @@ class HanoiMap {
         this.rainLayers = [];
         this.deliveryMarkers = new Map();
         this.hubLayers = [];
-        
+
         // Predefined street paths (real Hoan Kiem streets)
-        this.streets = [
-            { name: "Phố Lê Thái Tổ", points: [[21.0240,105.8480],[21.0250,105.8486],[21.0260,105.8492],[21.0270,105.8498],[21.0280,105.8504],[21.0290,105.8509],[21.0300,105.8513]], type: "main" },
-            { name: "Phố Đinh Tiên Hoàng", points: [[21.0300,105.8513],[21.0310,105.8517],[21.0320,105.8521],[21.0330,105.8525],[21.0340,105.8529],[21.0355,105.8532]], type: "main" },
-            { name: "Phố Tràng Tiền", points: [[21.0240,105.8480],[21.0243,105.8492],[21.0247,105.8505],[21.0252,105.8518],[21.0256,105.8530]], type: "main" },
-            { name: "Phố Hàng Khay", points: [[21.0256,105.8530],[21.0262,105.8534],[21.0270,105.8538],[21.0278,105.8543],[21.0285,105.8548]], type: "main" },
-            { name: "Phố Hai Bà Trưng", points: [[21.0220,105.8510],[21.0240,105.8515],[21.0260,105.8520],[21.0280,105.8525],[21.0300,105.8530]], type: "main" },
-            { name: "Phố Lý Thường Kiệt", points: [[21.0210,105.8500],[21.0230,105.8505],[21.0250,105.8510],[21.0270,105.8515],[21.0290,105.8520]], type: "main" },
-            { name: "Phố Hàng Đào", points: [[21.0300,105.8530],[21.0310,105.8528],[21.0320,105.8526],[21.0330,105.8524],[21.0340,105.8522],[21.0350,105.8520]], type: "secondary" },
-            { name: "Phố Hàng Ngang", points: [[21.0305,105.8538],[21.0315,105.8536],[21.0325,105.8534],[21.0335,105.8532],[21.0345,105.8530]], type: "secondary" },
-            { name: "Phố Đồng Xuân", points: [[21.0345,105.8530],[21.0350,105.8525],[21.0353,105.8519],[21.0355,105.8516]], type: "secondary" },
-            { name: "Phố Bà Triệu", points: [[21.0220,105.8510],[21.0230,105.8513],[21.0240,105.8515],[21.0250,105.8517],[21.0260,105.8520]], type: "secondary" }
-        ];
+        this.streets = CONFIG.DATA.STREETS;
 
         // Key intersections (connect points)
-        this.intersections = [
-            { lat: 21.0285, lon: 105.8542, name: "Hoan Kiem Lake", connections: [0,1,3] },
-            { lat: 21.0240, lon: 105.8480, name: "Trang Tien", connections: [1,2] },
-            { lat: 21.0265, lon: 105.8505, name: "Hang Bai", connections: [2] },
-            { lat: 21.0275, lon: 105.8520, name: "Dinh Tien Hoang", connections: [0] }
-        ];
+        this.intersections = CONFIG.DATA.INTERSECTIONS;
 
         this.roadGraph = new Map();
         this.buildRoadGraph();
     }
 
     initializeMap() {
-        this.map = L.map('map').setView([21.0285, 105.8542], 16);
+        this.map = L.map('map').setView(CONFIG.MAP.INITIAL_VIEW, CONFIG.MAP.INITIAL_ZOOM);
         window.map = this.map; // Expose for weather/traffic controls
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '© OpenStreetMap'
+        L.tileLayer(CONFIG.MAP.TILE_LAYER_URL, {
+            maxZoom: CONFIG.MAP.MAX_ZOOM,
+            attribution: CONFIG.MAP.ATTRIBUTION
         }).addTo(this.map);
 
         L.control.zoom({ position: 'bottomright' }).addTo(this.map);
@@ -61,27 +45,21 @@ class HanoiMap {
     drawStreets() {
         if (!this.showDebugRoads) return;
 
-        const colors = { main: '#ffa94d', secondary: '#ffd43b', residential: '#e9ecef' };
-        
+        const colors = CONFIG.MAP.STREET_COLORS;
+
         this.streets.forEach(street => {
             const latlngs = street.points.map(p => [p[0], p[1]]);
+            const colors = CONFIG.MAP.STREET_COLORS;
             L.polyline(latlngs, {
-                color: colors[street.type] || '#e9ecef',
-                weight: street.type === 'main' ? 6 : 4,
-                opacity: 0.9
+                color: colors[street.type] || CONFIG.UI.COLORS.background,
+                weight: street.type === 'main' ? CONFIG.UI.WEIGHTS.thick + 1 : CONFIG.UI.WEIGHTS.markerSmall,
+                opacity: CONFIG.UI.OPACITY.full - 0.1
             }).addTo(this.map).bindTooltip(street.name);
         });
     }
 
     setupChargingStations() {
-        const locations = [
-            { lat: 21.0285, lon: 105.8542, name: "Hoan Kiem Hub", spots: 3 },
-            { lat: 21.0355, lon: 105.8516, name: "Dong Xuan", spots: 2 },
-            { lat: 21.0240, lon: 105.8480, name: "Trang Tien", spots: 2 },
-            { lat: 21.0220, lon: 105.8510, name: "Ly Thuong Kiet", spots: 2 },
-            { lat: 21.0300, lon: 105.8530, name: "Hang Ngang", spots: 2 },
-            { lat: 21.0275, lon: 105.8520, name: "Opera House", spots: 2 }
-        ];
+        const locations = CONFIG.DATA.CHARGING_STATIONS;
 
         locations.forEach(loc => {
             const station = {
@@ -92,8 +70,9 @@ class HanoiMap {
 
             station.marker = L.marker([loc.lat, loc.lon], {
                 icon: L.divIcon({
-                    html: `<div style="width:40px;height:40px;background:#34a853;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid white;">⚡</div>`,
-                    iconSize: [40, 40], iconAnchor: [20, 20]
+                    html: `<div style="width:${CONFIG.UI.RADII.markerLarge * 6}px;height:${CONFIG.UI.RADII.markerLarge * 6}px;background:${CONFIG.ROBOT.COLORS.good};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${CONFIG.UI.RADII.markerLarge * 3}px;border:${CONFIG.UI.WEIGHTS.medium}px solid ${CONFIG.UI.COLORS.surface};">⚡</div>`,
+                    iconSize: [CONFIG.UI.RADII.markerLarge * 6, CONFIG.UI.RADII.markerLarge * 6], 
+                    iconAnchor: [CONFIG.UI.RADII.markerLarge * 3, CONFIG.UI.RADII.markerLarge * 3]
                 })
             }).addTo(this.map);
 
@@ -137,19 +116,19 @@ class HanoiMap {
         this.rainZones.forEach(zone => {
             const halo = L.circle([zone.center.lat, zone.center.lon], {
                 radius: zone.radius,
-                color: '#4dabf7',
+                color: CONFIG.MAP.RAIN_COLORS.halo,
                 weight: 2,
                 opacity: 0.45,
-                fillColor: '#74c0fc',
+                fillColor: CONFIG.MAP.RAIN_COLORS.fill,
                 fillOpacity: 0.12
             }).addTo(this.map);
 
             const core = L.circle([zone.center.lat, zone.center.lon], {
-                radius: zone.radius * 0.62,
-                color: '#228be6',
+                radius: zone.radius * CONFIG.MAP.RAIN_ZONES_CORE_SCALE,
+                color: CONFIG.MAP.RAIN_COLORS.core,
                 weight: 1,
                 opacity: 0.3,
-                fillColor: '#4dabf7',
+                fillColor: CONFIG.MAP.RAIN_COLORS.halo,
                 fillOpacity: 0.12
             }).addTo(this.map).bindTooltip(`🌧 ${zone.name} rain x${zone.multiplier.toFixed(1)}`);
 
@@ -159,7 +138,7 @@ class HanoiMap {
 
     startTraffic() {
         this.refreshTraffic();
-        this.trafficRefreshHandle = setInterval(() => this.refreshTraffic(), 3500);
+        this.trafficRefreshHandle = setInterval(() => this.refreshTraffic(), CONFIG.UI.TRAFFIC_REFRESH_INTERVAL_MS);
     }
 
     async refreshTraffic() {
@@ -184,7 +163,7 @@ class HanoiMap {
             road.segments.forEach(segment => {
                 const latlngs = segment.points.map(point => [point[0], point[1]]);
                 const core = L.polyline(latlngs, {
-                    color: segment.severity > 0.55 ? '#ff6b6b' : '#ff922b',
+                    color: segment.severity > 0.55 ? CONFIG.MAP.TRAFFIC_COLORS.heavy : CONFIG.MAP.TRAFFIC_COLORS.moderate,
                     weight: segment.severity > 0.55 ? 5 : 4,
                     opacity: 0.85,
                     lineCap: 'round',
@@ -330,14 +309,14 @@ class HanoiMap {
             lon: (fromNode.lon + toNode.lon) / 2
         };
         const traffic = this.getTrafficAt(midpoint.lat, midpoint.lon);
-        return 1 + traffic * 2;
+        return 1 + traffic * CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER;
     }
 
     isRoadBlocked(fromNode, toNode) {
         return this.roadblocks.some(block => {
             const midpointLat = (fromNode.lat + toNode.lat) / 2;
             const midpointLon = (fromNode.lon + toNode.lon) / 2;
-            return this.distance(midpointLat, midpointLon, block.lat, block.lon) < 35;
+            return this.distance(midpointLat, midpointLon, block.lat, block.lon) < CONFIG.MAP.ROADBLOCK_DISTANCE_THRESHOLD;
         });
     }
 
@@ -386,7 +365,7 @@ class HanoiMap {
             road.segments.forEach(segment => {
                 const [[startLat, startLon], [endLat, endLon]] = segment.points;
                 const dist = this.distanceToSegment(lat, lon, startLat, startLon, endLat, endLon);
-                const radius = 26;
+                const radius = CONFIG.MAP.TRAFFIC_RADIUS;
 
                 if (dist < radius) {
                     traffic = Math.max(traffic, segment.severity * (1 - dist / radius));
@@ -411,8 +390,8 @@ class HanoiMap {
 
     distanceToSegment(lat, lon, startLat, startLon, endLat, endLon) {
         const originLat = (lat + startLat + endLat) / 3;
-        const metersPerDegLat = 111320;
-        const metersPerDegLon = 111320 * Math.cos(originLat * Math.PI / 180);
+        const metersPerDegLat = CONFIG.MAP.METERS_PER_DEGREE;
+        const metersPerDegLon = CONFIG.MAP.METERS_PER_DEGREE * Math.cos(originLat * Math.PI / 180);
 
         const px = lon * metersPerDegLon;
         const py = lat * metersPerDegLat;
@@ -436,11 +415,11 @@ class HanoiMap {
     }
 
     distance(lat1, lon1, lat2, lon2) {
-        const R = 6371e3;
+        const R = CONFIG.MAP.EARTH_RADIUS_METERS;
         const φ1 = lat1 * Math.PI / 180;
         const φ2 = lat2 * Math.PI / 180;
         return R * Math.acos(
-            Math.sin(φ1) * Math.sin(φ2) + 
+            Math.sin(φ1) * Math.sin(φ2) +
             Math.cos(φ1) * Math.cos(φ2) * Math.cos((lon2 - lon1) * Math.PI / 180)
         );
     }
@@ -518,12 +497,12 @@ class HanoiMap {
             }).addTo(this.map).bindPopup(`<strong>${hub.name}</strong><br>Optimized with k-means`);
 
             const ring = L.circle([hub.lat, hub.lon], {
-                radius: 90,
-                color: '#1a73e8',
-                weight: 2,
-                opacity: 0.5,
-                fillColor: '#1a73e8',
-                fillOpacity: 0.08
+                radius: CONFIG.MAP.HUB_RING_RADIUS,
+                color: CONFIG.MAP.HUB_COLOR,
+                weight: CONFIG.MAP.HUB_RING_WEIGHT,
+                opacity: CONFIG.MAP.HUB_RING_OPACITY,
+                fillColor: CONFIG.MAP.HUB_COLOR,
+                fillOpacity: CONFIG.MAP.HUB_FILL_OPACITY
             }).addTo(this.map);
 
             this.hubLayers.push(marker, ring);

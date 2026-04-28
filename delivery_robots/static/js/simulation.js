@@ -13,17 +13,16 @@ class Simulation {
         this.totalDistance = 0;
         this.simulationTime = 0;
         this.lastDeliveryTime = 0;
-        this.deliveryInterval = 6500;
+        this.deliveryInterval = CONFIG.SIMULATION.DELIVERY_INTERVAL_MS;
         this.totalReroutes = 0;
         this.totalBatteryConsumed = 0;
         this.lastDecisionCost = 0;
         this.latestDecision = null;
-        this.fleetAlgorithm = 'astar';
-        this.algorithmStats = {
-            astar: this.createAlgoStats(),
-            dijkstra: this.createAlgoStats(),
-            gbfs: this.createAlgoStats()
-        };
+        this.fleetAlgorithm = CONFIG.SIMULATION.DEFAULT_ALGORITHM;
+        this.algorithmStats = {};
+        CONFIG.SIMULATION.ALGORITHMS.forEach(algo => {
+            this.algorithmStats[algo] = this.createAlgoStats();
+        });
     }
 
     createAlgoStats() {
@@ -44,51 +43,43 @@ class Simulation {
         mapManager.initializeMap();
         window.mapManager = mapManager;
 
-        const [startA, startB, startC, startD, startE] = await Promise.all([
-            pathfindingManager.snapToRoad(21.0285, 105.8542),
-            pathfindingManager.snapToRoad(21.0355, 105.8516),
-            pathfindingManager.snapToRoad(21.0240, 105.8480),
-            pathfindingManager.snapToRoad(21.0220, 105.8510),
-            pathfindingManager.snapToRoad(21.0300, 105.8530)
-        ]);
+        const [startA, startB, startC, startD, startE] = await Promise.all(
+            CONFIG.DATA.LOCATIONS.slice(0, 5).map(loc => pathfindingManager.snapToRoad(loc.lat, loc.lon))
+        );
 
         // Robots
-        this.robots = [
-            new DeliveryRobot(0, startA.lat, startA.lon, 'Robot α', '#4285f4', this.fleetAlgorithm),
-            new DeliveryRobot(1, startB.lat, startB.lon, 'Robot β', '#34a853', this.fleetAlgorithm),
-            new DeliveryRobot(2, startC.lat, startC.lon, 'Robot γ', '#fbbc04', this.fleetAlgorithm),
-            new DeliveryRobot(3, startD.lat, startD.lon, 'Robot δ', '#ff6b6b', this.fleetAlgorithm),
-            new DeliveryRobot(4, startE.lat, startE.lon, 'Robot ε', '#845ef7', this.fleetAlgorithm)
-        ];
+        this.robots = CONFIG.SIMULATION.INITIAL_ROBOTS.map((r, i) => {
+            const start = [startA, startB, startC, startD, startE][i];
+            return new DeliveryRobot(i, start.lat, start.lon, r.name, r.color, this.fleetAlgorithm);
+        });
 
         this.robots.forEach(robot => robot.createMarker(mapManager.map));
 
         // Initial deliveries
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < CONFIG.SIMULATION.INITIAL_DELIVERY_COUNT; i++) {
             await this.generateDelivery();
         }
 
         console.log('✓ Ready - Click START!');
         logEvent('🚀 Click START to begin!');
-        addDispatchInsight('Dispatch engine online. Monitoring queue pressure, weather, and traffic.', 'neutral');
+        addDispatchInsight('Dispatch engine online. Monitoring queue pressure, weather, and traffic.', CONFIG.UI.LOG_LEVELS.NEUTRAL);
         this.updateFleetAlgorithmLabel();
         this.updateAlgorithmComparison();
     }
 
     setFleetAlgorithm(algo) {
         const normalized = (algo || '').toLowerCase();
-        if (!['astar', 'dijkstra', 'gbfs'].includes(normalized)) return;
+        if (!CONFIG.SIMULATION.ALGORITHMS.includes(normalized)) return;
 
         this.fleetAlgorithm = normalized;
-        this.algorithmStats = {
-            astar: this.createAlgoStats(),
-            dijkstra: this.createAlgoStats(),
-            gbfs: this.createAlgoStats()
-        };
+        this.algorithmStats = {};
+        CONFIG.SIMULATION.ALGORITHMS.forEach(a => {
+            this.algorithmStats[a] = this.createAlgoStats();
+        });
 
         this.robots.forEach(robot => {
             robot.routeAlgorithm = normalized;
-            if (robot.currentDelivery && robot.status === 'moving') {
+            if (robot.currentDelivery && robot.status === CONFIG.ROBOT.STATUSES.MOVING) {
                 robot.currentDeliveryAlgorithm = normalized;
             }
         });
@@ -97,7 +88,7 @@ class Simulation {
         this.updateRobotStatus();
         this.updateAlgorithmComparison();
         logEvent(`🧠 Fleet AI switched to ${normalized.toUpperCase()} for all robots`);
-        addDispatchInsight(`Fleet benchmark mode: all 5 robots now use ${normalized.toUpperCase()}. Metrics reset for fair comparison.`, 'neutral');
+        addDispatchInsight(`Fleet benchmark mode: all ${this.robots.length} robots now use ${normalized.toUpperCase()}. Metrics reset for fair comparison.`, CONFIG.UI.LOG_LEVELS.NEUTRAL);
     }
 
     updateFleetAlgorithmLabel() {
@@ -115,52 +106,15 @@ class Simulation {
     }
 
     async generateDelivery() {
-        const baseLocations = [
-            { lat: 21.0285, lon: 105.8542, name: "Hoan Kiem Lake", category: "landmark", icon: "📍" },
-            { lat: 21.0355, lon: 105.8516, name: "Dong Xuan Market", category: "market", icon: "🛍" },
-            { lat: 21.0240, lon: 105.8480, name: "Trang Tien Plaza", category: "retail", icon: "🛒" },
-            { lat: 21.0275, lon: 105.8520, name: "Opera House", category: "office", icon: "🏛" },
-            { lat: 21.0220, lon: 105.8510, name: "Ly Thuong Kiet Residences", category: "residential", icon: "🏠" },
-            { lat: 21.0300, lon: 105.8530, name: "Hang Ngang Shops", category: "retail", icon: "🛍" },
-            { lat: 21.0318, lon: 105.8524, name: "Ngoc Son Gate", category: "landmark", icon: "📍" },
-            { lat: 21.0334, lon: 105.8509, name: "Ta Hien Bistro Row", category: "restaurant", icon: "🍜" },
-            { lat: 21.0268, lon: 105.8496, name: "Hang Trong Studios", category: "office", icon: "🏢" },
-            { lat: 21.0235, lon: 105.8504, name: "Melia Hanoi", category: "hotel", icon: "🏨" },
-            { lat: 21.0294, lon: 105.8555, name: "Water Puppet Theatre", category: "landmark", icon: "🎭" },
-            { lat: 21.0248, lon: 105.8528, name: "French Quarter Cafe", category: "restaurant", icon: "☕" },
-            { lat: 21.0271, lon: 105.8558, name: "Post Office Square", category: "office", icon: "🏢" },
-            { lat: 21.0343, lon: 105.8522, name: "Hang Dao Market", category: "market", icon: "🛍" },
-            { lat: 21.0218, lon: 105.8499, name: "Thong Nhat Apartments", category: "residential", icon: "🏠" },
-            { lat: 21.0298, lon: 105.8515, name: "Pho Cau Go Dining", category: "restaurant", icon: "🍲" },
-            { lat: 21.0257, lon: 105.8544, name: "Ba Kieu Temple", category: "landmark", icon: "⛩" },
-            { lat: 21.0326, lon: 105.8517, name: "Old Quarter Hostel", category: "hotel", icon: "🛎" },
-            { lat: 21.0261, lon: 105.8517, name: "Press Club Offices", category: "office", icon: "🏢" },
-            { lat: 21.0230, lon: 105.8522, name: "Tran Hung Dao Homes", category: "residential", icon: "🏡" }
-        ];
+        const baseLocations = CONFIG.DATA.LOCATIONS;
         const locations = await Promise.all(
             baseLocations.map(async location => {
                 const snapped = await pathfindingManager.snapToRoad(location.lat, location.lon);
                 return { ...location, lat: snapped.lat, lon: snapped.lon };
             })
         );
-        const pickupGroups = {
-            restaurant: 0.24,
-            market: 0.22,
-            retail: 0.18,
-            office: 0.14,
-            hotel: 0.12,
-            landmark: 0.06,
-            residential: 0.04
-        };
-        const dropoffGroups = {
-            residential: 0.32,
-            hotel: 0.18,
-            office: 0.16,
-            retail: 0.12,
-            restaurant: 0.10,
-            landmark: 0.07,
-            market: 0.05
-        };
+        const pickupGroups = CONFIG.SIMULATION.PICKUP_WEIGHTS;
+        const dropoffGroups = CONFIG.SIMULATION.DROPOFF_WEIGHTS;
 
         const weightedPick = (weights) => {
             const entries = Object.entries(weights);
@@ -187,7 +141,7 @@ class Simulation {
         let dest = randomLocationForCategory(dropoffCategory, pickup.name);
 
         if (dest.name === pickup.name) {
-            dropoffCategory = 'residential';
+            dropoffCategory = CONFIG.SIMULATION.CATEGORIES.RESIDENTIAL;
             dest = randomLocationForCategory(dropoffCategory, pickup.name);
         }
 
@@ -195,7 +149,7 @@ class Simulation {
             id: this.totalDeliveries + this.pendingDeliveries.length + 1,
             pickup: pickup,
             destination: dest,
-            status: 'pending',
+            status: CONFIG.SIMULATION.DELIVERY_STATUSES.PENDING,
             createdAt: Date.now(),
             theme: {
                 pickupCategory,
@@ -213,7 +167,7 @@ class Simulation {
 
     async logDeliveryData(delivery) {
         try {
-            await fetch('/api/log_delivery', {
+            await fetch(CONFIG.API.LOG_DELIVERY, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -229,11 +183,11 @@ class Simulation {
     }
 
     async assignDeliveries() {
-        const candidateRobots = this.robots.filter(r => r.status === 'idle' && r.currentLoad < r.capacity && !r.isRouting);
+        const candidateRobots = this.robots.filter(r => r.status === CONFIG.ROBOT.STATUSES.IDLE && r.currentLoad < r.capacity && !r.isRouting);
         if (candidateRobots.length === 0 || this.pendingDeliveries.length === 0) return;
 
         try {
-            const response = await fetch('/api/dispatch/assign', {
+            const response = await fetch(CONFIG.API.DISPATCH_ASSIGN, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -280,7 +234,7 @@ class Simulation {
 
                 addDispatchInsight(
                     `${robot.name} assigned to order #${delivery.id} with priority ${best.priorityScore.toFixed(1)}. Cost breakdown: base ${best.breakdown.baseDistance.toFixed(0)}m, traffic +${best.breakdown.trafficPenalty.toFixed(0)}m, rain +${best.breakdown.rainPenalty.toFixed(0)}m, obstacles +${best.breakdown.obstaclePenalty.toFixed(0)}m, battery risk +${best.batteryRisk.toFixed(1)}.`,
-                    'good'
+                    CONFIG.UI.LOG_LEVELS.SUCCESS
                 );
 
                 const assigned = await robot.assignDelivery(delivery, best.route, best.breakdown);
@@ -296,7 +250,7 @@ class Simulation {
     async update() {
         if (!this.running) return;
 
-        this.simulationTime += 0.016 * this.speed;
+        this.simulationTime += CONFIG.SIMULATION.TIME_DELTA * this.speed;
 
         // Generate deliveries
         if (Date.now() - this.lastDeliveryTime > this.deliveryInterval / this.speed) {
@@ -354,26 +308,19 @@ class Simulation {
         this.totalBatteryConsumed = 0;
         this.lastDecisionCost = 0;
         this.latestDecision = null;
-        this.algorithmStats = {
-            astar: this.createAlgoStats(),
-            dijkstra: this.createAlgoStats(),
-            gbfs: this.createAlgoStats()
-        };
+        this.algorithmStats = {};
+        CONFIG.SIMULATION.ALGORITHMS.forEach(algo => {
+            this.algorithmStats[algo] = this.createAlgoStats();
+        });
 
-        const [startA, startB, startC, startD, startE] = await Promise.all([
-            pathfindingManager.snapToRoad(21.0285, 105.8542),
-            pathfindingManager.snapToRoad(21.0355, 105.8516),
-            pathfindingManager.snapToRoad(21.0240, 105.8480),
-            pathfindingManager.snapToRoad(21.0220, 105.8510),
-            pathfindingManager.snapToRoad(21.0300, 105.8530)
-        ]);
-        const starts = [startA, startB, startC, startD, startE];
-
+        const starts = await Promise.all(
+            CONFIG.DATA.LOCATIONS.slice(0, 5).map(loc => pathfindingManager.snapToRoad(loc.lat, loc.lon))
+        );
         this.robots.forEach((robot, i) => {
             robot.lat = starts[i].lat;
             robot.lon = starts[i].lon;
-            robot.battery = 100;
-            robot.status = 'idle';
+            robot.battery = CONFIG.ROBOT.INITIAL_BATTERY;
+            robot.status = CONFIG.ROBOT.STATUSES.IDLE;
             robot.currentLoad = 0;
             robot.totalDeliveries = 0;
             robot.totalDistance = 0;
@@ -389,10 +336,14 @@ class Simulation {
             if (robot.marker) robot.marker.setLatLng([robot.lat, robot.lon]);
         });
 
-        for (let i = 0; i < 6; i++) await this.generateDelivery();
+        this.robots.forEach(robot => robot.createMarker(mapManager.map));
+        
+        for (let i = 0; i < CONFIG.SIMULATION.INITIAL_DELIVERY_COUNT; i++) {
+            await this.generateDelivery();
+        }
 
         logEvent('🔄 Reset');
-        addDispatchInsight('Dispatch state reset. Queue rebuilt and analytics cleared.', 'neutral');
+        addDispatchInsight('Dispatch state reset. Queue rebuilt and analytics cleared.', CONFIG.UI.LOG_LEVELS.NEUTRAL);
         this.updateStats();
         this.updateFleetAlgorithmLabel();
         this.updateRobotStatus();
@@ -403,10 +354,10 @@ class Simulation {
 
     async optimizeHubs() {
         logEvent('🧠 Optimizing hub locations...');
-        addDispatchInsight('Running k-means clustering on delivery hotspots to reposition fleet...', 'neutral');
+        addDispatchInsight('Running k-means clustering on delivery hotspots to reposition fleet...', CONFIG.UI.LOG_LEVELS.NEUTRAL);
 
         try {
-            const res = await fetch('/api/optimize-hubs', { method: 'POST' });
+            const res = await fetch(CONFIG.API.OPTIMIZE_HUBS, { method: 'POST' });
             const data = await res.json();
 
             if (!res.ok) throw new Error(data.error || 'Optimization failed');
@@ -419,7 +370,7 @@ class Simulation {
                     const hub = hubs[i];
                     robot.lat = hub.lat;
                     robot.lon = hub.lon;
-                    robot.status = 'idle';
+                    robot.status = CONFIG.ROBOT.STATUSES.IDLE;
                     robot.currentPath = [];
                     robot.clearPathLine();
                     if (robot.marker) robot.marker.setLatLng([robot.lat, robot.lon]);
@@ -427,7 +378,7 @@ class Simulation {
             });
 
             logEvent('✅ Hubs optimized!');
-            addDispatchInsight(`Fleet repositioned to ${hubs.length} optimal centroids. Check map for new starting points.`, 'good');
+            addDispatchInsight(`Fleet repositioned to ${hubs.length} optimal centroids. Check map for new starting points.`, CONFIG.UI.LOG_LEVELS.SUCCESS);
 
             // Optional: visualize hubs on map
             if (window.mapManager) {
@@ -436,7 +387,7 @@ class Simulation {
 
         } catch (e) {
             logEvent('❌ Optimization failed');
-            addDispatchInsight(`Hub optimization error: ${e.message}`, 'warn');
+            addDispatchInsight(`Hub optimization error: ${e.message}`, CONFIG.UI.LOG_LEVELS.WARN);
         }
     }
 
@@ -468,10 +419,10 @@ class Simulation {
                 <div class="robot-name" style="color:${robot.color}">${robot.name}</div>
                 <div class="robot-detail">${robot.getStatusText()}</div>
                 <div class="robot-detail">📦 ${robot.totalDeliveries} | ${robot.totalDistance.toFixed(0)}m | ⏱ ${robot.getEtaText()}</div>
-                <div class="robot-detail">🎯 ${robot.routeMode || 'standby'} | 🔋 ${robot.battery.toFixed(0)}%</div>
+                <div class="robot-detail">🎯 ${robot.routeMode || CONFIG.UI.STATE_LABELS.STANDBY} | 🔋 ${robot.battery.toFixed(0)}%</div>
                 <div class="robot-detail">🧠 <strong>${robot.routeAlgorithm.toUpperCase()}</strong></div>
                 <div class="battery-bar">
-                    <div class="battery-fill" style="width:${robot.battery}%;background:${robot.battery > 60 ? '#34a853' : robot.battery > 30 ? '#fbbc04' : '#ea4335'}"></div>
+                    <div class="battery-fill" style="width:${robot.battery}%;background:${robot.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.GOOD ? CONFIG.ROBOT.COLORS.good : robot.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.WARN ? CONFIG.ROBOT.COLORS.warn : CONFIG.ROBOT.COLORS.error}"></div>
                 </div>
             `;
             container.appendChild(card);
@@ -503,7 +454,8 @@ class Simulation {
         const avgTimeMs = stats.routeCount > 0 ? stats.totalRouteTimeMs / stats.routeCount : 0;
         const avgNodes = stats.routeCount > 0 ? stats.totalNodesExplored / stats.routeCount : 0;
 
-        const denominator = totalPathCostKm + (0.02 * avgTimeMs) + (0.005 * avgNodes) + (0.5 * stats.rerouteCount) + 1;
+        const weights = CONFIG.SIMULATION.EFFICIENCY_WEIGHTS;
+        const denominator = totalPathCostKm + (weights.TIME * avgTimeMs) + (weights.NODES * avgNodes) + (weights.REROUTE * stats.rerouteCount) + 1;
         return stats.deliveriesCompleted / denominator;
     }
 
@@ -517,7 +469,7 @@ class Simulation {
             gbfs: 'GBFS'
         };
 
-        const rows = ['astar', 'dijkstra', 'gbfs'].map(algo => {
+        const rows = CONFIG.SIMULATION.ALGORITHMS.map(algo => {
             const stats = this.algorithmStats[algo];
             const avgTimeMs = stats.routeCount > 0 ? stats.totalRouteTimeMs / stats.routeCount : 0;
             const avgNodes = stats.routeCount > 0 ? stats.totalNodesExplored / stats.routeCount : 0;
@@ -526,7 +478,7 @@ class Simulation {
             const isActive = algo === this.fleetAlgorithm;
 
             return `
-                <tr style="background:${isActive ? '#e8f0fe' : 'transparent'};">
+                <tr style="background:${isActive ? CONFIG.UI.COLORS.infoLight : CONFIG.UI.COLORS.transparent};">
                     <td><strong>${label[algo]}</strong></td>
                     <td>${stats.deliveriesCompleted}</td>
                     <td>${avgTimeMs.toFixed(1)} ms</td>
@@ -565,7 +517,7 @@ class Simulation {
         const container = document.getElementById('latest-route-choice');
         if (!container) return;
         if (!this.latestDecision) {
-            container.textContent = 'Waiting for a robot assignment...';
+            container.textContent = CONFIG.UI.STATE_LABELS.WAITING_ASSIGNMENT;
             return;
         }
 
@@ -581,9 +533,9 @@ class Simulation {
                 <div>⚠️ Battery risk: <strong>${d.batteryRisk.toFixed(1)}</strong></div>
                 <div>⏱ ETA: <strong>${d.breakdown.estimatedMinutes.toFixed(1)} min</strong></div>
             </div>
-            <div style="margin-top:8px;padding-top:8px;border-top:1px solid #e0e0e0;font-size:11px;">
+            <div style="margin-top:8px;padding-top:8px;border-top:1px solid ${CONFIG.UI.COLORS.neutral};font-size:11px;">
                 <div>Priority score: <strong>${d.priorityScore.toFixed(1)}</strong></div>
-                <div>Chosen total cost: <strong style="color:#1a73e8;">${d.breakdown.totalCost.toFixed(0)}m</strong></div>
+                <div>Chosen total cost: <strong style="color:${CONFIG.ROBOT.COLORS.info};">${d.breakdown.totalCost.toFixed(0)}m</strong></div>
             </div>
         `;
     }
@@ -609,11 +561,11 @@ class Simulation {
         setText('metric-energy', `${avgEnergyPerDelivery.toFixed(1)}%/job`);
         setText('metric-decision-cost', `${this.lastDecisionCost.toFixed(0)} m`);
 
-        setBar('bar-throughput', throughput * 4);
-        setBar('bar-queue-pressure', queuePressure * 6);
-        setBar('bar-reroutes', this.totalReroutes * 8);
-        setBar('bar-energy', avgEnergyPerDelivery * 18);
-        setBar('bar-decision-cost', this.lastDecisionCost / 40);
+        setBar('bar-throughput', throughput * CONFIG.SIMULATION.BAR_SCALES.THROUGHPUT);
+        setBar('bar-queue-pressure', queuePressure * CONFIG.SIMULATION.BAR_SCALES.QUEUE);
+        setBar('bar-reroutes', this.totalReroutes * CONFIG.SIMULATION.BAR_SCALES.REROUTE);
+        setBar('bar-energy', avgEnergyPerDelivery * CONFIG.SIMULATION.BAR_SCALES.ENERGY);
+        setBar('bar-decision-cost', this.lastDecisionCost / CONFIG.SIMULATION.BAR_SCALES.COST);
     }
 
 }

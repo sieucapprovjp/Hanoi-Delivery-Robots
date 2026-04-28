@@ -1,5 +1,5 @@
 class Pathfinding {
-    async getRoute(startLat, startLon, endLat, endLon, roadMemory = {}, algo = 'astar') {
+    async getRoute(startLat, startLon, endLat, endLon, roadMemory = {}, algo = CONFIG.SIMULATION.DEFAULT_ALGORITHM) {
         const params = new URLSearchParams({
             fromLat: startLat,
             fromLon: startLon,
@@ -9,7 +9,7 @@ class Pathfinding {
             algo
         });
 
-        const response = await fetch(`/api/route?${params.toString()}`);
+        const response = await fetch(`${CONFIG.API.ROUTE}?${params.toString()}`);
         if (!response.ok) {
             throw new Error(`Route request failed: ${response.status}`);
         }
@@ -19,7 +19,7 @@ class Pathfinding {
 
     async snapToRoad(lat, lon) {
         const params = new URLSearchParams({ lat, lon });
-        const response = await fetch(`/api/snap?${params.toString()}`);
+        const response = await fetch(`${CONFIG.API.SNAP}?${params.toString()}`);
 
         if (!response.ok) {
             throw new Error(`Snap request failed: ${response.status}`);
@@ -29,7 +29,7 @@ class Pathfinding {
     }
 
     async getTraffic() {
-        const response = await fetch('/api/traffic');
+        const response = await fetch(CONFIG.API.TRAFFIC);
 
         if (!response.ok) {
             throw new Error(`Traffic request failed: ${response.status}`);
@@ -39,7 +39,7 @@ class Pathfinding {
     }
 
     async getWeather() {
-        const response = await fetch('/api/weather');
+        const response = await fetch(CONFIG.API.WEATHER);
 
         if (!response.ok) {
             throw new Error(`Weather request failed: ${response.status}`);
