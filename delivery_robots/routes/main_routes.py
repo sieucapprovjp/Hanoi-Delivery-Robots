@@ -10,6 +10,7 @@ from ..algorithms import (
     run_insider_comparison,
     run_weighted_route_search,
 )
+from ..algorithms.dispatch.allocation import assign_deliveries
 from ..core.hubs import append_delivery_points, compute_optimized_hubs
 from ..utils.geo import haversine_distance
 
@@ -140,6 +141,27 @@ def register_main_routes(app, ctx):
             return jsonify({"status": "success"}), 200
         except Exception as exc:
             return jsonify({"error": str(exc)}), 400
+
+    @app.route("/api/dispatch/assign", methods=["POST"])
+    def dispatch_assign():
+        try:
+            data = request.json
+            robots = data.get("robots", [])
+            deliveries = data.get("deliveries", [])
+            current_time_ms = data.get("currentTime", int(time.time() * 1000))
+            
+            graph, _, _ = get_road_graph()
+            assignments = assign_deliveries(
+                app_state, graph, robots, deliveries, current_time_ms,
+                nearest_node_id, edge_weight_with_traffic,
+                traffic_penalty_for_point, rain_penalty_for_point, obstacle_penalty_for_point,
+                record_route_metrics, metrics
+            )
+            return jsonify({"assignments": assignments}), 200
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            return jsonify({"error": str(exc)}), 500
 
     @app.route("/api/optimize-hubs", methods=["POST"])
     def optimize_hubs():

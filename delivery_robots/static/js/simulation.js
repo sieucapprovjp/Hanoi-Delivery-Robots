@@ -231,40 +231,67 @@ class Simulation {
     }
  
     async assignDeliveries() {
+        const candidateRobots = this.robots.filter(r => r.status === 'idle' && r.currentLoad < r.capacity && !r.isRouting);
+        if (candidateRobots.length === 0 || this.pendingDeliveries.length === 0) return;
 
-        for (let i = this.pendingDeliveries.length - 1; i >= 0; i--) {
-            this.pendingDeliveries.forEach(delivery => {
-                delivery.priorityScore = this.calculatePriorityScore(delivery);
+        try {
+            const response = await fetch('/api/dispatch/assign', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    robots: candidateRobots.map(r => ({
+                        id: r.id,
+                        name: r.name,
+                        lat: r.lat,
+                        lon: r.lon,
+                        battery: r.battery,
+                        roadMemory: r.roadMemory,
+                        routeAlgorithm: r.routeAlgorithm
+                    })),
+                    deliveries: this.pendingDeliveries,
+                    currentTime: Date.now()
+                })
             });
-            this.pendingDeliveries.sort((a, b) => b.priorityScore - a.priorityScore);
 
-            const delivery = this.pendingDeliveries[i];
-            const candidateRobots = this.robots.filter(r => r.status === 'idle' && r.currentLoad < r.capacity && !r.isRouting);
+            if (!response.ok) throw new Error('Assignment failed');
+            const data = await response.json();
+            const assignments = data.assignments || [];
 
-            if (candidateRobots.length > 0) {
-                const best = await this.chooseBestRobotForDelivery(candidateRobots, delivery);
-                if (!best) continue;
+            for (const best of assignments) {
+                const deliveryIndex = this.pendingDeliveries.findIndex(d => d.id === best.deliveryId);
+                if (deliveryIndex === -1) continue;
+                const delivery = this.pendingDeliveries[deliveryIndex];
+                
+                const robot = this.robots.find(r => r.id === best.robotId);
+                if (!robot) continue;
+
+                // Sync the priority score back so the UI can show it if needed
+                delivery.priorityScore = best.priorityScore;
 
                 this.lastDecisionCost = best.totalScore;
                 this.latestDecision = {
-                    robotName: best.robot.name,
+                    robotName: best.robotName,
                     deliveryId: delivery.id,
-                    priorityScore: delivery.priorityScore,
+                    priorityScore: best.priorityScore,
                     batteryRisk: best.batteryRisk,
                     totalScore: best.totalScore,
                     breakdown: best.breakdown,
                     pickupName: delivery.pickup.name,
                     destinationName: delivery.destination.name
                 };
+                
                 addDispatchInsight(
-                    `${best.robot.name} assigned to order #${delivery.id} with priority ${delivery.priorityScore.toFixed(1)}. Cost breakdown: base ${best.breakdown.baseDistance.toFixed(0)}m, traffic +${best.breakdown.trafficPenalty.toFixed(0)}m, rain +${best.breakdown.rainPenalty.toFixed(0)}m, obstacles +${best.breakdown.obstaclePenalty.toFixed(0)}m, battery risk +${best.batteryRisk.toFixed(1)}.`,
+                    `${robot.name} assigned to order #${delivery.id} with priority ${best.priorityScore.toFixed(1)}. Cost breakdown: base ${best.breakdown.baseDistance.toFixed(0)}m, traffic +${best.breakdown.trafficPenalty.toFixed(0)}m, rain +${best.breakdown.rainPenalty.toFixed(0)}m, obstacles +${best.breakdown.obstaclePenalty.toFixed(0)}m, battery risk +${best.batteryRisk.toFixed(1)}.`,
                     'good'
                 );
-                const assigned = await best.robot.assignDelivery(delivery);
+
+                const assigned = await robot.assignDelivery(delivery, best.route, best.breakdown);
                 if (assigned) {
-                    this.pendingDeliveries.splice(i, 1);
+                    this.pendingDeliveries.splice(deliveryIndex, 1);
                 }
             }
+        } catch (e) {
+            console.error('Dispatch assignment error:', e);
         }
     }
 
@@ -591,65 +618,4 @@ class Simulation {
         setBar('bar-decision-cost', this.lastDecisionCost / 40);
     }
 
-    calculatePriorityScore(delivery) {
-        const waitMinutes = (Date.now() - delivery.createdAt) / 60000;
-        const pickupWeights = {
-            restaurant: 9,
-            market: 7,
-            retail: 6,
-            office: 5,
-            hotel: 5,
-            landmark: 3,
-            residential: 4
-        };
-        const dropWeights = {
-            residential: 8,
-            hotel: 6,
-            office: 5,
-            retail: 4,
-            restaurant: 4,
-            landmark: 2,
-            market: 3
-        };
-
-        return (
-            (pickupWeights[delivery.theme.pickupCategory] || 4) +
-            (dropWeights[delivery.theme.dropoffCategory] || 4) +
-            waitMinutes * 2.8
-        );
-    }
-
-    async chooseBestRobotForDelivery(robots, delivery) {
-        let best = null;
-
-        for (const robot of robots) {
-            try {
-                const route = await pathfindingManager.getRoute(
-                    robot.lat,
-                    robot.lon,
-                    delivery.pickup.lat,
-                    delivery.pickup.lon,
-                    robot.roadMemory,
-                    robot.routeAlgorithm
-                );
-                const breakdown = pathfindingManager.estimateRouteCost(route);
-                const batteryRisk = robot.estimateBatteryRisk(breakdown.totalCost);
-                const totalScore = breakdown.totalCost + batteryRisk * 120 - delivery.priorityScore * 18;
-
-                if (!best || totalScore < best.totalScore) {
-                    best = {
-                        robot,
-                        route,
-                        breakdown,
-                        batteryRisk,
-                        totalScore
-                    };
-                }
-            } catch (error) {
-                console.error(error);
-            }
-        }
-
-        return best;
-    }
 }

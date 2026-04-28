@@ -208,7 +208,7 @@ class DeliveryRobot {
         }, 700);
     }
 
-    async assignDelivery(delivery) {
+    async assignDelivery(delivery, precalculatedRoute = null, precalculatedBreakdown = null) {
         if (this.isRouting) return false;
 
         this.isRouting = true;
@@ -223,7 +223,7 @@ class DeliveryRobot {
             this.routeDeliveryId = delivery.id;
             this.routeTarget = { lat: delivery.pickup.lat, lon: delivery.pickup.lon };
             this.lastRerouteAt = Date.now();
-            await this.buildRouteToTarget(delivery.pickup.lat, delivery.pickup.lon);
+            await this.buildRouteToTarget(delivery.pickup.lat, delivery.pickup.lon, precalculatedRoute, precalculatedBreakdown);
 
             logEvent(`📦 ${this.name} → ${delivery.pickup.name} → ${delivery.destination.name}`);
             addDispatchInsight(`${this.name} selected a low-cost route that balances distance with current rain and congestion exposure.`, 'neutral');
@@ -549,9 +549,9 @@ class DeliveryRobot {
         }
     }
 
-    async buildRouteToTarget(targetLat, targetLon) {
+    async buildRouteToTarget(targetLat, targetLon, precalculatedRoute = null, precalculatedBreakdown = null) {
         const startTime = performance.now();
-        const route = await pathfindingManager.getRoute(
+        const route = precalculatedRoute || await pathfindingManager.getRoute(
             this.lat,
             this.lon,
             targetLat,
@@ -564,7 +564,7 @@ class DeliveryRobot {
         if (!route.path || route.path.length <= 1) return false;
 
         this.currentPath = route.path;
-        this.lastRouteBreakdown = pathfindingManager.estimateRouteCost(route);
+        this.lastRouteBreakdown = precalculatedBreakdown || pathfindingManager.estimateRouteCost(route);
         this.lastRouteEtaMinutes = this.lastRouteBreakdown.estimatedMinutes || 0;
         this.pathIndex = 0;
         this.status = 'moving';
@@ -573,7 +573,7 @@ class DeliveryRobot {
         // Track calculation history
         this._calcHistory.push({
             time: calcTime,
-            nodes: route.path.length,
+            nodes: route.nodesExplored || route.path.length,
             timestamp: Date.now()
         });
         if (this._calcHistory.length > 20) this._calcHistory = this._calcHistory.slice(-20);

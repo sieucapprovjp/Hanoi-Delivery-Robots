@@ -1,0 +1,1 @@
+source .venv/bin/activate && python -m unittest discover delivery_robots/tests/
