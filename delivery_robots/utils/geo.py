@@ -1,8 +1,10 @@
 import math
 
+from ..config import EARTH_RADIUS_METERS, METERS_PER_DEGREE_LATITUDE
+
 
 def haversine_distance(lat1, lon1, lat2, lon2):
-    radius = 6371000
+    radius = EARTH_RADIUS_METERS
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
     delta_phi = math.radians(lat2 - lat1)
@@ -16,8 +18,8 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 
 
 def to_local_xy(lat, lon, origin_lat):
-    meters_per_deg_lat = 111320
-    meters_per_deg_lon = 111320 * math.cos(math.radians(origin_lat))
+    meters_per_deg_lat = METERS_PER_DEGREE_LATITUDE
+    meters_per_deg_lon = METERS_PER_DEGREE_LATITUDE * math.cos(math.radians(origin_lat))
     return lon * meters_per_deg_lon, lat * meters_per_deg_lat
 
 

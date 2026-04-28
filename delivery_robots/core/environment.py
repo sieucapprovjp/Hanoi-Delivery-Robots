@@ -2,16 +2,36 @@ import math
 import time
 
 from ..utils.geo import haversine_distance, point_to_segment_distance_meters
+from ..config import (
+    DEFAULT_EDGE_LENGTH,
+    DEFAULT_OBSTACLE_PENALTY,
+    DEFAULT_OBSTACLE_SEVERITY,
+    DEFAULT_RAIN_PENALTY,
+    DEFAULT_RAIN_SEVERITY,
+    DEFAULT_RUSH_HOUR_LABEL,
+    DEFAULT_RUSH_HOUR_MULTIPLIER,
+    DEFAULT_TRAFFIC_PENALTY,
+    OBSTACLE_MIN_CLOSENESS_FACTOR,
+    OBSTACLE_SEVERITY_DIVISOR,
+    SECONDS_PER_DAY,
+    SECONDS_PER_HOUR,
+    SECONDS_PER_MINUTE,
+    SIMULATION_START_OFFSET_SECONDS,
+    TRAFFIC_ACTIVE_SEGMENT_THRESHOLD,
+    TRAFFIC_INFLUENCE_RADIUS_METERS,
+    TRAFFIC_MIN_SEGMENT_STRENGTH,
+    TRAFFIC_SEVERITY_SCALING_FACTOR,
+)
 
 
 def get_simulation_time(state):
     elapsed_real = time.time() - state["simulation_start_time"]
     elapsed_simulated = elapsed_real * state["simulation_speed"]
-    sim_seconds_from_midnight = 21600 + elapsed_simulated
-    sim_seconds_from_midnight %= 86400
-    hours = int(sim_seconds_from_midnight // 3600)
-    minutes = int((sim_seconds_from_midnight % 3600) // 60)
-    seconds = int(sim_seconds_from_midnight % 60)
+    sim_seconds_from_midnight = SIMULATION_START_OFFSET_SECONDS + elapsed_simulated
+    sim_seconds_from_midnight %= SECONDS_PER_DAY
+    hours = int(sim_seconds_from_midnight // SECONDS_PER_HOUR)
+    minutes = int((sim_seconds_from_midnight % SECONDS_PER_HOUR) // SECONDS_PER_MINUTE)
+    seconds = int(sim_seconds_from_midnight % SECONDS_PER_MINUTE)
     return hours, minutes, seconds
 
 
@@ -25,11 +45,11 @@ def get_rush_hour_multiplier(state):
             multiplier = 1 + (rush["multiplier"] - 1) * math.sin(progress * math.pi)
             return multiplier, rush["name"]
 
-    return 1.0, "Normal"
+    return DEFAULT_RUSH_HOUR_MULTIPLIER, DEFAULT_RUSH_HOUR_LABEL
 
 
 def traffic_penalty_for_point(state, lat, lon):
-    penalty = 1.0
+    penalty = DEFAULT_TRAFFIC_PENALTY
     now = time.time()
     if state["traffic_routes"] is None and not state["dynamic_traffic_routes"]:
         return penalty
@@ -49,7 +69,7 @@ def traffic_penalty_for_point(state, lat, lon):
         active_segment = progress * (len(road["path"]) - 1)
 
         for idx in range(len(road["path"]) - 1):
-            if abs(idx - active_segment) > 0.9:
+            if abs(idx - active_segment) > TRAFFIC_ACTIVE_SEGMENT_THRESHOLD:
                 continue
             start = road["path"][idx]
             end = road["path"][idx + 1]
@@ -57,25 +77,25 @@ def traffic_penalty_for_point(state, lat, lon):
                 lat, lon, start["lat"], start["lon"], end["lat"], end["lon"]
             )
 
-            if distance <= 24:
-                segment_strength = max(0.35, 1 - abs(idx - active_segment))
-                penalty = max(penalty, 1 + road["severity"] * segment_strength * 3.2)
+            if distance <= TRAFFIC_INFLUENCE_RADIUS_METERS:
+                segment_strength = max(TRAFFIC_MIN_SEGMENT_STRENGTH, 1 - abs(idx - active_segment))
+                penalty = max(penalty, 1 + road["severity"] * segment_strength * TRAFFIC_SEVERITY_SCALING_FACTOR)
 
     return penalty
 
 
 def rain_penalty_for_point(state, lat, lon):
-    penalty = 1.0
+    penalty = DEFAULT_RAIN_PENALTY
     for zone in state["rain_zones"]:
         center_lat, center_lon = zone["center"]
         distance = haversine_distance(lat, lon, center_lat, center_lon)
         if distance <= zone["radius"]:
-            penalty = max(penalty, 1 + zone.get("severity", 1.0))
+            penalty = max(penalty, 1 + zone.get("severity", DEFAULT_RAIN_SEVERITY))
     return penalty
 
 
 def obstacle_penalty_for_point(state, lat, lon):
-    penalty = 1.0
+    penalty = DEFAULT_OBSTACLE_PENALTY
 
     with state["obstacles_lock"]:
         obstacles = list(state["obstacles"])
@@ -87,8 +107,8 @@ def obstacle_penalty_for_point(state, lat, lon):
         if distance > radius:
             continue
         closeness = 1 - (distance / radius if radius else 1)
-        severity = obstacle.get("severity", 10.0)
-        penalty = max(penalty, 1 + (severity / 10.0) * max(0.2, closeness))
+        severity = obstacle.get("severity", DEFAULT_OBSTACLE_SEVERITY)
+        penalty = max(penalty, 1 + (severity / OBSTACLE_SEVERITY_DIVISOR) * max(OBSTACLE_MIN_CLOSENESS_FACTOR, closeness))
 
     return penalty
 
@@ -104,7 +124,7 @@ def edge_weight_with_traffic(state, from_node, to_node, edge_data):
     penalty *= obstacle_penalty_for_point(state, midpoint_lat, midpoint_lon)
 
     if "length" in edge_data:
-        return edge_data.get("length", 0.0) * penalty
+        return edge_data.get("length", DEFAULT_EDGE_LENGTH) * penalty
 
     best_length = min(data.get("length", float("inf")) for data in edge_data.values())
     return best_length * penalty

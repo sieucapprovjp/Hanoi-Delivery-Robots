@@ -4,6 +4,18 @@ from collections import deque
 
 from flask import Flask
 
+from .config import (
+    API_LOGS_MAX_LENGTH,
+    GRAPH_CENTER,
+    GRAPH_DIST_METERS,
+    GRAPH_NETWORK_TYPE,
+    RAIN_ZONES_INITIAL,
+    RUSH_HOURS,
+    SIMULATION_SPEED,
+    TRAFFIC_ANCHORS,
+    TRAFFIC_PERIOD_SECONDS,
+)
+
 from .core.environment import (
     edge_weight_with_traffic as core_edge_weight_with_traffic,
     get_rush_hour_multiplier as core_get_rush_hour_multiplier,
@@ -25,20 +37,10 @@ from .utils.validation import (
 
 app = Flask(__name__)
 
-GRAPH_CENTER = (21.0285, 105.8542)
-GRAPH_DIST_METERS = 2200
-GRAPH_NETWORK_TYPE = "bike"
-TRAFFIC_ANCHORS = []
-TRAFFIC_PERIOD_SECONDS = 36
-RAIN_ZONES = []
+RAIN_ZONES = list(RAIN_ZONES_INITIAL)
 
 _simulation_start_time = time.time()
-_simulation_speed = 60
-RUSH_HOURS = [
-    {"name": "Morning Rush", "start": 7, "end": 9, "multiplier": 2.5},
-    {"name": "Lunch Traffic", "start": 11, "end": 13, "multiplier": 1.3},
-    {"name": "Evening Rush", "start": 17, "end": 19, "multiplier": 3.0},
-]
+_simulation_speed = SIMULATION_SPEED
 
 _graph_lock = threading.Lock()
 _road_graph = None
@@ -57,7 +59,7 @@ _obstacles = []
 
 _metrics = create_metrics()
 _api_logs_lock = threading.Lock()
-_api_logs = deque(maxlen=500)
+_api_logs = deque(maxlen=API_LOGS_MAX_LENGTH)
 
 
 _app_state = {

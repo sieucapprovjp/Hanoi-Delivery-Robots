@@ -1,3 +1,13 @@
+from ..config import (
+    LATITUDE_ERROR_MSG,
+    LATITUDE_MAX,
+    LATITUDE_MIN,
+    LONGITUDE_ERROR_MSG,
+    LONGITUDE_MAX,
+    LONGITUDE_MIN,
+)
+
+
 def validate_coordinate(value, name):
     try:
         return float(value)
@@ -6,10 +16,10 @@ def validate_coordinate(value, name):
 
 
 def validate_lat_lon(lat, lon):
-    if not -90 <= lat <= 90:
-        raise ValueError("Latitude must be between -90 and 90")
-    if not -180 <= lon <= 180:
-        raise ValueError("Longitude must be between -180 and 180")
+    if not LATITUDE_MIN <= lat <= LATITUDE_MAX:
+        raise ValueError(LATITUDE_ERROR_MSG)
+    if not LONGITUDE_MIN <= lon <= LONGITUDE_MAX:
+        raise ValueError(LONGITUDE_ERROR_MSG)
 
 
 def validate_positive_number(value, name):

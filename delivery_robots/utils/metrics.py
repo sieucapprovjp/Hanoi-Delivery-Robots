@@ -1,9 +1,12 @@
+from ..config import METRICS_INITIAL_MIN_CALC_TIME, METRICS_PATH_LENGTHS_MAX_SIZE
+
+
 def create_metrics():
     return {
         "totalCalculations": 0,
         "avgCalculationTime": 0,
         "lastCalculationTime": 0,
-        "minCalculationTime": 999,
+        "minCalculationTime": METRICS_INITIAL_MIN_CALC_TIME,
         "maxCalculationTime": 0,
         "avgNodesExplored": 0,
         "totalCalculationTime": 0,
@@ -26,8 +29,8 @@ def record_route_metrics(metrics, calc_time_ms, nodes_explored, path_length):
         metrics["totalNodesExplored"] / metrics["totalCalculations"]
     )
     metrics["pathLengths"].append(path_length)
-    if len(metrics["pathLengths"]) > 100:
-        metrics["pathLengths"] = metrics["pathLengths"][-100:]
+    if len(metrics["pathLengths"]) > METRICS_PATH_LENGTHS_MAX_SIZE:
+        metrics["pathLengths"] = metrics["pathLengths"][-METRICS_PATH_LENGTHS_MAX_SIZE:]
 
 
 def build_metrics_payload(metrics, graph, rain_count, traffic_count, obstacle_count):
@@ -42,7 +45,7 @@ def build_metrics_payload(metrics, graph, rain_count, traffic_count, obstacle_co
             "avgCalculationTime": round(metrics["avgCalculationTime"], 2),
             "lastCalculationTime": round(metrics["lastCalculationTime"], 2),
             "minCalculationTime": round(metrics["minCalculationTime"], 2)
-            if metrics["minCalculationTime"] < 999
+            if metrics["minCalculationTime"] < METRICS_INITIAL_MIN_CALC_TIME
             else 0,
             "maxCalculationTime": round(metrics["maxCalculationTime"], 2),
             "avgNodesExplored": round(metrics["avgNodesExplored"], 1),

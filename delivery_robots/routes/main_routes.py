@@ -13,6 +13,20 @@ from ..algorithms import (
 from ..algorithms.dispatch.allocation import assign_deliveries
 from ..core.hubs import append_delivery_points, compute_optimized_hubs
 from ..utils.geo import haversine_distance
+from ..config import (
+    CLASSICAL_COMPARE_NOTE,
+    DEFAULT_DEMO_FROM_LAT,
+    DEFAULT_DEMO_FROM_LON,
+    DEFAULT_DEMO_TO_LAT,
+    DEFAULT_DEMO_TO_LON,
+    DEFAULT_HUB_CLUSTER_COUNT,
+    DEFAULT_ROAD_MEMORY_PENALTY,
+    DEFAULT_ROUTING_ALGORITHM,
+    INVALID_ALGORITHM_ERROR,
+    INVALID_COORDS_ERROR,
+    TIMESTAMP_MS_MULTIPLIER,
+    VALID_ROUTING_ALGORITHMS,
+)
 
 
 def register_main_routes(app, ctx):
@@ -54,9 +68,9 @@ def register_main_routes(app, ctx):
         except Exception:
             road_memory = {}
 
-        algo = (request.args.get("algo") or "astar").strip().lower()
-        if algo not in {"astar", "gbfs", "dijkstra"}:
-            return jsonify({"error": "Invalid algo. Use astar, gbfs, or dijkstra."}), 400
+        algo = (request.args.get("algo") or DEFAULT_ROUTING_ALGORITHM).strip().lower()
+        if algo not in VALID_ROUTING_ALGORITHMS:
+            return jsonify({"error": INVALID_ALGORITHM_ERROR}), 400
 
         try:
             graph, _, _ = get_road_graph()
@@ -71,7 +85,7 @@ def register_main_routes(app, ctx):
                     f"{from_data['y']:.4f},{from_data['x']:.4f}->"
                     f"{to_data['y']:.4f},{to_data['x']:.4f}"
                 )
-                memory_penalty = road_memory.get(key, 1.0)
+                memory_penalty = road_memory.get(key, DEFAULT_ROAD_MEMORY_PENALTY)
                 return base * memory_penalty
 
             weight_fn = edge_weight_with_memory if road_memory else edge_weight_with_traffic
@@ -95,7 +109,7 @@ def register_main_routes(app, ctx):
             payload["end"] = {"lat": graph.nodes[end_node]["y"], "lon": graph.nodes[end_node]["x"]}
             payload["algo"] = algo
 
-            calc_time = (time.time() - start_t) * 1000
+            calc_time = (time.time() - start_t) * TIMESTAMP_MS_MULTIPLIER
             record_route_metrics(metrics, calc_time, nodes_explored, len(route_nodes))
             payload["timeMs"] = round(calc_time, 2)
             payload["nodesExplored"] = nodes_explored
@@ -148,7 +162,7 @@ def register_main_routes(app, ctx):
             data = request.json
             robots = data.get("robots", [])
             deliveries = data.get("deliveries", [])
-            current_time_ms = data.get("currentTime", int(time.time() * 1000))
+            current_time_ms = data.get("currentTime", int(time.time() * TIMESTAMP_MS_MULTIPLIER))
             
             graph, _, _ = get_road_graph()
             assignments = assign_deliveries(
@@ -166,7 +180,7 @@ def register_main_routes(app, ctx):
     @app.route("/api/optimize-hubs", methods=["POST"])
     def optimize_hubs():
         try:
-            hubs = compute_optimized_hubs(app_state, cluster_count=5)
+            hubs = compute_optimized_hubs(app_state, cluster_count=DEFAULT_HUB_CLUSTER_COUNT)
             return jsonify({"hubs": hubs}), 200
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
@@ -176,14 +190,14 @@ def register_main_routes(app, ctx):
     @app.route("/api/astep")
     def astep_demo():
         try:
-            from_lat = validate_coordinate(request.args.get("fromLat", 21.0285), "fromLat")
-            from_lon = validate_coordinate(request.args.get("fromLon", 105.8542), "fromLon")
-            to_lat = validate_coordinate(request.args.get("toLat", 21.0355), "toLat")
-            to_lon = validate_coordinate(request.args.get("toLon", 105.8516), "toLon")
+            from_lat = validate_coordinate(request.args.get("fromLat", DEFAULT_DEMO_FROM_LAT), "fromLat")
+            from_lon = validate_coordinate(request.args.get("fromLon", DEFAULT_DEMO_FROM_LON), "fromLon")
+            to_lat = validate_coordinate(request.args.get("toLat", DEFAULT_DEMO_TO_LAT), "toLat")
+            to_lon = validate_coordinate(request.args.get("toLon", DEFAULT_DEMO_TO_LON), "toLon")
             validate_lat_lon(from_lat, from_lon)
             validate_lat_lon(to_lat, to_lon)
         except ValueError:
-            return jsonify({"error": "Invalid coords"}), 400
+            return jsonify({"error": INVALID_COORDS_ERROR}), 400
 
         graph, _, _ = get_road_graph()
         start_node = nearest_node_id(graph, from_lat, from_lon, app_state["ox"])
@@ -203,14 +217,14 @@ def register_main_routes(app, ctx):
     @app.route("/api/insider")
     def insider_comparison():
         try:
-            from_lat = validate_coordinate(request.args.get("fromLat", 21.0285), "fromLat")
-            from_lon = validate_coordinate(request.args.get("fromLon", 105.8542), "fromLon")
-            to_lat = validate_coordinate(request.args.get("toLat", 21.0355), "toLat")
-            to_lon = validate_coordinate(request.args.get("toLon", 105.8516), "toLon")
+            from_lat = validate_coordinate(request.args.get("fromLat", DEFAULT_DEMO_FROM_LAT), "fromLat")
+            from_lon = validate_coordinate(request.args.get("fromLon", DEFAULT_DEMO_FROM_LON), "fromLon")
+            to_lat = validate_coordinate(request.args.get("toLat", DEFAULT_DEMO_TO_LAT), "toLat")
+            to_lon = validate_coordinate(request.args.get("toLon", DEFAULT_DEMO_TO_LON), "toLon")
             validate_lat_lon(from_lat, from_lon)
             validate_lat_lon(to_lat, to_lon)
         except ValueError:
-            return jsonify({"error": "Invalid coords"}), 400
+            return jsonify({"error": INVALID_COORDS_ERROR}), 400
 
         graph, _, _ = get_road_graph()
         start_node = nearest_node_id(graph, from_lat, from_lon, app_state["ox"])
@@ -232,10 +246,10 @@ def register_main_routes(app, ctx):
     @app.route("/api/classical/compare")
     def classical_compare():
         try:
-            from_lat = validate_coordinate(request.args.get("fromLat", 21.0285), "fromLat")
-            from_lon = validate_coordinate(request.args.get("fromLon", 105.8542), "fromLon")
-            to_lat = validate_coordinate(request.args.get("toLat", 21.0355), "toLat")
-            to_lon = validate_coordinate(request.args.get("toLon", 105.8516), "toLon")
+            from_lat = validate_coordinate(request.args.get("fromLat", DEFAULT_DEMO_FROM_LAT), "fromLat")
+            from_lon = validate_coordinate(request.args.get("fromLon", DEFAULT_DEMO_FROM_LON), "fromLon")
+            to_lat = validate_coordinate(request.args.get("toLat", DEFAULT_DEMO_TO_LAT), "toLat")
+            to_lon = validate_coordinate(request.args.get("toLon", DEFAULT_DEMO_TO_LON), "toLon")
             validate_lat_lon(from_lat, from_lon)
             validate_lat_lon(to_lat, to_lon)
         except ValueError as exc:
@@ -247,7 +261,5 @@ def register_main_routes(app, ctx):
         payload = compare_classical_algorithms(graph, start_node, end_node, to_lat, to_lon)
         payload["from"] = {"lat": from_lat, "lon": from_lon, "nodeId": start_node}
         payload["to"] = {"lat": to_lat, "lon": to_lon, "nodeId": end_node}
-        payload["note"] = (
-            "Classical AI compare uses base edge length only (no rain/traffic/obstacle penalties)."
-        )
+        payload["note"] = CLASSICAL_COMPARE_NOTE
         return jsonify(payload)

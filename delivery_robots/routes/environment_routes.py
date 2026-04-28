@@ -3,6 +3,51 @@ import time
 import networkx as nx
 from flask import jsonify, request
 
+from ..config import (
+    DEFAULT_LOG_LEVEL,
+    DEFAULT_LOG_SOURCE,
+    DEFAULT_LOGS_LIMIT,
+    DEFAULT_OBSTACLE_RADIUS,
+    DEFAULT_OBSTACLE_SEVERITY,
+    DEFAULT_OBSTACLE_TYPE,
+    DEFAULT_RAIN_MAX_RADIUS,
+    DEFAULT_RAIN_MIN_RADIUS,
+    DEFAULT_RAIN_RADIUS,
+    DEFAULT_RAIN_SEVERITY,
+    DEFAULT_RANDOMIZE_OBSTACLE_COUNT,
+    DEFAULT_RANDOMIZE_RAIN_COUNT,
+    DEFAULT_RANDOMIZE_TRAFFIC_COUNT,
+    DEFAULT_TRAFFIC_SEVERITY,
+    DEFAULT_WEATHER_RAIN_SEVERITY,
+    LOGS_LIMIT_MAX,
+    LOGS_LIMIT_MIN,
+    OBSTACLE_NAME_PREFIX,
+    OBSTACLE_RANDOMIZE_NAME_PREFIX,
+    OBSTACLE_TYPES,
+    RAIN_ZONE_NAME_PREFIX,
+    RANDOM_LAT_MAX,
+    RANDOM_LAT_MIN,
+    RANDOM_LON_MAX,
+    RANDOM_LON_MIN,
+    RANDOM_OBSTACLE_RADIUS_MAX,
+    RANDOM_OBSTACLE_RADIUS_MIN,
+    RANDOM_OBSTACLE_SEVERITY_MAX,
+    RANDOM_OBSTACLE_SEVERITY_MIN,
+    RANDOM_TRAFFIC_LAT_MAX,
+    RANDOM_TRAFFIC_LAT_MIN,
+    RANDOM_TRAFFIC_LON_MAX,
+    RANDOM_TRAFFIC_LON_MIN,
+    RANDOM_TRAFFIC_PATH_POINT_COUNT,
+    RANDOM_TRAFFIC_SEVERITY_MAX,
+    RANDOM_TRAFFIC_SEVERITY_MIN,
+    RUSH_HOUR_INACTIVE_LABEL,
+    TIMESTAMP_MS_MULTIPLIER,
+    TRAFFIC_ROUTE_NAME_PREFIX,
+    TRAFFIC_SEGMENT_STRENGTH_THRESHOLD,
+    TRAFFIC_SEVERITY_CLAMP_MAX,
+    TRAFFIC_SEVERITY_CLAMP_MIN,
+)
+
 
 def register_environment_routes(app, ctx):
     get_road_graph = ctx["get_road_graph"]
@@ -44,17 +89,17 @@ def register_environment_routes(app, ctx):
                 return jsonify({"error": "message is required"}), 400
 
             entry = {
-                "ts": payload.get("ts") or round(time.time() * 1000),
+                "ts": payload.get("ts") or round(time.time() * TIMESTAMP_MS_MULTIPLIER),
                 "message": message,
-                "level": str(payload.get("level", "info")),
-                "source": str(payload.get("source", "frontend")),
+                "level": str(payload.get("level", DEFAULT_LOG_LEVEL)),
+                "source": str(payload.get("source", DEFAULT_LOG_SOURCE)),
             }
             with api_logs_lock:
                 api_logs.append(entry)
             return jsonify({"status": "ok"}), 200
 
-        limit = request.args.get("limit", default=200, type=int) or 200
-        limit = max(1, min(limit, 1000))
+        limit = request.args.get("limit", default=DEFAULT_LOGS_LIMIT, type=int) or DEFAULT_LOGS_LIMIT
+        limit = max(LOGS_LIMIT_MIN, min(limit, LOGS_LIMIT_MAX))
         with api_logs_lock:
             logs = list(api_logs)
         logs.reverse()
@@ -85,7 +130,7 @@ def register_environment_routes(app, ctx):
 
             for idx in range(len(road["path"]) - 1):
                 strength = max(0.0, 1 - abs(idx - active_segment))
-                if strength < 0.15:
+                if strength < TRAFFIC_SEGMENT_STRENGTH_THRESHOLD:
                     continue
 
                 segments.append(
@@ -111,7 +156,7 @@ def register_environment_routes(app, ctx):
                         "name": zone["name"],
                         "center": {"lat": zone["center"][0], "lon": zone["center"][1]},
                         "radius": zone["radius"],
-                        "multiplier": round(1 + zone.get("severity", 1.0), 2),
+                        "multiplier": round(1 + zone.get("severity", DEFAULT_WEATHER_RAIN_SEVERITY), 2),
                     }
                     for zone in rain_zones
                 ]
@@ -122,7 +167,7 @@ def register_environment_routes(app, ctx):
     def get_clock():
         hours, minutes, seconds = get_simulation_time()
         rush_multiplier, rush_name = get_rush_hour_multiplier()
-        is_rush_hour = rush_name != "Normal"
+        is_rush_hour = rush_name != RUSH_HOUR_INACTIVE_LABEL
 
         return jsonify(
             {
@@ -175,24 +220,24 @@ def register_environment_routes(app, ctx):
         try:
             lat = validate_coordinate(d.get("lat"), "lat")
             lon = validate_coordinate(d.get("lon"), "lon")
-            radius = validate_positive_number(d.get("radius", 150), "radius")
+            radius = validate_positive_number(d.get("radius", DEFAULT_RAIN_RADIUS), "radius")
             validate_lat_lon(lat, lon)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
         rain_zones.append(
             {
-                "name": f"Rain {len(rain_zones) + 1}",
+                "name": f"{RAIN_ZONE_NAME_PREFIX}{len(rain_zones) + 1}",
                 "center": (lat, lon),
                 "radius": radius,
-                "severity": 1.0,
+                "severity": DEFAULT_RAIN_SEVERITY,
             }
         )
         return jsonify(
             {
                 "message": "Added",
                 "rainZone": {
-                    "name": f"Rain {len(rain_zones)}",
+                    "name": f"{RAIN_ZONE_NAME_PREFIX}{len(rain_zones)}",
                     "center": {"lat": lat, "lon": lon},
                     "radius": radius,
                 },
@@ -205,9 +250,9 @@ def register_environment_routes(app, ctx):
 
         d = request.get_json(silent=True) or {}
         try:
-            count = validate_non_negative_int(d.get("count", 3), "count")
-            min_radius = validate_positive_number(d.get("minRadius", 100), "minRadius")
-            max_radius = validate_positive_number(d.get("maxRadius", 200), "maxRadius")
+            count = validate_non_negative_int(d.get("count", DEFAULT_RANDOMIZE_RAIN_COUNT), "count")
+            min_radius = validate_positive_number(d.get("minRadius", DEFAULT_RAIN_MIN_RADIUS), "minRadius")
+            max_radius = validate_positive_number(d.get("maxRadius", DEFAULT_RAIN_MAX_RADIUS), "maxRadius")
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
@@ -218,13 +263,13 @@ def register_environment_routes(app, ctx):
         rain_zones.extend(
             [
                 {
-                    "name": f"Rain {i + 1}",
+                    "name": f"{RAIN_ZONE_NAME_PREFIX}{i + 1}",
                     "center": (
-                        random.uniform(21.0180, 21.0380),
-                        random.uniform(105.8430, 105.8650),
+                        random.uniform(RANDOM_LAT_MIN, RANDOM_LAT_MAX),
+                        random.uniform(RANDOM_LON_MIN, RANDOM_LON_MAX),
                     ),
                     "radius": random.uniform(min_radius, max_radius),
-                    "severity": 1.0,
+                    "severity": DEFAULT_RAIN_SEVERITY,
                 }
                 for i in range(count)
             ]
@@ -264,14 +309,14 @@ def register_environment_routes(app, ctx):
             end_lon = validate_coordinate(d.get("endLon"), "endLon")
             validate_lat_lon(start_lat, start_lon)
             validate_lat_lon(end_lat, end_lon)
-            severity = float(d.get("severity", 0.7))
+            severity = float(d.get("severity", DEFAULT_TRAFFIC_SEVERITY))
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
         if start_lat == end_lat and start_lon == end_lon:
             return jsonify({"error": "Traffic start and end must be different"}), 400
 
-        severity = max(0.0, min(1.0, severity))
+        severity = max(TRAFFIC_SEVERITY_CLAMP_MIN, min(TRAFFIC_SEVERITY_CLAMP_MAX, severity))
 
         graph, _, _ = get_road_graph()
         ox = get_ox()
@@ -288,7 +333,7 @@ def register_environment_routes(app, ctx):
         )
 
         with dynamic_traffic_lock:
-            route_name = d.get("name") or f"Traffic {len(dynamic_traffic_routes) + 1}"
+            route_name = d.get("name") or f"{TRAFFIC_ROUTE_NAME_PREFIX}{len(dynamic_traffic_routes) + 1}"
             route = {"name": route_name, "severity": severity, "path": route_payload["path"]}
             dynamic_traffic_routes.append(route)
 
@@ -300,7 +345,7 @@ def register_environment_routes(app, ctx):
 
         d = request.get_json(silent=True) or {}
         try:
-            count = validate_non_negative_int(d.get("count", 3), "count")
+            count = validate_non_negative_int(d.get("count", DEFAULT_RANDOMIZE_TRAFFIC_COUNT), "count")
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
@@ -308,14 +353,14 @@ def register_environment_routes(app, ctx):
         for i in range(count):
             routes.append(
                 {
-                    "name": f"Traffic {i + 1}",
-                    "severity": random.uniform(0.4, 0.9),
+                    "name": f"{TRAFFIC_ROUTE_NAME_PREFIX}{i + 1}",
+                    "severity": random.uniform(RANDOM_TRAFFIC_SEVERITY_MIN, RANDOM_TRAFFIC_SEVERITY_MAX),
                     "path": [
                         {
-                            "lat": random.uniform(21.0200, 21.0350),
-                            "lon": random.uniform(105.8450, 105.8600),
+                            "lat": random.uniform(RANDOM_TRAFFIC_LAT_MIN, RANDOM_TRAFFIC_LAT_MAX),
+                            "lon": random.uniform(RANDOM_TRAFFIC_LON_MIN, RANDOM_TRAFFIC_LON_MAX),
                         }
-                        for _ in range(10)
+                        for _ in range(RANDOM_TRAFFIC_PATH_POINT_COUNT)
                     ],
                 }
             )
@@ -354,18 +399,18 @@ def register_environment_routes(app, ctx):
         try:
             lat = validate_coordinate(d.get("lat"), "lat")
             lon = validate_coordinate(d.get("lon"), "lon")
-            radius = validate_positive_number(d.get("radius", 80), "radius")
-            severity = validate_positive_number(d.get("severity", 10), "severity")
+            radius = validate_positive_number(d.get("radius", DEFAULT_OBSTACLE_RADIUS), "radius")
+            severity = validate_positive_number(d.get("severity", DEFAULT_OBSTACLE_SEVERITY), "severity")
             validate_lat_lon(lat, lon)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
         obstacle = {
-            "name": f"Obstacle {len(obstacles) + 1}",
+            "name": f"{OBSTACLE_NAME_PREFIX}{len(obstacles) + 1}",
             "center": (lat, lon),
             "radius": radius,
             "severity": severity,
-            "type": d.get("type", "roadblock"),
+            "type": d.get("type", DEFAULT_OBSTACLE_TYPE),
         }
         with obstacles_lock:
             obstacles.append(obstacle)
@@ -388,24 +433,23 @@ def register_environment_routes(app, ctx):
 
         d = request.get_json(silent=True) or {}
         try:
-            count = validate_non_negative_int(d.get("count", 3), "count")
+            count = validate_non_negative_int(d.get("count", DEFAULT_RANDOMIZE_OBSTACLE_COUNT), "count")
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
-        types = ["roadblock", "construction", "accident"]
         with obstacles_lock:
             obstacles.clear()
             obstacles.extend(
                 [
                     {
-                        "name": f"Obs {i + 1}",
+                        "name": f"{OBSTACLE_RANDOMIZE_NAME_PREFIX}{i + 1}",
                         "center": (
-                            random.uniform(21.0180, 21.0380),
-                            random.uniform(105.8430, 105.8650),
+                            random.uniform(RANDOM_LAT_MIN, RANDOM_LAT_MAX),
+                            random.uniform(RANDOM_LON_MIN, RANDOM_LON_MAX),
                         ),
-                        "radius": random.uniform(50, 120),
-                        "severity": random.uniform(5, 50),
-                        "type": random.choice(types),
+                        "radius": random.uniform(RANDOM_OBSTACLE_RADIUS_MIN, RANDOM_OBSTACLE_RADIUS_MAX),
+                        "severity": random.uniform(RANDOM_OBSTACLE_SEVERITY_MIN, RANDOM_OBSTACLE_SEVERITY_MAX),
+                        "type": random.choice(OBSTACLE_TYPES),
                     }
                     for i in range(count)
                 ]

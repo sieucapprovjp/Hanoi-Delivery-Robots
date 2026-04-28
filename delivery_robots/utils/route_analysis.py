@@ -1,3 +1,4 @@
+from ..config import DEFAULT_EDGE_LENGTH, DEFAULT_ROUTE_DISTANCE, ESTIMATED_SPEED_METERS_PER_MINUTE
 from .geo import haversine_distance
 
 
@@ -43,7 +44,7 @@ def build_route_response(
     include_cost_breakdown=True,
 ):
     route_path = []
-    route_distance = 0.0
+    route_distance = DEFAULT_ROUTE_DISTANCE
     traffic_cost = 0.0
     rain_cost = 0.0
     obstacle_cost = 0.0
@@ -61,7 +62,7 @@ def build_route_response(
             segment_points = segment_points[1:]
 
         route_path.extend(segment_points)
-        edge_length = edge_data.get("length", 0.0)
+        edge_length = edge_data.get("length", DEFAULT_EDGE_LENGTH)
         route_distance += edge_length
 
         if include_cost_breakdown:
@@ -89,6 +90,6 @@ def build_route_response(
             "rainPenalty": round(rain_cost, 1),
             "obstaclePenalty": round(obstacle_cost, 1),
             "totalCost": round(total_cost, 1),
-            "estimatedMinutes": round(total_cost / 180, 1),
+            "estimatedMinutes": round(total_cost / ESTIMATED_SPEED_METERS_PER_MINUTE, 1),
         }
     return response
