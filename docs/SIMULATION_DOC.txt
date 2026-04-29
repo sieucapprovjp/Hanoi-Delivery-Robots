@@ -1,0 +1,311 @@
+
+---
+1. createAlgoStats: Returns a template object for tracking algorithm performance metrics.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : dict[str, int | float] # Object containing routeCount, totalRouteTimeMs, totalNodesExplored, totalPathCost, deliveriesCompleted, rerouteCount.
+- Calls     : None
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Initialize metric properties to zero.
+2. Return initialized performance tracking object.
+
+---
+2. initialize: Sets up the simulation environment, including maps, robots, and initial deliveries.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void] # Asynchronous initialization process.
+- Calls     : Pathfinding(), HanoiMap(), mapManager.initializeMap(), pathfindingManager.snapToRoad(), DeliveryRobot(), robot.createMarker(), this.generateDelivery(), this.updateFleetAlgorithmLabel(), this.updateAlgorithmComparison(), logEvent(), addDispatchInsight()
+- Constants : CONFIG.DATA.LOCATIONS, CONFIG.SIMULATION.INITIAL_ROBOTS, CONFIG.SIMULATION.INITIAL_DELIVERY_COUNT, CONFIG.UI.LOG_LEVELS.NEUTRAL
+- Formulas  : None
+
+[LOGIC]
+1. Instantiate pathfinding and map management systems.
+2. Snap predefined locations to the road network asynchronously to ensure coordinate accuracy.
+3. Spawn robot instances at initial locations and register markers on the map.
+4. Generate initial batch of deliveries to fill the simulation queue.
+5. Update UI components and log simulation readiness.
+
+---
+3. setFleetAlgorithm: Switches the pathfinding algorithm for the entire robot fleet and resets performance metrics.
+---
+[SIGNATURE]
+- Input     : algo: str # Algorithm identifier (e.g., 'astar', 'dijkstra').
+- Output    : void # Updates internal state and UI.
+- Calls     : this.createAlgoStats(), this.updateFleetAlgorithmLabel(), this.updateRobotStatus(), this.updateAlgorithmComparison(), logEvent(), addDispatchInsight()
+- Constants : CONFIG.SIMULATION.ALGORITHMS, CONFIG.ROBOT.STATUSES.MOVING, CONFIG.UI.LOG_LEVELS.NEUTRAL
+- Formulas  : None
+
+[LOGIC]
+1. Normalize input and validate against supported algorithms in configuration.
+2. Reset statistical buckets for all tracked algorithms.
+3. Update navigation algorithm for all robots in the fleet.
+4. Synchronize algorithm state for robots currently executing deliveries.
+5. Refresh UI labels and log the fleet-wide intelligence switch.
+
+---
+4. updateFleetAlgorithmLabel: Synchronizes the displayed algorithm name in various UI elements with the current fleet algorithm.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void # Updates DOM elements.
+- Calls     : document.getElementById()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Define user-friendly label mapping for internal algorithm keys.
+2. Locate UI display elements for current algorithm, academic view, and selection menu.
+3. Update text content and selection values to match the active fleet algorithm.
+
+---
+5. generateDelivery: Creates a new delivery task with random weighted pickup and dropoff locations.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void # Updates pending queue.
+- Calls     : weightedPick(), randomLocationForCategory(), this.logDeliveryData()
+- Constants : CONFIG.DATA.LOCATIONS, CONFIG.SIMULATION.PICKUP_WEIGHTS, CONFIG.SIMULATION.DROPOFF_WEIGHTS, CONFIG.SIMULATION.CATEGORIES.RESIDENTIAL, CONFIG.SIMULATION.DELIVERY_STATUSES.PENDING
+- Formulas  : target = Math.random() * total, id = totalDeliveries + pendingDeliveries.length + 1
+
+[LOGIC]
+1. Determine pickup category using weighted random selection.
+2. Select random location within chosen pickup category.
+3. Determine dropoff category and select destination location, ensuring no pickup-dropoff collision.
+4. Construct delivery object with unique ID, theme data, and timestamps.
+5. Push delivery to pending queue and trigger asynchronous coordinate logging.
+
+---
+6. logDeliveryData: Sends delivery coordinate data to the backend API for persistent logging.
+---
+[SIGNATURE]
+- Input     : delivery: dict[str, any] # Delivery object with coordinates.
+- Output    : Promise[void] # Asynchronous network operation.
+- Calls     : fetch(), JSON.stringify()
+- Constants : CONFIG.API.LOG_DELIVERY
+- Formulas  : None
+
+[LOGIC]
+1. Extract pickup and dropoff coordinates from the delivery object.
+2. Execute POST request to backend logging endpoint.
+3. Handle potential network or API errors with console logging.
+
+---
+7. assignDeliveries: Matches idle robots with pending deliveries via the dispatch API.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void] # Asynchronous dispatch process.
+- Calls     : fetch(), JSON.stringify(), response.json(), addDispatchInsight(), robot.assignDelivery()
+- Constants : CONFIG.ROBOT.STATUSES.IDLE, CONFIG.API.DISPATCH_ASSIGN, CONFIG.UI.LOG_LEVELS.SUCCESS
+- Formulas  : None
+
+[LOGIC]
+1. Filter for candidate robots that are idle and available for assignment.
+2. Transmit current fleet and delivery state to the centralized dispatch API.
+3. Process API-calculated assignments to update delivery priority and decision costs.
+4. Delegate route execution to assigned robots and remove deliveries from the pending queue.
+5. Release assignment lock after completion or failure.
+
+---
+8. update: Main simulation loop step that advances time and entity states.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void # Advances global simulation state.
+- Calls     : this.generateDelivery(), robot.update(), this.assignDeliveries(), this.updateStats(), this.updateRobotStatus(), this.updateAnalytics(), this.updateLatestDecision(), this.updateAlgorithmComparison()
+- Constants : CONFIG.SIMULATION.TIME_DELTA, CONFIG.SIMULATION.DELIVERY_INTERVAL_MS
+- Formulas  : simulationTime += TIME_DELTA * speed, totalBatteryConsumed += batteryBefore - batteryAfter
+
+[LOGIC]
+1. Increment simulation clock based on delta and speed factors.
+2. Trigger delivery generation if the periodic interval has elapsed.
+3. Invoke update logic for all active robot instances and aggregate fleet-wide metrics.
+4. Attempt to assign new deliveries from the pending queue.
+5. Synchronize all UI metrics, status cards, and analytical visualizations.
+
+---
+9. start: Initiates the simulation execution loop and updates the running state.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void # Sets running flag and starts animation loop.
+- Calls     : this.update(), requestAnimationFrame(), logEvent()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Verify if simulation is already active to prevent duplicate loops.
+2. Set running status to true and initialize delivery timing.
+3. Establish recursive animation frame loop to invoke the update process.
+4. Log simulation start event to the user interface.
+
+---
+10. pause: Halts the simulation execution loop.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void # Clears running flag.
+- Calls     : logEvent()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Set running status to false to stop the animation frame cycle.
+2. Log simulation pause event.
+
+---
+11. reset: Reinitializes the simulation to its starting state and clears all metrics.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void] # Asynchronous reset process.
+- Calls     : this.pause(), mapManager.clearAllDeliveryMarkers(), this.createAlgoStats(), robot.clearPathLine(), robot.marker.setLatLng(), this.generateDelivery(), logEvent(), addDispatchInsight(), this.updateStats(), this.updateFleetAlgorithmLabel(), this.updateRobotStatus(), this.updateAnalytics(), this.updateLatestDecision(), this.updateAlgorithmComparison()
+- Constants : CONFIG.SIMULATION.ALGORITHMS, CONFIG.ROBOT.INITIAL_BATTERY, CONFIG.ROBOT.STATUSES.IDLE, CONFIG.SIMULATION.INITIAL_DELIVERY_COUNT, CONFIG.UI.LOG_LEVELS.NEUTRAL
+- Formulas  : None
+
+[LOGIC]
+1. Stop current simulation execution and clear all global state variables and counters.
+2. Remove all delivery markers from the map and reset algorithm performance buckets.
+3. Teleport robots back to starting coordinates with full battery and idle status.
+4. Purge existing pending delivery queue and generate initial task set.
+5. Trigger comprehensive UI refresh and log the system reset.
+
+---
+12. optimizeHubs: Repositions the fleet based on k-means clustering of delivery hotspots.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void] # Asynchronous hub optimization via API.
+- Calls     : logEvent(), addDispatchInsight(), fetch(), res.json(), robot.clearPathLine(), robot.marker.setLatLng(), window.mapManager.drawHubs()
+- Constants : CONFIG.API.OPTIMIZE_HUBS, CONFIG.ROBOT.STATUSES.IDLE, CONFIG.UI.LOG_LEVELS.NEUTRAL, CONFIG.UI.LOG_LEVELS.SUCCESS, CONFIG.UI.LOG_LEVELS.WARN
+- Formulas  : None
+
+[LOGIC]
+1. Trigger backend k-means optimization and await centroid results.
+2. Map robot instances to optimized hub locations and update map coordinates.
+3. Clear robot path history and set status to idle.
+4. Visualize new hubs on the map and log optimization results to the dispatch console.
+
+---
+13. updateStats: Synchronizes global simulation metrics with the UI display.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void # Updates metric elements in the DOM.
+- Calls     : document.getElementById()
+- Constants : None
+- Formulas  : avgBattery = sum(robot.battery) / robot.length, min = simulationTime / 60, sec = simulationTime % 60
+
+[LOGIC]
+1. Update delivery and distance metrics in the UI with appropriate units (km).
+2. Compute and display the current average battery level across the fleet.
+3. Format the simulation clock into a readable MM:SS timestamp.
+
+---
+14. updateRobotStatus: Injects real-time robot state and metrics into the UI dashboard.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void # Updates robot status container in the DOM.
+- Calls     : document.getElementById(), robot.getStatusText(), robot.getEtaText()
+- Constants : CONFIG.UI.STATE_LABELS.STANDBY, CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS, CONFIG.ROBOT.COLORS
+- Formulas  : None
+
+[LOGIC]
+1. Locate and clear the robot status container within the user interface.
+2. Iterate through each robot to generate a styled state card with current metrics (deliveries, distance, ETA, battery).
+3. Apply dynamic CSS styling for algorithm identifiers and battery health indicators.
+4. Append the generated cards to the DOM to refresh the fleet status view.
+
+---
+15. recordRouteMetrics: Aggregates pathfinding performance data for specific algorithms.
+---
+[SIGNATURE]
+- Input     : algo: str # Algorithm identifier, route: dict[str, float | int] # Calculated route data.
+- Output    : void # Updates internal algorithmStats object.
+- Calls     : None
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Retrieve the performance tracking bucket corresponding to the specific algorithm.
+2. Accumulate the execution time, node exploration count, and total path cost from the route result.
+3. Increment the total route count for statistical averaging.
+
+---
+16. recordDeliveryCompleted: Increments the completion counter for an algorithm.
+---
+[SIGNATURE]
+- Input     : algo: str # Algorithm identifier.
+- Output    : void # Updates internal stats.
+- Calls     : None
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Increment the `deliveriesCompleted` property within the algorithm's statistical bucket.
+
+---
+17. recordReroute: Increments the reroute event counter for an algorithm.
+---
+[SIGNATURE]
+- Input     : algo: str # Algorithm identifier.
+- Output    : void # Updates internal stats.
+- Calls     : None
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Increment the `rerouteCount` property within the algorithm's statistical bucket to track path instability.
+
+---
+18. calculateEfficiencyScore: Computes a weighted performance metric for algorithm comparison.
+---
+[SIGNATURE]
+- Input     : stats: dict[str, float | int] # Aggregate algorithm statistics.
+- Output    : float # Normalized efficiency score.
+- Calls     : None
+- Constants : CONFIG.SIMULATION.EFFICIENCY_WEIGHTS
+- Formulas  : denominator = totalPathCostKm + (weights.TIME * avgTimeMs) + (weights.NODES * avgNodes) + (weights.REROUTE * stats.rerouteCount) + 1, score = deliveriesCompleted / denominator
+
+[LOGIC]
+1. Calculate average execution time and node exploration per route.
+2. Build a weighted cost denominator using path distance, computation time, nodes explored, and reroute frequency.
+3. Return the efficiency ratio as completed deliveries per unit of weighted simulation cost.
+
+---
+19. updateAlgorithmComparison: Renders a comprehensive performance comparison table for navigation algorithms.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void # Updates comparison tables in the DOM.
+- Calls     : document.getElementById(), this.calculateEfficiencyScore()
+- Constants : CONFIG.SIMULATION.ALGORITHMS, CONFIG.UI.COLORS.infoLight, CONFIG.UI.COLORS.transparent
+- Formulas  : avgTimeMs = totalRouteTimeMs / routeCount, avgNodes = totalNodesExplored / routeCount, avgPathCost = totalPathCost / routeCount
+
+[LOGIC]
+1. Iterate through tracked algorithms to calculate average performance metrics (time, nodes, path cost).
+2. Generate an efficiency score for each algorithm using weighted cost factors.
+3. Build HTML table rows for each algorithm, highlighting the currently active fleet selection.
+4. Update primary and academic comparison tables in the UI with the consolidated metrics.
+
+---
+20. updateLatestDecision: Visualizes the granular cost breakdown of the most recent dispatch assignment.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void # Updates the decision breakdown container in the DOM.
+- Calls     : document.getElementById()
+- Constants : CONFIG.UI.STATE_LABELS.WAITING_ASSIGNMENT, CONFIG.UI.COLORS.neutral, CONFIG.ROBOT.COLORS.info
+- Formulas  : None
+
+[LOGIC]
+1. Identify the latest assignment decision made by the dispatch engine.
+2. If no decision is present, display a standby message in the UI.
+3. Inject HTML containing robot/delivery IDs, locations, and the specific cost penalties (traffic, weather, battery risk).
+4. Display the calculated priority score and the final optimized total cost for the chosen route.
