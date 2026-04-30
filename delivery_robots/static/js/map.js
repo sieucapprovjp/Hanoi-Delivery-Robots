@@ -70,7 +70,8 @@ class HanoiMap {
 
             station.marker = L.marker([loc.lat, loc.lon], {
                 icon: L.divIcon({
-                    html: `<div style="width:${CONFIG.UI.RADII.markerLarge * 6}px;height:${CONFIG.UI.RADII.markerLarge * 6}px;background:${CONFIG.ROBOT.COLORS.good};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${CONFIG.UI.RADII.markerLarge * 3}px;border:${CONFIG.UI.WEIGHTS.medium}px solid ${CONFIG.UI.COLORS.surface};">⚡</div>`,
+                    className: 'charging-station-marker',
+                    html: `<div class="charging-station-inner">⚡</div>`,
                     iconSize: [CONFIG.UI.RADII.markerLarge * 6, CONFIG.UI.RADII.markerLarge * 6], 
                     iconAnchor: [CONFIG.UI.RADII.markerLarge * 3, CONFIG.UI.RADII.markerLarge * 3]
                 })
@@ -490,7 +491,8 @@ class HanoiMap {
         hubs.forEach(hub => {
             const marker = L.marker([hub.lat, hub.lon], {
                 icon: L.divIcon({
-                    html: `<div style="width:34px;height:34px;background:#1a73e8;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.25);">🧠</div>`,
+                    className: 'hub-marker',
+                    html: `<div class="hub-marker-inner">🧠</div>`,
                     iconSize: [34, 34],
                     iconAnchor: [17, 17]
                 })
