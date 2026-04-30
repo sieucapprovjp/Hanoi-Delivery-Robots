@@ -34,21 +34,9 @@ function addDispatchInsight(message, tone = CONFIG.UI.LOG_LEVELS.NEUTRAL) {
     }).catch(() => { });
 }
 
-function togglePanel(btnId, panelSelector, onOpen, onClose) {
-    const btn = document.getElementById(btnId);
-    if (!btn) { console.error('Missing button:', btnId); return; }
-    btn.addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const panel = document.querySelector(panelSelector);
-        if (!panel) { console.error('Missing panel:', panelSelector); return; }
-        const hidden = panel.style.display === 'none' || panel.style.display === '';
-        panel.style.display = hidden ? 'block' : 'none';
-        console.log('Toggled', btnId, hidden ? 'open' : 'closed');
-        if (hidden && onOpen) onOpen();
-        if (!hidden && onClose) onClose();
-    });
-    console.log('OK:', btnId);
+function togglePanel(panelKey) {
+    const store = Alpine.store('sim');
+    store.panels[panelKey] = !store.panels[panelKey];
 }
 
 async function init() {
@@ -75,78 +63,17 @@ function setupControls() {
     document.getElementById('apply-fleet-algo-btn')?.addEventListener('click', () => {
         const selected = document.getElementById('fleet-algo-select')?.value || CONFIG.SIMULATION.DEFAULT_ALGORITHM;
         simulation?.setFleetAlgorithm(selected);
+        Alpine.store('sim').metrics.fleetAlgo = selected.toUpperCase();
     });
 
     const slider = document.getElementById('speed-slider');
-    const speedVal = document.getElementById('speed-value');
     slider?.addEventListener('input', (e) => {
         if (simulation) simulation.speed = +e.target.value;
-        speedVal.textContent = e.target.value + 'x';
+        Alpine.store('sim').metrics.speed = e.target.value + 'x';
     });
-
-    // All panel toggles
-    togglePanel('toggle-robots', '.robot-panel');
-    // Hidden for simplified exam mode
-    // togglePanel('toggle-dispatch', '.dispatch-panel');
-    togglePanel('toggle-computing', '.computing-panel', () => {
-        const content = document.getElementById('computing-content');
-        if (content && content.dataset.robotId && simulation?.robots) {
-            const robot = simulation.robots.find(r => r.id == content.dataset.robotId);
-            if (robot) content.innerHTML = robot.getComputingDetails();
-        }
-    });
-    togglePanel('toggle-decision', '.decision-panel', fetchMetrics);
-    togglePanel('toggle-weather', '.weather-panel', () => { weatherModeEnabled = true; }, () => { weatherModeEnabled = false; });
-    // togglePanel('toggle-insider', '.insider-panel', null, clearInsiderLayers);
-
-    // Close buttons
-    document.getElementById('close-panel')?.addEventListener('click', () => {
-        const panel = document.querySelector('.control-panel');
-        if (panel) panel.style.display = 'none';
-    });
-    document.getElementById('close-robot-panel')?.addEventListener('click', () => {
-        const panel = document.querySelector('.robot-panel');
-        if (panel) panel.style.display = 'none';
-    });
-    // document.getElementById('close-dispatch-panel')?.addEventListener('click', () => document.querySelector('.dispatch-panel').style.display = 'none');
-    document.getElementById('close-decision-panel')?.addEventListener('click', () => document.querySelector('.decision-panel').style.display = 'none');
-    document.getElementById('close-weather-panel')?.addEventListener('click', () => { document.querySelector('.weather-panel').style.display = 'none'; weatherModeEnabled = false; });
-    document.getElementById('close-computing-panel')?.addEventListener('click', () => document.querySelector('.computing-panel').style.display = 'none');
-    // document.getElementById('close-insider-panel')?.addEventListener('click', () => {
-    //     document.querySelector('.insider-panel').style.display = 'none';
-    //     clearInsiderLayers();
-    // });
 }
 
 function setupWeather() {
-    // Mode tabs
-    document.querySelectorAll('.weather-panel .mode-tab').forEach(tab => {
-        tab.addEventListener('click', function () {
-            document.querySelectorAll('.weather-panel .mode-tab').forEach(t => { t.style.background = CONFIG.UI.COLORS.background; t.style.color = CONFIG.UI.COLORS.text; });
-            this.style.background = CONFIG.ROBOT.COLORS.info; this.style.color = CONFIG.UI.COLORS.surface;
-            weatherMode = this.dataset.mode;
-            document.getElementById('rain-controls').style.display = weatherMode === CONFIG.UI.WEATHER_MODES.RAIN ? 'block' : 'none';
-            document.getElementById('traffic-controls').style.display = weatherMode === CONFIG.UI.WEATHER_MODES.TRAFFIC ? 'block' : 'none';
-            document.getElementById('obstacle-controls').style.display = 'none';
-        });
-    });
-
-    // Sliders
-    ['rain-radius', 'traffic-severity', 'obstacle-radius', 'obstacle-severity'].forEach(id => {
-        const sl = document.getElementById(id);
-        const vl = document.getElementById(id + '-value');
-        if (sl && vl) sl.oninput = () => vl.textContent = sl.value;
-    });
-
-    // Algo buttons
-    document.querySelectorAll('.algo-btn').forEach(btn => {
-        btn.addEventListener('click', function () {
-            document.querySelectorAll('.algo-btn').forEach(b => { b.style.background = CONFIG.UI.COLORS.background; b.style.color = CONFIG.UI.COLORS.text; });
-            this.style.background = CONFIG.ROBOT.COLORS.info; this.style.color = CONFIG.UI.COLORS.surface;
-            if (window.simulation) window.simulation.schedulingAlgorithm = this.dataset.algo;
-        });
-    });
-
     // Actions
     document.getElementById('randomize-rain-btn')?.addEventListener('click', randomizeRain);
     document.getElementById('clear-rain-btn')?.addEventListener('click', clearRain);
@@ -161,9 +88,10 @@ function setupWeather() {
         const map = window.map;
         if (map && typeof map.on === 'function') {
             map.on('click', function (e) {
-                if (!weatherModeEnabled) return;
-                if (weatherMode === CONFIG.UI.WEATHER_MODES.RAIN) addRainZone(e.latlng.lat, e.latlng.lng, +document.getElementById('rain-radius').value);
-                else if (weatherMode === CONFIG.UI.WEATHER_MODES.TRAFFIC) handleTrafficClick(e.latlng.lat, e.latlng.lng);
+                const store = Alpine.store('sim');
+                if (!store.panels.weather) return;
+                if (store.weather.mode === CONFIG.UI.WEATHER_MODES.RAIN) addRainZone(e.latlng.lat, e.latlng.lng, +store.weather.rainRadius);
+                else if (store.weather.mode === CONFIG.UI.WEATHER_MODES.TRAFFIC) handleTrafficClick(e.latlng.lat, e.latlng.lng);
             });
             console.log('Map click listener ready');
         } else {
@@ -300,9 +228,8 @@ function displayRainZone(z) {
 
 async function updateRainList() {
     const d = await (await fetch(CONFIG.API.RAIN_LIST)).json();
-    const el = document.getElementById('rain-list');
-    if (!el) return;
-    el.innerHTML = d.rainZones.length ? d.rainZones.map((z, i) => `<div style="padding:4px 0;border-bottom:1px solid ${CONFIG.UI.COLORS.border};"><strong>${i + 1}. ${z.name}</strong><br>${z.center.lat.toFixed(4)}, ${z.center.lon.toFixed(4)} | ${Math.round(z.radius)}m</div>`).join('') : 'No rain zones';
+    const html = d.rainZones.length ? d.rainZones.map((z, i) => `<div class="py-4 border-bottom-standard"><strong>${i + 1}. ${z.name}</strong><br>${z.center.lat.toFixed(4)}, ${z.center.lon.toFixed(4)} | ${Math.round(z.radius)}m</div>`).join('') : 'No rain zones';
+    Alpine.store('sim').weather.rainZonesHtml = html;
 }
 
 async function randomizeRain() {
@@ -332,9 +259,8 @@ async function clearTraffic() {
 
 async function updateTrafficList() {
     const d = await (await fetch(CONFIG.API.TRAFFIC_LIST)).json();
-    const el = document.getElementById('traffic-list');
-    if (!el) return;
-    el.innerHTML = d.routes.length ? d.routes.map((r, i) => `<div style="padding:4px 0;border-bottom:1px solid ${CONFIG.UI.COLORS.border};"><strong>${i + 1}. ${r.name}</strong><br>Severity: ${r.severity.toFixed(2)}</div>`).join('') : 'No traffic routes';
+    const html = d.routes.length ? d.routes.map((r, i) => `<div class="py-4 border-bottom-standard"><strong>${i + 1}. ${r.name}</strong><br>Severity: ${r.severity.toFixed(2)}</div>`).join('') : 'No traffic routes';
+    Alpine.store('sim').weather.trafficRoutesHtml = html;
 }
 
 async function addObstacle(lat, lon, radius, severity) {
@@ -353,9 +279,8 @@ function displayObstacle(o) {
 
 async function updateObstacleList() {
     const d = await (await fetch(CONFIG.API.OBSTACLE_LIST)).json();
-    const el = document.getElementById('obstacle-list');
-    if (!el) return;
-    el.innerHTML = d.obstacles.length ? d.obstacles.map((o, i) => `<div style="padding:4px 0;border-bottom:1px solid ${CONFIG.UI.COLORS.border};"><strong>${i + 1}. ${o.name}</strong><br>${Math.round(o.radius)}m | Sev: ${o.severity.toFixed(1)}</div>`).join('') : 'No obstacles';
+    const html = d.obstacles.length ? d.obstacles.map((o, i) => `<div class="py-4 border-bottom-standard"><strong>${i + 1}. ${o.name}</strong><br>${Math.round(o.radius)}m | Sev: ${o.severity.toFixed(1)}</div>`).join('') : 'No obstacles';
+    Alpine.store('sim').weather.obstaclesHtml = html;
 }
 
 async function randomizeObstacles() {
@@ -373,94 +298,76 @@ async function clearObstacles() {
 async function fetchMetrics() {
     try {
         const d = await (await fetch(CONFIG.API.METRICS)).json();
-        const el = id => document.getElementById(id);
-        if (el('metric-total-calc')) el('metric-total-calc').textContent = d.pathfinding.totalCalculations;
-        if (el('metric-avg-time')) el('metric-avg-time').textContent = d.pathfinding.avgCalculationTime + 'ms';
-        if (el('metric-last-time')) el('metric-last-time').textContent = d.pathfinding.lastCalculationTime + 'ms';
-        if (el('metric-nodes')) el('metric-nodes').textContent = d.pathfinding.avgNodesExplored.toFixed(0);
-        if (el('metric-min-time')) el('metric-min-time').textContent = d.pathfinding.minCalculationTime + 'ms';
-        if (el('metric-max-time')) el('metric-max-time').textContent = d.pathfinding.maxCalculationTime + 'ms';
-        if (el('metric-path-length')) el('metric-path-length').textContent = d.pathfinding.avgPathLength;
-        if (el('metric-graph-nodes')) el('metric-graph-nodes').textContent = d.graph.totalNodes;
-        if (el('metric-graph-edges')) el('metric-graph-edges').textContent = d.graph.totalEdges;
-        if (el('metric-rain-count')) el('metric-rain-count').textContent = d.activeFactors.rainZones;
-        if (el('metric-traffic-count')) el('metric-traffic-count').textContent = d.activeFactors.trafficRoutes;
-        if (el('metric-obstacle-count')) el('metric-obstacle-count').textContent = d.activeFactors.obstacles;
+        Alpine.store('sim').updateMetrics(d);
     } catch (e) { console.error('Metrics:', e); }
 }
 
 setInterval(() => {
-    const p = document.querySelector('.decision-panel');
-    if (p && p.style.display === 'block') fetchMetrics();
+    const store = Alpine.store('sim');
+    if (store.panels.decision) fetchMetrics();
 }, CONFIG.UI.METRICS_REFRESH_INTERVAL_MS);
 
 // Auto-refresh computing panel every 2s
 setInterval(() => {
-    const compPanel = document.querySelector('.computing-panel');
-    if (compPanel && compPanel.style.display === 'block' && simulation?.robots) {
-        // Update with last clicked robot's data
-        const content = document.getElementById('computing-content');
-        if (content && content.dataset.robotId) {
-            const robot = simulation.robots.find(r => r.id == content.dataset.robotId);
-            if (robot) content.innerHTML = robot.getComputingDetails();
+    const store = Alpine.store('sim');
+    if (store.panels.computing && simulation?.robots) {
+        const content = store.computing;
+        if (content.robotId) {
+            const robot = simulation.robots.find(r => r.id == content.robotId);
+            if (robot) store.computing.details = robot.getComputingDetails();
         }
     }
 }, CONFIG.UI.COMPUTING_PANEL_REFRESH_INTERVAL_MS);
 
 // ===== A* Visualization =====
 async function showAStarProcess(robotId) {
-    const el = document.getElementById(`astep-visual-${robotId}`);
-    if (!el || !simulation?.robots) return;
+    const store = Alpine.store('sim');
+    if (!simulation?.robots) return;
 
     const robot = simulation.robots.find(r => r.id === robotId);
     if (!robot || !robot.routeTarget) {
-        el.style.display = 'block';
-        el.innerHTML = '<div style="padding:10px;text-align:center;color:#5f6368;">Robot has no active route. Wait for it to accept a delivery.</div>';
+        store.insider.astarSteps = '<div class="p-10 text-center color-secondary-text">Robot has no active route. Wait for it to accept a delivery.</div>';
         return;
     }
 
-    el.style.display = 'block';
-    el.innerHTML = '<div style="padding:10px;text-align:center;">⏳ Computing A*...</div>';
+    store.insider.astarSteps = '<div class="p-10 text-center">⏳ Computing A*...</div>';
 
     try {
         const d = await (await fetch(`${CONFIG.API.ASTEP}?fromLat=${robot.lat}&fromLon=${robot.lon}&toLat=${robot.routeTarget.lat}&toLon=${robot.routeTarget.lon}`)).json();
 
         if (!d.steps || d.steps.length === 0) {
-            el.innerHTML = '<div style="padding:10px;text-align:center;color:#ea4335;">No steps recorded</div>';
+            store.insider.astarSteps = '<div class="p-10 text-center color-error">No steps recorded</div>';
             return;
         }
 
-        // Build step-by-step visualization
+        // Build step-by-step visualization using CSS classes
         let html = `
-            <div style="background:${CONFIG.UI.GRADIENTS.info};padding:12px;border-radius:10px;margin-bottom:12px;border:1px solid ${CONFIG.UI.COLORS.infoBorder};box-shadow:0 2px 8px rgba(26,115,232,${CONFIG.UI.OPACITY.low});">
-                <div style="font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+            <div class="astar-viz-container">
+                <div class="astar-viz-header">
                     🔬 A* Step-by-Step Calculation
-                    <span style="font-size:10px;color:#5f6368;font-weight:400;">(${d.calcTime}ms, ${d.totalSteps} steps)</span>
+                    <span class="fs-10 color-secondary-text fw-400">(${d.calcTime}ms, ${d.totalSteps} steps)</span>
                 </div>
                 
-                <div style="background:white;border-radius:8px;padding:8px;margin:6px 0;">
-                    <div style="font-size:10px;color:#5f6368;margin-bottom:4px;"><strong>Start:</strong> Node ${d.startNode} → <strong>Goal:</strong> Node ${d.endNode}</div>
-                    <div style="display:flex;gap:8px;font-size:9px;color:#5f6368;">
+                <div class="astar-viz-summary">
+                    <div class="fs-10 color-secondary-text mb-4"><strong>Start:</strong> Node ${d.startNode} → <strong>Goal:</strong> Node ${d.endNode}</div>
+                    <div class="d-flex gap-8 fs-9 color-secondary-text">
                         <span>Open Set: <strong>${d.openSetSize}</strong></span>
                         <span>Closed Set: <strong>${d.closedSetSize}</strong></span>
-                        <span>Path: <strong style="color:${CONFIG.UI.COLORS.primary};">${d.pathLength} nodes</strong></span>
+                        <span>Path: <strong class="color-primary">${d.pathLength} nodes</strong></span>
                     </div>
                 </div>
         `;
 
-        // Show first 3 steps in detail, then summary
         d.steps.slice(0, 3).forEach(s => {
             const color = s.step === 1 ? CONFIG.ROBOT.COLORS.good : s.step === 2 ? CONFIG.ROBOT.COLORS.info : CONFIG.ROBOT.COLORS.highlight;
             html += `
-                <div style="background:${CONFIG.UI.COLORS.surface};border-radius:8px;padding:8px;margin:6px 0;border-left:4px solid ${color};">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-                        <span style="font-size:11px;font-weight:700;color:${color};">Step ${s.step}</span>
-                        <span style="font-size:9px;color:${CONFIG.UI.COLORS.textLight};">Node ${s.currentNode}</span>
+                <div class="astar-viz-step" style="--step-color: ${color}">
+                    <div class="d-flex justify-between align-center mb-4">
+                        <span class="fs-11 fw-700 step-color-text">Step ${s.step}</span>
+                        <span class="fs-9" style="color:${CONFIG.UI.COLORS.textLight};">Node ${s.currentNode}</span>
                     </div>
-                    <div style="font-size:10px;font-family:monospace;background:${CONFIG.UI.COLORS.background};padding:4px 6px;border-radius:4px;margin:3px 0;">
-                        ${s.formula}
-                    </div>
-                    <div style="display:flex;gap:12px;font-size:9px;color:${CONFIG.UI.COLORS.textLight};">
+                    <div class="astar-viz-formula">${s.formula}</div>
+                    <div class="d-flex gap-12 fs-9" style="color:${CONFIG.UI.COLORS.textLight};">
                         <span>g=${s.g}</span><span>h=${s.h}</span><span>f=${s.f}</span>
                         <span>Open:${s.openSetSize}</span><span>Closed:${s.closedSetSize}</span>
                     </div>
@@ -470,37 +377,36 @@ async function showAStarProcess(robotId) {
 
         if (d.steps.length > 3) {
             html += `
-                <div style="text-align:center;padding:6px;font-size:10px;color:${CONFIG.UI.COLORS.textLight};background:${CONFIG.UI.COLORS.surface};border-radius:6px;margin:4px 0;">
+                <div class="text-center p-8 fs-10 bg-surface br-6 mb-4" style="color:${CONFIG.UI.COLORS.textLight};">
                     ... ${d.steps.length - 3} more steps ...
                 </div>
-                <div style="background:${CONFIG.UI.COLORS.surface};border-radius:8px;padding:8px;margin:6px 0;border-left:4px solid ${CONFIG.ROBOT.COLORS.good};">
-                    <div style="font-size:11px;font-weight:700;color:${CONFIG.ROBOT.COLORS.good};">✅ Goal Reached! (Step ${d.totalSteps})</div>
-                    <div style="font-size:10px;color:${CONFIG.UI.COLORS.textLight};">Path reconstructed: ${d.pathLength} nodes</div>
+                <div class="astar-viz-step" style="border-left-color: ${CONFIG.ROBOT.COLORS.good}">
+                    <div class="fs-11 fw-700" style="color:${CONFIG.ROBOT.COLORS.good};">✅ Goal Reached! (Step ${d.totalSteps})</div>
+                    <div class="fs-10" style="color:${CONFIG.UI.COLORS.textLight};">Path reconstructed: ${d.pathLength} nodes</div>
                 </div>
             `;
         }
 
-        // Show penalties applied
         const hasRain = rainCircles.length > 0;
         const hasTraffic = trafficPolylines.length > 0;
         const hasObstacles = obstacleCircles.length > 0;
 
         html += `
-                <div style="background:${CONFIG.UI.COLORS.surface};border-radius:8px;padding:8px;margin:6px 0;">
-                    <div style="font-size:10px;font-weight:700;margin-bottom:4px;">⚙️ Penalties Applied:</div>
-                    <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:9px;">
-                        ${hasRain ? `<span style="background:${CONFIG.UI.COLORS.rainBg};padding:3px 6px;border-radius:4px;">🌧️ Rain: ${CONFIG.ROBOT.RAIN_REROUTE_THRESHOLD}×</span>` : ''}
-                        ${hasTraffic ? `<span style="background:${CONFIG.UI.COLORS.trafficBg};padding:3px 6px;border-radius:4px;">🚗 Traffic: ${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER}-${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER * 2.5}×</span>` : ''}
-                        ${hasObstacles ? `<span style="background:${CONFIG.UI.COLORS.obstacleBg};padding:3px 6px;border-radius:4px;">🚧 Obstacles: ${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER}-${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER * 3}×</span>` : ''}
+                <div class="bg-surface br-8 p-8 mt-6">
+                    <div class="fs-10 fw-700 mb-4">⚙️ Penalties Applied:</div>
+                    <div class="d-flex gap-6 flex-wrap fs-9">
+                        ${hasRain ? `<span class="penalty-badge bg-rain-penalty">🌧️ Rain: ${CONFIG.ROBOT.RAIN_REROUTE_THRESHOLD}×</span>` : ''}
+                        ${hasTraffic ? `<span class="penalty-badge bg-traffic-penalty">🚗 Traffic: ${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER}-${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER * 2.5}×</span>` : ''}
+                        ${hasObstacles ? `<span class="penalty-badge bg-obstacle-penalty">🚧 Obstacles: ${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER}-${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER * 3}×</span>` : ''}
                     </div>
                 </div>
             </div>
         `;
 
-        el.innerHTML = html;
+        store.insider.astarSteps = html;
         renderAStarOverlay(d);
     } catch (e) {
-        el.innerHTML = `<div style="padding:10px;text-align:center;color:#ea4335;">Error: ${e.message}</div>`;
+        store.insider.astarSteps = `<div class="p-10 text-center color-error">Error: ${e.message}</div>`;
     }
 }
 
@@ -509,9 +415,8 @@ window.showAStarProcess = showAStarProcess;
 
 // ===== Insider Panel =====
 async function runInsiderComparison() {
-    const el = document.getElementById('comparison-table');
-    if (!el) return;
-    el.innerHTML = '<div style="padding:10px;text-align:center;">⏳ Running 4 algorithms...</div>';
+    const store = Alpine.store('sim');
+    store.insider.comparison = '<div class="p-10 text-center">⏳ Running 4 algorithms...</div>';
 
     try {
         const from = CONFIG.DATA.LOCATIONS[0];
@@ -528,27 +433,25 @@ async function runInsiderComparison() {
             { name: "BFS (Blind)", ...algos["BFS"], icon: "🟢" },
         ];
 
-        // Find the best time
         const bestTime = Math.min(...rows.map(r => r.time_ms));
 
         let html = `
-            <table style="width:100%;border-collapse:collapse;font-size:10px;">
+            <table class="comparison-table">
                 <thead>
-                    <tr style="background:${CONFIG.UI.GRADIENTS.purple};color:${CONFIG.UI.COLORS.surface};">
-                        <th style="padding:6px;text-align:left;">Algorithm</th>
-                        <th style="padding:6px;text-align:center;">Nodes</th>
-                        <th style="padding:6px;text-align:center;">Path</th>
-                        <th style="padding:6px;text-align:center;">Time</th>
-                        <th style="padding:6px;text-align:center;">Optimal?</th>
-                        <th style="padding:6px;text-align:center;">Efficiency</th>
+                    <tr>
+                        <th>Algorithm</th>
+                        <th class="text-center">Nodes</th>
+                        <th class="text-center">Path</th>
+                        <th class="text-center">Time</th>
+                        <th class="text-center">Optimal?</th>
+                        <th class="text-center">Efficiency</th>
                     </tr>
                 </thead>
                 <tbody>
         `;
 
         rows.forEach(r => {
-            const bg = r.name.startsWith("A*") ? '#ede7f6' : CONFIG.UI.COLORS.background;
-            const bold = r.name.startsWith("A*") ? 'font-weight:700;' : '';
+            const isAStar = r.name.startsWith("A*");
             const optimal = r.optimal ? `<span style="color:${CONFIG.UI.COLORS.success};">✅ Yes</span>` : `<span style="color:${CONFIG.UI.COLORS.error};">❌ No</span>`;
             const eff = best > 0 ? ((r.path_length / best) * 100).toFixed(0) + '%' : 'N/A';
             const effColor = eff === '100%' ? CONFIG.UI.COLORS.success : CONFIG.UI.COLORS.error;
@@ -556,40 +459,38 @@ async function runInsiderComparison() {
             const timeColor = r.time_ms === bestTime ? CONFIG.UI.COLORS.success : CONFIG.UI.COLORS.textLight;
 
             html += `
-                <tr style="background:${bg};border-bottom:1px solid ${CONFIG.UI.COLORS.border};">
-                    <td style="padding:6px;${bold}">${r.icon} ${r.name}</td>
-                    <td style="padding:6px;text-align:center;${bold}">${r.nodes_explored}</td>
-                    <td style="padding:6px;text-align:center;${bold}">${r.path_length} nodes</td>
-                    <td style="padding:6px;text-align:center;color:${timeColor};font-weight:600;">${timeBadge}${r.time_ms}ms</td>
-                    <td style="padding:6px;text-align:center;">${optimal}</td>
-                    <td style="padding:6px;text-align:center;color:${effColor};font-weight:600;">${eff}</td>
+                <tr class="${isAStar ? 'best-row' : ''}">
+                    <td>${r.icon} ${r.name}</td>
+                    <td class="text-center">${r.nodes_explored}</td>
+                    <td class="text-center">${r.path_length} nodes</td>
+                    <td class="text-center" style="color:${timeColor};">${timeBadge}${r.time_ms}ms</td>
+                    <td class="text-center">${optimal}</td>
+                    <td class="text-center" style="color:${effColor};">${eff}</td>
                 </tr>
             `;
         });
 
         html += `</tbody></table>`;
 
-        // Key insight
         const astarNodes = algos["A*"].nodes_explored;
         const dijkstraNodes = algos["Dijkstra"].nodes_explored;
         const speedup = dijkstraNodes > 0 ? ((1 - astarNodes / dijkstraNodes) * 100).toFixed(0) : 0;
 
         html += `
-            <div style="margin-top:8px;padding:8px;background:${CONFIG.UI.GRADIENTS.success};border-radius:6px;font-size:10px;">
-                <strong>💡 Key Insight:</strong> A* explored <strong>${astarNodes}</strong> nodes vs Dijkstra's <strong>${dijkstraNodes}</strong> — that's <strong style="color:${CONFIG.UI.COLORS.success};">${speedup}% fewer nodes</strong> while finding the same optimal path!
+            <div class="insight-box">
+                <strong>💡 Key Insight:</strong> A* explored <strong>${astarNodes}</strong> nodes vs Dijkstra's <strong>${dijkstraNodes}</strong> — that's <strong class="color-success">${speedup}% fewer nodes</strong> while finding the same optimal path!
             </div>
         `;
 
-        el.innerHTML = html;
+        store.insider.comparison = html;
     } catch (e) {
-        el.innerHTML = `<div style="padding:10px;text-align:center;color:#ea4335;">Error: ${e.message}</div>`;
+        store.insider.comparison = `<div class="p-10 text-center color-error">Error: ${e.message}</div>`;
     }
 }
 
 async function runAStarVisualization() {
-    const el = document.getElementById('astep-visualizer');
-    if (!el) return;
-    el.innerHTML = '<div style="padding:10px;text-align:center;">⏳ Running A* step-by-step...</div>';
+    const store = Alpine.store('sim');
+    store.insider.astarSteps = '<div class="p-10 text-center">⏳ Running A* step-by-step...</div>';
 
     try {
         const from = CONFIG.DATA.LOCATIONS[0];
@@ -597,45 +498,41 @@ async function runAStarVisualization() {
         const d = await (await fetch(`${CONFIG.API.ASTEP}?fromLat=${from.lat}&fromLon=${from.lon}&toLat=${to.lat}&toLon=${to.lon}`)).json();
 
         if (!d.steps || d.steps.length === 0) {
-            el.innerHTML = '<div style="padding:10px;text-align:center;color:#ea4335;">No steps to visualize</div>';
+            store.insider.astarSteps = '<div class="p-10 text-center color-error">No steps to visualize</div>';
             return;
         }
 
         renderAStarOverlay(d);
 
         let html = `
-            <div style="font-size:11px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+            <div class="astar-viz-header">
                 🔬 A* Expansion (${d.totalSteps} steps, ${d.calcTime}ms)
             </div>
             
-            <div style="display:flex;gap:6px;margin-bottom:8px;font-size:9px;color:#5f6368;">
+            <div class="d-flex gap-6 mb-8 fs-9 color-secondary-text">
                 <span>Start: Node ${d.startNode}</span>
                 <span>→ Goal: Node ${d.endNode}</span>
                 <span>→ Path: ${d.pathLength} nodes</span>
             </div>
         `;
 
-        // Show steps with node visualization
         d.steps.forEach((s, i) => {
             const color = i === 0 ? CONFIG.UI.COLORS.success : i === d.steps.length - 1 ? CONFIG.UI.COLORS.error : CONFIG.ROBOT.COLORS.info;
             const bg = i === 0 ? CONFIG.UI.COLORS.successLight : i === d.steps.length - 1 ? CONFIG.UI.COLORS.errorLight : CONFIG.UI.COLORS.background;
 
             html += `
-                <div style="background:${bg};border-radius:6px;padding:6px 8px;margin:4px 0;border-left:3px solid ${color};font-size:10px;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <span style="font-weight:700;color:${color};">Step ${s.step}</span>
-                        <span style="font-family:monospace;font-size:9px;">Node ${s.currentNode}</span>
+                <div class="astar-viz-step" style="background:${bg};--step-color:${color};">
+                    <div class="d-flex justify-between align-center">
+                        <span class="fw-700 step-color-text">Step ${s.step}</span>
+                        <span class="mono fs-9">Node ${s.currentNode}</span>
                     </div>
-                    <div style="font-family:monospace;font-size:9px;background:${CONFIG.UI.COLORS.surface};padding:3px 6px;border-radius:3px;margin:3px 0;">
-                        ${s.formula}
-                    </div>
-                    <div style="display:flex;gap:12px;font-size:9px;color:${CONFIG.UI.COLORS.textLight};">
+                    <div class="astar-viz-formula">${s.formula}</div>
+                    <div class="d-flex gap-12 fs-9 color-secondary-text">
                         <span>g=${s.g}</span><span>h=${s.h}</span><span>f=${s.f}</span>
                         <span>Open: ${s.openSetSize}</span><span>Closed: ${s.closedSetSize}</span>
                     </div>
-                    <!-- Node bar visualization -->
-                    <div style="margin-top:4px;height:6px;background:${CONFIG.UI.COLORS.border};border-radius:3px;overflow:hidden;">
-                        <div style="width:${Math.min(100, (s.closedSetSize / d.closedSetSize) * 100)}%;height:100%;background:${CONFIG.UI.GRADIENTS.expansion};border-radius:3px;transition:width 0.3s;"></div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar-fill" style="width:${Math.min(100, (s.closedSetSize / d.closedSetSize) * 100)}%;background:${CONFIG.UI.GRADIENTS.expansion};"></div>
                     </div>
                 </div>
             `;
@@ -643,20 +540,20 @@ async function runAStarVisualization() {
 
         if (d.success) {
             html += `
-                <div style="margin-top:8px;padding:8px;background:${CONFIG.UI.COLORS.successLight};border-radius:6px;text-align:center;font-size:11px;font-weight:700;color:${CONFIG.UI.COLORS.success};">
+                <div class="mt-8 p-8 bg-success-light br-6 text-center fs-11 fw-700 color-success">
                     ✅ Goal reached! Optimal path found with ${d.pathLength} nodes
                 </div>
             `;
         }
         html += `
-            <div style="margin-top:8px;padding:8px;background:${CONFIG.UI.COLORS.warnLight};border-radius:6px;font-size:10px;color:${CONFIG.UI.COLORS.textLight};">
+            <div class="mt-8 p-8 bg-warn-light br-6 fs-10 color-secondary-text">
                 Blue markers show exploration order on the map, orange shows the latest expanded node, green is the start, red is the goal, and purple is the final chosen path.
             </div>
         `;
 
-        el.innerHTML = html;
+        store.insider.astarSteps = html;
     } catch (e) {
-        el.innerHTML = `<div style="padding:10px;text-align:center;color:${CONFIG.UI.COLORS.error};">Error: ${e.message}</div>`;
+        store.insider.astarSteps = `<div class="p-10 text-center color-error">Error: ${e.message}</div>`;
     }
 }
 
@@ -664,17 +561,13 @@ async function runAStarVisualization() {
 document.getElementById('run-comparison-btn')?.addEventListener('click', runInsiderComparison);
 document.getElementById('run-astar-viz-btn')?.addEventListener('click', runAStarVisualization);
 
-// ===== CLOCK =====
 async function updateClock() {
     try {
         const d = await (await fetch(CONFIG.API.CLOCK)).json();
-        const cl = document.getElementById('clock-time');
-        if (cl) cl.textContent = d.time.display;
-        const rh = document.getElementById('rush-hour-display');
-        const rm = document.getElementById('rush-multiplier');
-        if (d.rushHour.isActive) {
-            if (rh) { rh.style.display = 'inline-block'; if (rm) rm.textContent = d.rushHour.multiplier.toFixed(1); }
-        } else { if (rh) rh.style.display = 'none'; }
+        const store = Alpine.store('sim');
+        store.clock = d.time.display;
+        store.rushHour.active = d.rushHour.isActive;
+        store.rushHour.multiplier = d.rushHour.multiplier;
     } catch (e) { }
 }
 
