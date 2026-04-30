@@ -1,0 +1,475 @@
+
+---
+1. constructor: Initializes the HanoiMap instance with default state and builds the initial road graph.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : HanoiMap # Instance
+- Calls     : buildRoadGraph()
+- Constants : CONFIG.DATA.STREETS, CONFIG.DATA.INTERSECTIONS
+- Formulas  : None
+
+[LOGIC]
+1. Initialize internal tracking arrays and Maps for map objects, traffic, weather, and delivery markers.
+2. Load street and intersection datasets from global configuration.
+3. Instantiate the road graph Map.
+4. Invoke buildRoadGraph to transform coordinate data into a traversable network topology.
+
+---
+2. initializeMap: Sets up Leaflet map instance, adds tiles, and triggers initial drawing/loading.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : L.map(), L.tileLayer(), L.control.zoom(), drawStreets(), setupChargingStations(), loadWeather(), startTraffic(), console.log()
+- Constants : CONFIG.MAP.INITIAL_VIEW, CONFIG.MAP.INITIAL_ZOOM, CONFIG.MAP.TILE_LAYER_URL, CONFIG.MAP.MAX_ZOOM, CONFIG.MAP.ATTRIBUTION
+- Formulas  : None
+
+[LOGIC]
+1. Initialize Leaflet map with config view/zoom and expose to window.
+2. Add tile layer with configured URL, zoom limits, and attribution.
+3. Add zoom control to bottom right position.
+4. Execute street drawing, charging station setup, weather loading, and traffic polling.
+
+---
+3. drawStreets: Renders street polylines on the map if debug mode is enabled.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : L.polyline(), addTo(), bindTooltip()
+- Constants : CONFIG.MAP.STREET_COLORS, CONFIG.UI.COLORS.background, CONFIG.UI.WEIGHTS.thick, CONFIG.UI.WEIGHTS.markerSmall, CONFIG.UI.OPACITY.full
+- Formulas  : weight = type === 'main' ? thick + 1 : markerSmall; opacity = full - 0.1
+
+[LOGIC]
+1. Abort if showDebugRoads flag is false.
+2. Iterate through streets data and map point coordinates to latlng arrays.
+3. Create polylines with colors and weights mapped to street type.
+4. Add polylines to map with bound name tooltips.
+
+---
+4. setupChargingStations: Populates the map with charging station markers and initializes their state.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : L.marker(), L.divIcon(), addTo()
+- Constants : CONFIG.DATA.CHARGING_STATIONS, CONFIG.UI.RADII.markerLarge, CONFIG.ROBOT.COLORS.good, CONFIG.UI.WEIGHTS.medium, CONFIG.UI.COLORS.surface
+- Formulas  : size = markerLarge * 6; font = markerLarge * 3; anchor = size / 2
+
+[LOGIC]
+1. Iterate through predefined charging station locations.
+2. Initialize station objects tracking availability and capacity.
+3. Construct custom divIcon using lightning bolt emoji and circular styling.
+4. Create markers at locations and add to map.
+5. Push initialized station objects to internal chargingStations registry.
+
+---
+5. enableRainOverlay: Injects CSS to create global rain animation effect over map container.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : document.createElement(), document.head.appendChild()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Create dynamic style element for rain animation.
+2. Define keyframes for diagonal background position shifting.
+3. Apply repeating linear gradient to #map::after pseudo-element to simulate rain streaks.
+4. Inject style into document head to overlay animation on map.
+
+---
+6. loadWeather: Fetches current weather data from pathfinding manager and updates rain zones.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : enableRainOverlay(), pathfindingManager.getWeather(), renderRainZones(), console.error()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Enable global rain overlay CSS animation.
+2. Abort if pathfindingManager service is unavailable.
+3. Request current weather data asynchronously from manager.
+4. Extract rainZones from response and invoke rendering logic.
+
+---
+7. renderRainZones: Visualizes rain zones on the map using nested Leaflet circles.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : L.circle(), addTo(), bindTooltip(), toFixed()
+- Constants : CONFIG.MAP.RAIN_COLORS, CONFIG.MAP.RAIN_ZONES_CORE_SCALE
+- Formulas  : core_radius = radius * CONFIG.MAP.RAIN_ZONES_CORE_SCALE
+
+[LOGIC]
+1. Remove all existing rain layers from map and clear tracking array.
+2. Iterate through current rainZones collection.
+3. Create outer "halo" circle with semi-transparent fill for zone boundary.
+4. Create inner "core" circle for intense rain center with multiplier tooltip.
+5. Store created Leaflet objects in rainLayers for future cleanup.
+
+---
+8. startTraffic: Initializes traffic data polling at regular intervals.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : refreshTraffic(), setInterval()
+- Constants : CONFIG.UI.TRAFFIC_REFRESH_INTERVAL_MS
+- Formulas  : None
+
+[LOGIC]
+1. Execute initial traffic data fetch immediately.
+2. Initialize background polling using setInterval with configured delay.
+3. Save interval handle to trafficRefreshHandle for session management.
+
+---
+9. refreshTraffic: Fetches real-time traffic status and triggers map update.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : pathfindingManager.getTraffic(), renderTraffic(), console.error()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Guard against uninitialized pathfindingManager service.
+2. Fetch current traffic snapshot (roads and segments) asynchronously.
+3. Update internal trafficJams state with fresh data.
+4. Call renderTraffic to update map polyline overlays.
+
+---
+10. renderTraffic: Renders traffic severity overlays as dashed polylines on the map.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : L.polyline(), addTo(), bindTooltip(), toFixed()
+- Constants : CONFIG.MAP.TRAFFIC_COLORS.heavy, CONFIG.MAP.TRAFFIC_COLORS.moderate
+- Formulas  : color = severity > 0.55 ? heavy : moderate; weight = severity > 0.55 ? 5 : 4
+
+[LOGIC]
+1. Clear existing traffic layer objects from map and reset tracking list.
+2. Iterate through trafficJam segments collection.
+3. Map point coordinates to latlng arrays for polyline creation.
+4. Set visual style (color, weight, dash pattern) based on congestion severity.
+5. Add polylines to map with percentage-based status tooltips.
+
+---
+11. startRoadblocks: Resets the active roadblocks tracking array.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : None
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Re-initialize roadblocks internal state to empty array.
+
+---
+12. buildRoadGraph: Constructs a bidirectional graph representation of the street network for pathfinding.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : pointKey(), distance(), Map.clear(), Map.has(), Map.set(), Map.get()
+- Constants : CONFIG.DATA.STREETS
+- Formulas  : None
+
+[LOGIC]
+1. Clear existing graph data structure.
+2. Iterate through streets collection and individual coordinate points.
+3. Index each unique coordinate pair as a graph node using coordinate-based keys.
+4. Establish bidirectional edges between adjacent points in street paths.
+5. Calculate and store Euclidean distance for each edge to enable weighted pathfinding.
+
+---
+13. pointKey: Generates a standardized string key for coordinate-based lookups.
+---
+[SIGNATURE]
+- Input     : lat: float, lon: float
+- Output    : str # "lat,lon" format
+- Calls     : toFixed()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Normalize latitude and longitude to 6 decimal precision.
+2. Return string template literal joining coordinates with comma.
+
+---
+14. getNearestGraphNode: Finds the closest node in the road graph to a given coordinate.
+---
+[SIGNATURE]
+- Input     : lat: float, lon: float
+- Output    : dict[str, Any] | None # Node object {key, lat, lon, neighbors}
+- Calls     : distance()
+- Constants : None
+- Formulas  : min(distance) search
+
+[LOGIC]
+1. Iterate through every node in the internal roadGraph.
+2. Calculate distance from target point to each node.
+3. Track and update node with the lowest cumulative distance.
+4. Return nearest node reference or null if graph empty.
+
+---
+15. snapToRoad: Snaps a free-form coordinate to the nearest road graph node.
+---
+[SIGNATURE]
+- Input     : lat: float, lon: float
+- Output    : dict[str, float] # {lat, lon}
+- Calls     : getNearestGraphNode()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Query the graph for the closest existing node to input coordinates.
+2. Fallback to original coordinates if no graph nodes exist.
+3. Return the exact coordinates of the identified graph node.
+
+---
+16. findShortestPath: Implements Dijkstra's algorithm to find optimal path considering traffic and roadblocks.
+---
+[SIGNATURE]
+- Input     : startKey: str, endKey: str
+- Output    : list[dict[str, float]] # Waypoint sequence
+- Calls     : isRoadBlocked(), getSegmentTrafficPenalty()
+- Constants : None
+- Formulas  : new_dist = current_dist + (edge_dist * traffic_penalty)
+
+[LOGIC]
+1. Initialize Dijkstra distance table (Infinity) and predecessor map.
+2. Maintain unvisited set and greedily process node with minimum known distance.
+3. Evaluate neighbors of current node:
+   - Skip if segment is actively blocked by roadblock.
+   - Calculate candidate distance using base edge weight and real-time traffic penalty.
+   - Update distance table and predecessor map if shorter path found.
+4. Backtrack from target node to start to reconstruct waypoint sequence.
+
+---
+17. getSegmentTrafficPenalty: Calculates travel time multiplier based on traffic at segment midpoint.
+---
+[SIGNATURE]
+- Input     : fromNode: dict, toNode: dict
+- Output    : float # Travel penalty multiplier
+- Calls     : getTrafficAt()
+- Constants : CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER
+- Formulas  : mid = (A + B) / 2; penalty = 1 + (traffic * multiplier)
+
+[LOGIC]
+1. Compute geometric midpoint of the road segment.
+2. Sample current traffic intensity (0-1) at the midpoint coordinate.
+3. Apply linear scaling factor to determine routing cost penalty for this segment.
+
+---
+18. isRoadBlocked: Checks if a road segment is obstructed by a registered roadblock.
+---
+[SIGNATURE]
+- Input     : fromNode: dict, toNode: dict
+- Output    : bool
+- Calls     : distance(), Array.some()
+- Constants : CONFIG.MAP.ROADBLOCK_DISTANCE_THRESHOLD
+- Formulas  : mid = (A + B) / 2; blocked = dist(mid, block) < threshold
+
+[LOGIC]
+1. Calculate the geographic midpoint of the segment between two nodes.
+2. Check active roadblocks array for any block within proximity threshold of the midpoint.
+3. Return true if any roadblock obstructs the segment.
+
+---
+19. getRoute: Calculates path between coordinates, snapping to road network via graph search.
+---
+[SIGNATURE]
+- Input     : fromLat: float, fromLon: float, toLat: float, toLon: float
+- Output    : list[dict[str, float]] # Waypoint sequence
+- Calls     : getNearestGraphNode(), findShortestPath(), Array.filter()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Identify the closest road graph nodes to both start and end coordinates.
+2. Fallback to direct straight-line path if either node is undiscoverable.
+3. Perform weighted shortest path search between identified graph nodes.
+4. Fallback to direct path if graph search returns no results.
+5. Filter path to remove duplicate consecutive waypoints.
+
+---
+20. snapToStreet: Snaps coordinates to the absolute nearest individual point in the street dataset.
+---
+[SIGNATURE]
+- Input     : lat: float, lon: float
+- Output    : dict[str, float] # {lat, lon}
+- Calls     : distance(), Array.forEach()
+- Constants : CONFIG.DATA.STREETS
+- Formulas  : min(distance) search
+
+[LOGIC]
+1. Exhaustively iterate through all points in every street defined in CONFIG.
+2. Compute distance from input point to each street vertex.
+3. Track vertex with the minimum distance.
+4. Return coordinates of the closest street vertex.
+
+---
+21. getTrafficAt: Computes local traffic intensity at specific coordinate based on proximity to congestion.
+---
+[SIGNATURE]
+- Input     : lat: float, lon: float
+- Output    : float # Intensity 0.0 to 1.0
+- Calls     : distanceToSegment(), Math.max()
+- Constants : CONFIG.MAP.TRAFFIC_RADIUS
+- Formulas  : decay = 1 - (dist / radius); intensity = max(severity * decay)
+
+[LOGIC]
+1. Initialize local traffic value to zero.
+2. Iterate through all active traffic jam segments.
+3. Calculate distance from coordinate to the current line segment.
+4. If within influence radius, apply linear decay to segment severity based on distance.
+5. Accumulate and return the maximum intensity found across all relevant segments.
+
+---
+22. getRainPenaltyAt: Calculates travel cost penalty based on rain zones covering a coordinate.
+---
+[SIGNATURE]
+- Input     : lat: float, lon: float
+- Output    : float # Multiplier >= 1.0
+- Calls     : distance(), Math.max()
+- Constants : None
+- Formulas  : penalty = max(zone.multiplier) if dist < radius
+
+[LOGIC]
+1. Initialize baseline penalty at 1.0.
+2. Iterate through all active rain zones on the map.
+3. Compute distance between input coordinate and current zone center.
+4. If coordinate falls within zone radius, update global penalty to the maximum multiplier found.
+
+---
+23. distanceToSegment: Calculates the shortest distance in meters from a point to a line segment.
+---
+[SIGNATURE]
+- Input     : lat: float, lon: float, startLat: float, startLon: float, endLat: float, endLon: float
+- Output    : float # Distance in meters
+- Calls     : Math.cos(), Math.max(), Math.min(), Math.hypot()
+- Constants : CONFIG.MAP.METERS_PER_DEGREE
+- Formulas  : lon_scale = METERS_PER_DEGREE * cos(avg_lat); projection = dot_product / length_squared
+
+[LOGIC]
+1. Transform latitude/longitude coordinates into local Cartesian meter coordinates.
+2. Account for longitude distortion based on average latitude of the points.
+3. Use vector projection to find the point on the infinite line closest to the target.
+4. Clamp the projection to segment bounds [0, 1] to find the closest point within the segment.
+5. Return the Euclidean distance between target point and calculated segment point.
+
+---
+24. distance: Computes great-circle distance between two geographic points using Law of Cosines.
+---
+[SIGNATURE]
+- Input     : lat1: float, lon1: float, lat2: float, lon2: float
+- Output    : float # Distance in meters
+- Calls     : Math.sin(), Math.cos(), Math.acos()
+- Constants : CONFIG.MAP.EARTH_RADIUS_METERS
+- Formulas  : dist = R * acos(sin(φ1)sin(φ2) + cos(φ1)cos(φ2)cos(Δλ))
+
+[LOGIC]
+1. Convert latitude and longitude from degrees to radians for trigonometric functions.
+2. Apply the spherical Law of Cosines to calculate central angle between points.
+3. Scale angle by Earth's radius to return distance in meters.
+
+---
+25. occupyChargingSpot: Decrements available spots at a charging station if capacity exists.
+---
+[SIGNATURE]
+- Input     : station: dict # Station object {availableSpots: int, ...}
+- Output    : bool # Success status
+- Calls     : None
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Verify station object existence and availability of at least one spot.
+2. Atomic-style decrement of available spots counter.
+3. Return true on successful reservation, false if station is full.
+
+---
+26. releaseChargingSpot: Increments available spots at a charging station when a robot leaves.
+---
+[SIGNATURE]
+- Input     : station: dict # Station object
+- Output    : void
+- Calls     : None
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Verify validity of the station object reference.
+2. Increment the internal availableSpots counter to reflect the vacated spot.
+
+---
+27. showDeliveryMarkers: Places pickup and dropoff markers for a specific delivery on the map.
+---
+[SIGNATURE]
+- Input     : delivery: dict # Delivery object {id, pickup, destination, theme}
+- Output    : void
+- Calls     : clearDeliveryMarkers(), L.marker(), L.divIcon(), addTo()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Purge any stale markers associated with the delivery ID.
+2. Construct custom divIcons for both pickup (P) and dropoff (D) locations.
+3. Create Leaflet markers at specified coordinates with themed badges and names.
+4. Add markers to map and register them in deliveryMarkers Map for lifecycle management.
+
+---
+28. clearDeliveryMarkers: Removes pickup and dropoff markers for a specific delivery from map.
+---
+[SIGNATURE]
+- Input     : deliveryId: str | int
+- Output    : void
+- Calls     : remove(), delete()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Fetch marker object pair from internal deliveryMarkers registry using ID.
+2. Invoke Leaflet remove() on both pickup and dropoff marker instances if present.
+3. Remove the entry from the tracking Map to free memory.
+
+---
+29. clearAllDeliveryMarkers: Clears all active delivery markers from the map container.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : clearDeliveryMarkers()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Extract all active delivery IDs from the internal markers Map.
+2. Iteratively execute clearDeliveryMarkers for every registered delivery.
+
+---
+30. drawHubs: Visualizes central hubs on the map with custom icons and range rings.
+---
+[SIGNATURE]
+- Input     : hubs: list[dict] # Collection of hub data {lat, lon, name}
+- Output    : void
+- Calls     : L.marker(), L.divIcon(), L.circle(), addTo(), bindPopup()
+- Constants : CONFIG.MAP.HUB_RING_RADIUS, CONFIG.MAP.HUB_COLOR, CONFIG.MAP.HUB_RING_WEIGHT, CONFIG.MAP.HUB_RING_OPACITY, CONFIG.MAP.HUB_FILL_OPACITY
+- Formulas  : None
+
+[LOGIC]
+1. Clear existing hub visualizations and reset layer tracking.
+2. Iterate through hub data collection.
+3. Instantiate brain-themed divIcons and circular range overlays for each hub.
+4. Bind informative popups describing hub optimization status.
+5. Persist layer references in hubLayers array for future updates.

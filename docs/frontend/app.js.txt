@@ -1,0 +1,460 @@
+
+---
+1. logEvent: Sends info log to server from UI source.
+---
+[SIGNATURE]
+- Input     : message: str # Log message content
+- Output    : void
+- Calls     : fetch(), JSON.stringify(), Date.now()
+- Constants : CONFIG.API.LOGS, CONFIG.UI.LOG_LEVELS.INFO, CONFIG.UI.LOG_SOURCES.UI
+- Formulas  : None
+
+[LOGIC]
+1. POST JSON payload to CONFIG.API.LOGS.
+2. Include message, INFO level, UI source, and timestamp.
+3. Catch and ignore errors.
+
+---
+2. addDispatchInsight: Sends dispatch-specific log with configurable tone.
+---
+[SIGNATURE]
+- Input     : message: str # Insight message, tone: str # Log level/tone
+- Output    : void
+- Calls     : fetch(), JSON.stringify(), Date.now()
+- Constants : CONFIG.API.LOGS, CONFIG.UI.LOG_SOURCES.DISPATCH, CONFIG.UI.LOG_LEVELS.NEUTRAL
+- Formulas  : None
+
+[LOGIC]
+1. POST JSON payload to CONFIG.API.LOGS.
+2. Include message, custom tone, DISPATCH source, and timestamp.
+3. Catch and ignore errors.
+
+---
+3. togglePanel: Manages UI panel visibility and callbacks via click event.
+---
+[SIGNATURE]
+- Input     : btnId: str, panelSelector: str, onOpen: Callable | None, onClose: Callable | None
+- Output    : void
+- Calls     : document.getElementById(), document.querySelector(), addEventListener(), onOpen(), onClose()
+- Constants : None
+- Formulas  : hidden = display === 'none' || display === ''
+
+[LOGIC]
+1. Listen for click on btnId.
+2. Toggle panel display between 'block' and 'none'.
+3. Exec onOpen if panel shown; exec onClose if hidden.
+
+---
+4. init: Bootstraps simulation, UI, and clock.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : Simulation(), simulation.initialize(), setupControls(), setupWeather(), updateClock(), setInterval(), logEvent()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. New Simulation instance -> window.simulation.
+2. await simulation.initialize().
+3. Call setupControls, setupWeather, updateClock.
+4. Set 1s interval for clock.
+5. Log ready status or error.
+
+---
+5. setupControls: Binds UI elements to simulation methods and panel toggles.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : document.getElementById(), addEventListener(), simulation.*, togglePanel()
+- Constants : CONFIG.SIMULATION.DEFAULT_ALGORITHM
+- Formulas  : simulation.speed = +e.target.value
+
+[LOGIC]
+1. Attach click listeners to start/pause/reset/optimize buttons.
+2. Update simulation.speed on slider input.
+3. Init toggles for Robots, Computing, Decision, and Weather panels.
+4. Setup close handlers for all modal/side panels.
+
+---
+6. setupWeather: Configures weather UI tabs, sliders, and map interaction.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : document.querySelectorAll(), addEventListener(), randomizeRain(), clearRain(), resetTrafficPoints(), map.on(), addRainZone(), handleTrafficClick(), updateRainList(), updateTrafficList(), updateObstacleList()
+- Constants : CONFIG.UI.WEATHER_MODES, CONFIG.ROBOT.COLORS.info, CONFIG.UI.COLORS.background, CONFIG.UI.COLORS.text, CONFIG.UI.COLORS.surface
+- Formulas  : None
+
+[LOGIC]
+1. Set tab listeners to switch weather modes and visibility.
+2. Link sliders to value displays.
+3. Bind randomize/clear actions for rain, traffic, and obstacles.
+4. Reg map click listener to place weather effects based on active mode.
+
+---
+7. resetTrafficPoints: Clears traffic selection state and map marker.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : map.removeLayer(), logEvent()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Reset trafficPointA to null.
+2. Remove trafficPointMarkerA from map if exists.
+3. Log reset event.
+
+---
+8. handleTrafficClick: Manages two-click traffic route definition.
+---
+[SIGNATURE]
+- Input     : lat: float, lon: float
+- Output    : void
+- Calls     : L.circleMarker(), addTrafficRoute(), resetTrafficPoints(), logEvent()
+- Constants : CONFIG.SIMULATION.DEFAULT_TRAFFIC_SEVERITY, CONFIG.ROBOT.COLORS.error
+- Formulas  : None
+
+[LOGIC]
+1. If first click: save lat/lon as start, place marker, log start.
+2. If second click: define end, call addTrafficRoute, reset points on finish.
+
+---
+9. addTrafficRoute: POSTs new traffic segment to API and draws on map.
+---
+[SIGNATURE]
+- Input     : start: dict[str, float], end: dict[str, float], severity: float
+- Output    : Promise[void]
+- Calls     : fetch(), logEvent(), L.polyline(), updateTrafficList()
+- Constants : CONFIG.API.TRAFFIC_ADD, CONFIG.ROBOT.COLORS.error
+- Formulas  : None
+
+[LOGIC]
+1. POST coordinates and severity to server.
+2. On success, parse route path and draw red polyline on map.
+3. Push layer to trafficPolylines for later management.
+4. Update UI list and log success/error.
+
+---
+10. clearInsiderLayers: Purges all pathfinding inspection layers from map.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : map.removeLayer()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Iterate over insiderLayers array.
+2. Remove each Leaflet layer instance from global map.
+3. Reset insiderLayers to empty array.
+
+---
+11. renderAStarOverlay: Visualizes explored nodes and final path from A* data.
+---
+[SIGNATURE]
+- Input     : data: dict # API response with exploredPath and path
+- Output    : void
+- Calls     : clearInsiderLayers(), L.circleMarker(), L.polyline()
+- Constants : CONFIG.UI.RADII, CONFIG.ROBOT.COLORS, CONFIG.UI.COLORS
+- Formulas  : None
+
+[LOGIC]
+1. Wipe existing inspection layers.
+2. Map exploredPath to small circle markers (blue/info color).
+3. If path exists, draw secondary-colored thick polyline.
+4. Place large start (success/green) and end (error/red) markers.
+
+---
+12. addRainZone: Registers new rain zone via API and triggers UI update.
+---
+[SIGNATURE]
+- Input     : lat: float, lon: float, radius: float
+- Output    : Promise[void]
+- Calls     : fetch(), displayRainZone(), updateRainList(), logEvent()
+- Constants : CONFIG.API.RAIN_ADD
+- Formulas  : None
+
+[LOGIC]
+1. POST rain zone parameters to server.
+2. On success, invoke displayRainZone for map rendering.
+3. Refresh UI list and log zone name.
+
+---
+13. displayRainZone: Renders rain zone circle and popup on map.
+---
+[SIGNATURE]
+- Input     : z: dict # Rain zone data with center and radius
+- Output    : void
+- Calls     : L.circle(), addTo(), bindPopup()
+- Constants : CONFIG.ROBOT.COLORS.info
+- Formulas  : None
+
+[LOGIC]
+1. Create Leaflet circle at z.center with radius z.radius.
+2. Apply info-colored styling with 0.2 fill opacity.
+3. Bind popup with metadata; push to rainCircles tracking array.
+
+---
+14. updateRainList: Synchronizes UI sidebar with active rain zone data.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : fetch(), document.getElementById(), map()
+- Constants : CONFIG.API.RAIN_LIST, CONFIG.UI.COLORS.border
+- Formulas  : None
+
+[LOGIC]
+1. Fetch current rain zones from API.
+2. Build HTML list containing names, coordinates, and radii.
+3. Inject generated HTML into rain-list container.
+
+---
+15. randomizeRain: Replaces all rain zones with random server-generated set.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : fetch(), map.removeLayer(), displayRainZone(), updateRainList(), logEvent()
+- Constants : CONFIG.API.RAIN_RANDOMIZE, CONFIG.SIMULATION.RANDOM_RAIN_*
+- Formulas  : None
+
+[LOGIC]
+1. POST randomization parameters to server.
+2. Clear existing map layers using rainCircles array.
+3. Map over new zones to render them; update UI list and log event.
+
+---
+16. clearRain: Deletes all rain zones from server and map display.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : fetch(), map.removeLayer(), updateRainList(), logEvent()
+- Constants : CONFIG.API.RAIN_CLEAR
+- Formulas  : None
+
+[LOGIC]
+1. Trigger server-side rain clearance.
+2. Remove all tracked layers from Leaflet map.
+3. Empty tracking array; sync UI list and log action.
+
+---
+17. randomizeTraffic: Regenerates traffic routes on server and map.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : fetch(), map.removeLayer(), L.polyline(), updateTrafficList(), logEvent()
+- Constants : CONFIG.API.TRAFFIC_RANDOMIZE, CONFIG.ROBOT.COLORS.error
+- Formulas  : None
+
+[LOGIC]
+1. POST randomization request to server.
+2. Purge existing trafficPolylines from Leaflet map.
+3. Render new routes as red polylines; sync UI list and log action.
+
+---
+18. clearTraffic: Wipes all traffic segments from system.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : fetch(), map.removeLayer(), updateTrafficList(), logEvent()
+- Constants : CONFIG.API.TRAFFIC_CLEAR
+- Formulas  : None
+
+[LOGIC]
+1. Trigger server-side traffic deletion.
+2. Remove all tracked polylines from map.
+3. Reset local array; update UI and log event.
+
+---
+19. updateTrafficList: Fetches and displays active traffic routes in UI.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : fetch(), document.getElementById(), map()
+- Constants : CONFIG.API.TRAFFIC_LIST, CONFIG.UI.COLORS.border
+- Formulas  : None
+
+[LOGIC]
+1. Get route list from API.
+2. Map routes to HTML snippets with severity info.
+3. Inject resulting string into traffic-list container.
+
+---
+20. addObstacle: Registers new obstacle via API and triggers map/UI updates.
+---
+[SIGNATURE]
+- Input     : lat: float, lon: float, radius: float, severity: float
+- Output    : Promise[void]
+- Calls     : fetch(), displayObstacle(), updateObstacleList(), logEvent()
+- Constants : CONFIG.API.OBSTACLE_ADD, CONFIG.SIMULATION.DEFAULT_OBSTACLE_TYPE
+- Formulas  : None
+
+[LOGIC]
+1. POST obstacle data (coords, size, severity, type) to server.
+2. On success, call displayObstacle for rendering.
+3. Sync UI list and log creation event.
+
+---
+21. displayObstacle: Renders obstacle circle and popup on map.
+---
+[SIGNATURE]
+- Input     : o: dict # Obstacle data with center, radius, and type
+- Output    : void
+- Calls     : L.circle(), addTo(), bindPopup()
+- Constants : CONFIG.DATA.OBSTACLE_COLORS, CONFIG.ROBOT.COLORS.error
+- Formulas  : None
+
+[LOGIC]
+1. Select color based on obstacle type or default to error color.
+2. Create Leaflet circle at o.center with radius o.radius.
+3. Bind popup with name and severity; push to obstacleCircles tracking array.
+
+---
+22. updateObstacleList: Updates sidebar UI with active obstacle metadata.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : fetch(), document.getElementById(), map()
+- Constants : CONFIG.API.OBSTACLE_LIST, CONFIG.UI.COLORS.border
+- Formulas  : None
+
+[LOGIC]
+1. Retrieve obstacle list from API.
+2. Format each obstacle as HTML snippet with name, radius, and severity.
+3. Replace innerHTML of obstacle-list container.
+
+---
+23. randomizeObstacles: Replaces all obstacles with random server-generated set.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : fetch(), map.removeLayer(), displayObstacle(), updateObstacleList(), logEvent()
+- Constants : CONFIG.API.OBSTACLE_RANDOMIZE, CONFIG.SIMULATION.RANDOM_OBSTACLE_COUNT
+- Formulas  : None
+
+[LOGIC]
+1. POST randomization parameters to server.
+2. Clear existing map layers using obstacleCircles array.
+3. Iterate over new obstacles to render; sync UI list and log event.
+
+---
+24. clearObstacles: Deletes all obstacles from server and map.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : fetch(), map.removeLayer(), updateObstacleList(), logEvent()
+- Constants : CONFIG.API.OBSTACLE_CLEAR
+- Formulas  : None
+
+[LOGIC]
+1. Trigger server-side obstacle clearance.
+2. Remove all tracked layers from Leaflet map.
+3. Reset tracking array; update UI list and log action.
+
+---
+25. fetchMetrics: Synchronizes decision dashboard with backend performance data.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : fetch(), document.getElementById()
+- Constants : CONFIG.API.METRICS
+- Formulas  : None
+
+[LOGIC]
+1. Fetch latest pathfinding and graph statistics from API.
+2. Update DOM elements for calculation times, node counts, and active weather factors.
+3. Silently catch and log errors.
+
+---
+26. setInterval (Refresh Logic): Manages periodic UI updates for active panels.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : fetchMetrics(), robot.getComputingDetails()
+- Constants : CONFIG.UI.METRICS_REFRESH_INTERVAL_MS, CONFIG.UI.COMPUTING_PANEL_REFRESH_INTERVAL_MS
+- Formulas  : None
+
+[LOGIC]
+1. Poll fetchMetrics if decision panel is displayed.
+2. Refresh computing panel content with current robot status if visible.
+3. Ensure synchronization between simulation state and UI display.
+
+---
+27. showAStarProcess: Deconstructs A* heuristic process into human-readable steps and penalties.
+---
+[SIGNATURE]
+- Input     : robotId: str
+- Output    : Promise[void]
+- Calls     : fetch(), renderAStarOverlay(), simulation.robots.find(), document.getElementById()
+- Constants : CONFIG.API.ASTEP, CONFIG.UI.GRADIENTS.info, CONFIG.UI.COLORS.infoBorder, CONFIG.UI.COLORS.primary, CONFIG.ROBOT.RAIN_REROUTE_THRESHOLD, CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER
+- Formulas  : None
+
+[LOGIC]
+1. Verify robot has target; fetch expansion data from ASTEP API.
+2. Build HTML visualization showing calculation metadata (time, steps, sets).
+3. Detail first 3 steps with g/h/f costs; summarize remaining steps and goal.
+4. Display dynamic penalty multipliers applied for rain, traffic, and obstacles.
+5. Invoke map overlay for spatial visualization.
+
+---
+28. runInsiderComparison: Compares multiple pathfinding algorithms for efficiency.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : fetch(), document.getElementById()
+- Constants : CONFIG.API.INSIDER, CONFIG.DATA.LOCATIONS, CONFIG.UI.GRADIENTS.purple
+- Formulas  : speedup = (1 - astarNodes / dijkstraNodes) * 100
+
+[LOGIC]
+1. Request comparative analysis of A*, Dijkstra, Greedy, and BFS from server.
+2. Calculate efficiency metrics and optimal path flags.
+3. Render performance comparison table with highlighted A* efficiency insights.
+4. Inject table and key insight summary into UI container.
+
+---
+29. runAStarVisualization: Detailed deconstruction of search expansion into a visual step-log.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : fetch(), renderAStarOverlay(), document.getElementById()
+- Constants : CONFIG.API.ASTEP, CONFIG.DATA.LOCATIONS, CONFIG.UI.COLORS.success, CONFIG.UI.GRADIENTS.expansion
+- Formulas  : width = (closedSetSize / totalClosedSetSize) * 100
+
+[LOGIC]
+1. Request A* expansion data for fixed test route from API.
+2. Update map visualization via renderAStarOverlay.
+3. Build HTML log for each step including cost formulas and set sizes.
+4. Render progress bar for node expansion using expansion gradient.
+
+---
+30. updateClock: Synchronizes simulation time and rush hour status in UI.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[void]
+- Calls     : fetch(), document.getElementById()
+- Constants : CONFIG.API.CLOCK
+- Formulas  : None
+
+[LOGIC]
+1. Fetch time and rush hour metadata from API.
+2. Update clock text display.
+3. Toggle rush hour multiplier visibility based on active status.
+4. Update multiplier value display with 1-decimal precision.

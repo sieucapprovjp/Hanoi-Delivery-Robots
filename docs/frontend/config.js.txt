@@ -1,0 +1,44 @@
+### [CONFIG.MAP]
+Purpose: Centralize geographic and Leaflet map settings.
+Key Params:
+- INITIAL_VIEW/ZOOM: Center [21.0285, 105.8542] (Hanoi).
+- TRAFFIC_PENALTY_MULTIPLIER: 2x weight for congested routes.
+- EARTH_RADIUS_METERS: 6371e3 for distance calcs.
+Logic: Defines visual layers and physical thresholds for traffic/rain interaction.
+
+### [CONFIG.ROBOT]
+Purpose: Control robot physics, battery life, and memory decay.
+Key Params:
+- DEFAULT_SPEED: 0.000010 coordinate units.
+- BATTERY_DRAIN: 0.0065 per update.
+- MEMORY_DECAY: 0.995 factor for road experience.
+Logic: Sets operational limits, charging behavior (targets 90%), and reroute intervals (5500ms).
+
+### [CONFIG.SIMULATION]
+Purpose: Manage global simulation state and delivery generation.
+Key Params:
+- DELIVERY_INTERVAL_MS: 6500.
+- PICKUP/DROPOFF_WEIGHTS: Probability maps for location categories (e.g., Residential 0.32 dropoff).
+- EFFICIENCY_WEIGHTS: Penalty weights for time/nodes/reroutes.
+Logic: Orchestrates delivery flow and algorithmic selection (A*, Dijkstra, GBFS).
+
+### [CONFIG.API]
+Purpose: Map frontend calls to backend microservices.
+Endpoints: /api/route, /api/traffic, /api/weather, /api/metrics, etc.
+Logic: Static routing table for AJAX/Fetch requests.
+
+### [CONFIG.UI]
+Purpose: Define styling, refresh rates, and state feedback.
+Key Params:
+- REFRESH_INTERVALS: 2000-3500ms.
+- STATE_LABELS: Mapping internal status to emoji/text.
+- COLORS/GRADIENTS: Design system tokens for consistency.
+Logic: Visualizes system state and provides user feedback levels (INFO, NEXT, WARN, ERROR).
+
+### [CONFIG.DATA]
+Purpose: Static geospatial datasets for the Hanoi environment.
+Contents:
+- STREETS: 10 main/secondary polyline sets.
+- CHARGING_STATIONS: 6 fixed locations with spot counts.
+- LOCATIONS: 20 landmarks with category/icon metadata.
+Logic: Hardcoded ground truth for map rendering and pathfinding nodes.

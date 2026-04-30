@@ -1,0 +1,316 @@
+---
+1. recordRoadExperience: Updates road condition memory based on traversal speed.
+---
+[SIGNATURE]
+- Input     : fromLat: float # Starting latitude
+- Input     : fromLon: float # Starting longitude
+- Input     : toLat: float # Ending latitude
+- Input     : toLon: float # Ending longitude
+- Input     : speedMultiplier: float # Observed speed ratio
+- Output    : void
+- Calls     : toFixed()
+- Constants : CONFIG.ROBOT.EXPERIENCE_PENALTIES, CONFIG.ROBOT.EXPERIENCE_THRESHOLDS, CONFIG.ROBOT.MEMORY_UPDATE_WEIGHT
+- Formulas  : key = string interpolation of coordinates; penalty = ternary check against thresholds; weighted average = current * weight + observed * (1 - weight)
+
+[LOGIC]
+1. Generate string key from truncated coordinates (4 decimal places).
+2. Determine penalty level (heavy/moderate/light) by comparing speedMultiplier to predefined thresholds.
+3. Apply exponential moving average to update stored penalty for given road segment.
+
+---
+2. decayMemory: Gradually resets road penalties toward baseline.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : Math.abs()
+- Constants : CONFIG.ROBOT.MEMORY_CLEANUP_THRESHOLD, this.memoryDecay
+- Formulas  : penalty = penalty * decay + 1.0 * (1 - decay)
+
+[LOGIC]
+1. Iterate over all keys in roadMemory.
+2. Pull penalty values toward 1.0 using decay factor.
+3. Delete keys if penalty is sufficiently close to 1.0 based on cleanup threshold.
+
+---
+3. update: Main simulation step for movement and state management.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : arriveAtWaypoint(), distanceTo(), mapManager.getRainPenaltyAt(), mapManager.getTrafficAt(), Math.max(), recordRoadExperience(), decayMemory(), maybeReroute(), marker.setLatLng(), marker.isPopupOpen(), updatePopup(), goCharge(), startCharging()
+- Constants : CONFIG.ROBOT.STATUSES, CONFIG.ROBOT.METERS_PER_DEGREE, CONFIG.ROBOT.MIN_SPEED_MULTIPLIER, CONFIG.ROBOT.FRAME_COUNT_RECORD_MEMORY, CONFIG.ROBOT.BATTERY_LOW_THRESHOLD, CONFIG.ROBOT.CHARGING_ARRIVAL_THRESHOLD
+- Formulas  : ratio = (speed * multiplier) / dist; lat/lon interpolation; battery -= drain * rainPenalty; speedMultiplier = max(MIN, (BASE * (1 - traffic * IMPACT)) / rainPenalty)
+
+[LOGIC]
+1. Exit if not in MOVING status.
+2. Advance pathIndex or call arriveAtWaypoint if at segment end or path exhausted.
+3. Snap to target if within movement range; otherwise interpolate position.
+4. Update total distance traveled in meters.
+5. Update battery levels considering local rain intensity.
+6. Recalculate speedMultiplier based on traffic congestion and rain impact.
+7. Periodically record experience and decay memory based on frame count.
+8. Trigger rerouting or charging if battery/traffic thresholds met.
+9. Sync UI marker position and refresh popup if open.
+
+---
+4. arriveAtWaypoint: Transitions robot state upon reaching destination.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise<void>
+- Calls     : startCharging(), logEvent(), addDispatchInsight(), buildRouteToTarget(), simulation.recordDeliveryCompleted(), mapManager.clearDeliveryMarkers(), clearPathLine()
+- Constants : CONFIG.ROBOT.ROUTE_MODES, CONFIG.ROBOT.PHASES, CONFIG.ROBOT.STATUSES, CONFIG.UI.LOG_LEVELS
+- Formulas  : None
+
+[LOGIC]
+1. Check if at charging station; start charging if so.
+2. If at pickup point, switch phase to TO_DROPOFF and build route to destination.
+3. If at dropoff point, increment delivery stats, notify simulation, and clear delivery state.
+4. Reset status to IDLE and clear path data from UI.
+
+---
+5. goCharge: Locates and routes to the nearest available charging station.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise<void>
+- Calls     : filter(), sort(), distanceTo(), mapManager.occupyChargingSpot(), buildRouteToTarget(), logEvent(), addDispatchInsight(), mapManager.releaseChargingSpot()
+- Constants : CONFIG.ROBOT.ROUTE_MODES.CHARGING, CONFIG.ROBOT.BATTERY_LOW_THRESHOLD, CONFIG.UI.LOG_LEVELS.WARN
+- Formulas  : None
+
+[LOGIC]
+1. Filter charging stations for available spots and sort by proximity to robot.
+2. Set isRouting flag and store charging station reference.
+3. Mark station spot as occupied in map manager.
+4. Set route mode to CHARGING and target coordinates to station position.
+5. Execute buildRouteToTarget; release spot on failure.
+
+---
+6. startCharging: Periodic battery replenishment process.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : logEvent(), setInterval(), clearInterval(), mapManager.releaseChargingSpot(), finishCharging()
+- Constants : CONFIG.ROBOT.STATUSES.CHARGING, CONFIG.ROBOT.BATTERY_CHARGE_INCREMENT, CONFIG.ROBOT.BATTERY_CHARGE_TARGET, CONFIG.ROBOT.CHARGING_INTERVAL_MS
+- Formulas  : battery += CONFIG.ROBOT.BATTERY_CHARGE_INCREMENT
+
+[LOGIC]
+1. Transition status to CHARGING.
+2. Initialize interval timer to increment battery level.
+3. Once target battery level reached (or exceeded), clear interval.
+4. Release charging spot and call finishCharging to resume work or idle.
+
+---
+7. assignDelivery: Initializes robot for a specific delivery mission.
+---
+[SIGNATURE]
+- Input     : delivery: dict[str, any] # Contains pickup and destination details
+- Input     : precalculatedRoute: list[dict[str, float]] | None # Cached path if available
+- Input     : precalculatedBreakdown: dict[str, float] | None # Cached cost analysis
+- Output    : Promise<boolean>
+- Calls     : mapManager.showDeliveryMarkers(), buildRouteToTarget(), logEvent(), addDispatchInsight(), mapManager.clearDeliveryMarkers(), Date.now(), Math.max()
+- Constants : CONFIG.ROBOT.PHASES.TO_PICKUP, CONFIG.ROBOT.ROUTE_MODES.DELIVERY, CONFIG.UI.LOG_LEVELS.NEUTRAL
+- Formulas  : None
+
+[LOGIC]
+1. Block assignment if already routing.
+2. Set delivery metadata and transition to pickup phase.
+3. Update map UI with delivery markers.
+4. Attempt to build route to pickup location.
+5. Return success status or rollback state on failure.
+
+---
+8. createMarker: Instantiates the visual representation of the robot.
+---
+[SIGNATURE]
+- Input     : map: L.Map # Leaflet map instance
+- Output    : void
+- Calls     : L.marker(), L.divIcon(), addTo(), bindPopup(), on(), updatePopup(), openPopup(), document.querySelector(), document.getElementById(), getComputingDetails()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Create Leaflet marker with custom divIcon styling based on robot color.
+2. Add marker to provided map instance.
+3. Bind interactive popup and click listeners.
+4. Logic for updating both map popup and sidebar computing panel on click.
+
+---
+9. updatePopup: Refreshes the robot's map-bound information window.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : getEtaText(), marker.getPopup(), setContent(), toFixed()
+- Constants : CONFIG.UI.COLORS, CONFIG.ROBOT.PHASES, CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS, CONFIG.ROBOT.COLORS, CONFIG.ROBOT.STATUSES, CONFIG.ROBOT.ROUTE_MODES, CONFIG.UI.STATE_LABELS
+- Formulas  : Coordinate and percentage formatting via toFixed()
+
+[LOGIC]
+1. Construct HTML templates for delivery status, destination coordinates, and battery levels.
+2. Determine current decision state label based on movement status and battery level.
+3. Assemble complete HTML popup structure with styled status indicators and metrics.
+4. Update the marker's popup content if the popup object exists.
+
+---
+10. getComputingDetails: Generates deep-dive metrics for the robot's internal state.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : string # HTML formatted string for the computing panel
+- Calls     : Math.min(), Math.max(), Date.now(), getEtaText(), Object.keys(), Object.values(), toFixed(), slice(), reverse(), map(), join(), reduce()
+- Constants : CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS, CONFIG.ROBOT.COLORS, CONFIG.ROBOT.STATUSES, CONFIG.ROBOT.ROUTE_MODES, CONFIG.UI.STATE_LABELS, CONFIG.ROBOT.CALC_TIME_THRESHOLDS, CONFIG.UI.COLORS, CONFIG.UI.GRADIENTS
+- Formulas  : ago = ((Date.now() - timestamp) / 1000).toFixed(1); avgMemoryPenalty = (sum(penalties) / count).toFixed(2)
+
+[LOGIC]
+1. Determine active decision state and battery health color coding.
+2. Format calculation history as a table showing node count and latency.
+3. If available, generate A* route cost breakdown including traffic, rain, and obstacle penalties.
+4. Calculate lifetime performance aggregates (min/max/avg calculation time).
+5. Extract road memory statistics (size, hot zones, average penalty).
+6. Return comprehensive HTML assembly including interactive visualization button.
+
+---
+11. drawPathLine: Visualizes the navigation path on the map.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : pathLine.remove(), currentPath.map(), L.polyline(), addTo()
+- Constants : CONFIG.UI.WEIGHTS.medium, CONFIG.UI.OPACITY.high, CONFIG.UI.DASH_ARRAY
+- Formulas  : None
+
+[LOGIC]
+1. Clean up existing path polyline if present.
+2. Transform currentPath objects into coordinate arrays.
+3. Instantiate Leaflet polyline with robot-specific color and predefined dash styling.
+4. Add the polyline to the map manager's active map instance.
+
+---
+12. clearPathLine: Removes the navigation visualization.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : void
+- Calls     : pathLine.remove()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Verify if pathLine reference exists.
+2. Call remove() on the Leaflet object to strip it from the UI.
+3. Reset internal reference to null.
+
+---
+13. distanceTo: Computes Euclidean distance to a target.
+---
+[SIGNATURE]
+- Input     : point: dict[str, float] # Target coordinates (lat, lon)
+- Output    : float
+- Calls     : Math.sqrt()
+- Constants : None
+- Formulas  : sqrt((this.lat - point.lat)**2 + (this.lon - point.lon)**2)
+
+[LOGIC]
+1. Calculate differences in latitude and longitude.
+2. Return the square root of the sum of squared differences.
+
+---
+14. getStatusText: Generates a descriptive status message.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : string
+- Calls     : toFixed()
+- Constants : CONFIG.ROBOT.STATUSES.MOVING
+- Formulas  : speedPercentage = (speedMultiplier * 100).toFixed(0)
+
+[LOGIC]
+1. Check if the current status is MOVING.
+2. If moving, append the current speed multiplier as a percentage to the status string.
+3. Otherwise, return the raw status string.
+
+---
+15. getEtaText: Formats the remaining time until arrival.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : string
+- Calls     : toFixed()
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Return a placeholder ("--") if no ETA is calculated.
+2. Return the stored ETA value formatted to one decimal place with a "min" suffix.
+
+---
+16. estimateBatteryRisk: Forecasts battery feasibility for a planned route.
+---
+[SIGNATURE]
+- Input     : routeCostMeters: float # Distance of the planned route
+- Output    : float # Projected battery deficit
+- Calls     : Math.max()
+- Constants : CONFIG.ROBOT.BATTERY_PROJECTED_DRAIN_FACTOR, CONFIG.ROBOT.BATTERY_SAFETY_MARGIN
+- Formulas  : projectedDrain = (routeCostMeters / 1000) * drainFactor; risk = max(0, projectedDrain - currentBattery * safetyMargin)
+
+[LOGIC]
+1. Calculate expected battery drain based on route distance.
+2. Subtract available battery capacity adjusted by a safety margin.
+3. Return the potential deficit, clamped to a minimum of zero.
+
+---
+17. maybeReroute: Evaluates the need for path optimization during transit.
+---
+[SIGNATURE]
+- Input     : traffic: float # Local traffic intensity
+- Input     : rainPenalty: float # Local weather impact
+- Output    : Promise<void>
+- Calls     : Date.now(), buildRouteToTarget(), simulation.recordReroute(), logEvent(), addDispatchInsight()
+- Constants : CONFIG.ROBOT.STATUSES.MOVING, CONFIG.ROBOT.REROUTE_INTERVAL_MS, CONFIG.ROBOT.ROUTE_MODES.CHARGING, CONFIG.ROBOT.TRAFFIC_REROUTE_THRESHOLD, CONFIG.ROBOT.RAIN_REROUTE_THRESHOLD, CONFIG.UI.LOG_LEVELS.WARN
+- Formulas  : timeSinceLastReroute = Date.now() - this.lastRerouteAt
+
+[LOGIC]
+1. Guard against overlapping routing calls or stationary state.
+2. Check if enough time has passed since the last reroute.
+3. Compare local traffic and rain against reroute thresholds.
+4. If thresholds exceeded, trigger buildRouteToTarget and log the event.
+5. Update simulation reroute statistics on success.
+
+---
+18. buildRouteToTarget: Orchestrates pathfinding and internal navigation state updates.
+---
+[SIGNATURE]
+- Input     : targetLat: float # Target latitude
+- Input     : targetLon: float # Target longitude
+- Input     : precalculatedRoute: dict[str, any] | None # Pre-computed path results
+- Input     : precalculatedBreakdown: dict[str, float] | None # Pre-computed cost breakdown
+- Output    : Promise<boolean>
+- Calls     : performance.now(), pathfindingManager.getRoute(), pathfindingManager.estimateRouteCost(), drawPathLine(), _calcHistory.push(), _calcHistory.slice(), simulation.recordRouteMetrics(), Date.now()
+- Constants : CONFIG.ROBOT.STATUSES.MOVING, CONFIG.ROBOT.HISTORY_SIZE_LIMIT
+- Formulas  : calcTime = performance.now() - startTime
+
+[LOGIC]
+1. Measure start time for performance tracking.
+2. Request path from pathfindingManager using current robot algorithm and memory.
+3. Validate path existence; exit if no path found.
+4. Update internal path, cost breakdown, and ETA metadata.
+5. Transition robot status to MOVING and visualize path on map.
+6. Record calculation latency and node count in history buffer, enforcing size limits.
+
+---
+19. finishCharging: Post-charge state restoration and mission resumption.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise<void>
+- Calls     : addDispatchInsight(), buildRouteToTarget(), clearPathLine()
+- Constants : CONFIG.ROBOT.ROUTE_MODES.DELIVERY, CONFIG.ROBOT.PHASES.TO_PICKUP, CONFIG.ROBOT.PHASES.TO_DROPOFF, CONFIG.UI.LOG_LEVELS.SUCCESS, CONFIG.ROBOT.STATUSES.IDLE
+- Formulas  : None
+
+[LOGIC]
+1. Check if robot was on a delivery mission before charging.
+2. If resuming delivery, restore mission targets and rebuild route to pickup or destination.
+3. Log dispatch insight regarding mission resumption.
+4. If no pending mission, reset to IDLE status and clear navigation data from UI.

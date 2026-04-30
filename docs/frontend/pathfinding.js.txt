@@ -1,0 +1,84 @@
+
+---
+1. getRoute: Fetches a route between two points considering robot memory and a selected algorithm.
+---
+[SIGNATURE]
+- Input     : startLat: float # Starting latitude
+- Input     : startLon: float # Starting longitude
+- Input     : endLat: float # Destination latitude
+- Input     : endLon: float # Destination longitude
+- Input     : roadMemory: dict[str, any] # Knowledge of road conditions (default: {})
+- Input     : algo: str # Pathfinding algorithm (default: CONFIG.SIMULATION.DEFAULT_ALGORITHM)
+- Output    : Promise[dict] # JSON response containing route data
+- Calls     : URLSearchParams(), JSON.stringify(), fetch(), response.json(), params.toString()
+- Constants : CONFIG.API.ROUTE, CONFIG.SIMULATION.DEFAULT_ALGORITHM
+- Formulas  : params = new URLSearchParams({fromLat: startLat, fromLon: startLon, toLat: endLat, toLon: endLon, memory: JSON.stringify(roadMemory), algo})
+
+[LOGIC]
+1. Initialize URLSearchParams with start/end coordinates, stringified road memory, and algorithm ID.
+2. Construct full URL by appending stringified parameters to route API endpoint.
+3. Execute asynchronous fetch request to the constructed URL.
+4. Validate response status; throw error if not OK.
+5. Return parsed JSON route object.
+
+---
+2. snapToRoad: Snaps a geographic coordinate to the nearest point on a road.
+---
+[SIGNATURE]
+- Input     : lat: float # Latitude to snap
+- Input     : lon: float # Longitude to snap
+- Output    : Promise[dict] # JSON response containing snapped coordinate data
+- Calls     : URLSearchParams(), fetch(), response.json(), params.toString()
+- Constants : CONFIG.API.SNAP
+- Formulas  : params = new URLSearchParams({lat, lon})
+
+[LOGIC]
+1. Encode latitude and longitude into URL query parameters.
+2. Execute asynchronous fetch request to snap API endpoint with parameters.
+3. Validate response; throw error on failure.
+4. Return snapped coordinate data as JSON.
+
+---
+3. getTraffic: Retrieves current global traffic information.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[dict] # JSON response with traffic status
+- Calls     : fetch(), response.json()
+- Constants : CONFIG.API.TRAFFIC
+- Formulas  : None
+
+[LOGIC]
+1. Send asynchronous fetch request to traffic API endpoint.
+2. Verify response status.
+3. Return traffic data parsed from JSON.
+
+---
+4. getWeather: Retrieves current weather condition information.
+---
+[SIGNATURE]
+- Input     : None
+- Output    : Promise[dict] # JSON response with weather status
+- Calls     : fetch(), response.json()
+- Constants : CONFIG.API.WEATHER
+- Formulas  : None
+
+[LOGIC]
+1. Send asynchronous fetch request to weather API endpoint.
+2. Verify response status and throw error if invalid.
+3. Return weather data as JSON.
+
+---
+5. estimateRouteCost: Extracts and returns a structured cost breakdown from a route object.
+---
+[SIGNATURE]
+- Input     : route: dict # Route object containing costBreakdown
+- Output    : dict[str, float | int] # Extracted cost metrics
+- Calls     : None
+- Constants : None
+- Formulas  : None
+
+[LOGIC]
+1. Access costBreakdown property from route object using optional chaining (default to empty).
+2. Map internal breakdown values (baseDistance, trafficPenalty, rainPenalty, obstaclePenalty, totalCost, estimatedMinutes) to new dictionary.
+3. Provide default value of 0 for missing metrics and return structured result.
