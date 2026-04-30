@@ -40,42 +40,6 @@ const CONFIG = {
     // Robot Settings
     ROBOT: {
         DEFAULT_SPEED: 0.000010,
-        INITIAL_BATTERY: 100,
-        BATTERY_HEALTH_THRESHOLDS: {
-            GOOD: 60,
-            WARN: 30
-        },
-        BASE_SPEED_MULTIPLIER: 0.55,
-        MIN_SPEED_MULTIPLIER: 0.08,
-        TRAFFIC_IMPACT_FACTOR: 0.65,
-        BATTERY_DRAIN: 0.0065,
-        CAPACITY: 10,
-        HISTORY_SIZE_LIMIT: 20,
-        BATTERY_LOW_THRESHOLD: 20,
-        BATTERY_CHARGE_INCREMENT: 8,
-        BATTERY_CHARGE_TARGET: 90,
-        CHARGING_INTERVAL_MS: 700,
-        REROUTE_INTERVAL_MS: 5500,
-        TRAFFIC_REROUTE_THRESHOLD: 0.45,
-        RAIN_REROUTE_THRESHOLD: 2,
-        MEMORY_DECAY: 0.995,
-        MEMORY_UPDATE_WEIGHT: 0.7,
-        MEMORY_CLEANUP_THRESHOLD: 0.01,
-        EXPERIENCE_PENALTIES: {
-            heavy: 1.8,
-            moderate: 1.3,
-            light: 0.95
-        },
-        EXPERIENCE_THRESHOLDS: {
-            heavy: 0.3,
-            moderate: 0.6
-        },
-        BATTERY_PROJECTED_DRAIN_FACTOR: 4.5,
-        BATTERY_SAFETY_MARGIN: 0.35,
-        CHARGING_ARRIVAL_THRESHOLD: 0.0005,
-        METERS_PER_DEGREE: 111000,
-        FRAME_COUNT_RECORD_MEMORY: 30,
-        FRAME_COUNT_DECAY_MEMORY: 300,
         COLORS: {
             good: '#34a853',
             warn: '#fbbc04',
@@ -95,8 +59,7 @@ const CONFIG = {
             TO_DROPOFF: 'to_dropoff'
         },
         ROUTE_MODES: {
-            DELIVERY: 'delivery',
-            CHARGING: 'charging'
+            DELIVERY: 'delivery'
         },
         CALC_TIME_THRESHOLDS: {
             GOOD: 30,
@@ -106,10 +69,6 @@ const CONFIG = {
 
     // Simulation Settings
     SIMULATION: {
-        DELIVERY_INTERVAL_MS: 6500,
-        INITIAL_DELIVERY_COUNT: 6,
-        DEFAULT_ALGORITHM: 'astar',
-        ALGORITHMS: ['astar', 'dijkstra', 'gbfs'],
         CATEGORIES: {
             RESIDENTIAL: 'residential',
             RESTAURANT: 'restaurant',
@@ -119,13 +78,7 @@ const CONFIG = {
             HOTEL: 'hotel',
             LANDMARK: 'landmark'
         },
-        INITIAL_ROBOTS: [
-            { name: 'Robot 1', color: '#4285f4' },
-            { name: 'Robot 2', color: '#34a853' },
-            { name: 'Robot 3', color: '#fbbc04' },
-            { name: 'Robot 4', color: '#ff6b6b' },
-            { name: 'Robot 5', color: '#845ef7' }
-        ],
+        INITIAL_ROBOTS: [], // Will be fetched from backend
         RANDOM_RAIN_COUNT: 3,
         RANDOM_RAIN_MIN_RADIUS: 100,
         RANDOM_RAIN_MAX_RADIUS: 200,
@@ -133,42 +86,7 @@ const CONFIG = {
         DEFAULT_TRAFFIC_SEVERITY: 0.7,
         RANDOM_OBSTACLE_COUNT: 4,
         DEFAULT_OBSTACLE_TYPE: 'roadblock',
-        PICKUP_WEIGHTS: {
-            restaurant: 0.24,
-            market: 0.22,
-            retail: 0.18,
-            office: 0.14,
-            hotel: 0.12,
-            landmark: 0.06,
-            residential: 0.04
-        },
-        DROPOFF_WEIGHTS: {
-            residential: 0.32,
-            hotel: 0.18,
-            office: 0.16,
-            retail: 0.12,
-            restaurant: 0.10,
-            landmark: 0.07,
-            market: 0.05
-        },
-        DELIVERY_STATUSES: {
-            PENDING: 'pending',
-            ASSIGNED: 'assigned',
-            COMPLETED: 'completed'
-        },
-        TIME_DELTA: 0.016,
-        EFFICIENCY_WEIGHTS: {
-            TIME: 0.02,
-            NODES: 0.005,
-            REROUTE: 0.5
-        },
-        BAR_SCALES: {
-            THROUGHPUT: 4,
-            QUEUE: 6,
-            REROUTE: 8,
-            ENERGY: 18,
-            COST: 40
-        }
+        TIME_DELTA: 0.016
     },
 
     // API Endpoints
@@ -192,17 +110,14 @@ const CONFIG = {
         OBSTACLE_RANDOMIZE: '/api/obstacle/randomize',
         METRICS: '/api/metrics',
         CLOCK: '/api/clock',
-        ASTEP: '/api/astep',
-        INSIDER: '/api/insider',
-        LOG_DELIVERY: '/api/log_delivery',
-        OPTIMIZE_HUBS: '/api/optimize-hubs',
-        DISPATCH_ASSIGN: '/api/dispatch/assign'
+        DATA_LOCATIONS: '/api/data/locations',
+        DATA_HUBS: '/api/data/hubs',
+        DATA_ROBOTS: '/api/data/robots'
     },
 
     // UI Settings
     UI: {
         METRICS_REFRESH_INTERVAL_MS: 3000,
-        COMPUTING_PANEL_REFRESH_INTERVAL_MS: 2000,
         TRAFFIC_REFRESH_INTERVAL_MS: 3500,
         WEATHER_MODES: {
             RAIN: 'rain',
@@ -219,9 +134,6 @@ const CONFIG = {
         STATE_LABELS: {
             IDLE: '⏸ Idle',
             MOVING: '🔄 Moving',
-            CHARGING: '🔋 Charging',
-            REROUTING: '🧠 Rerouting',
-            LOW_BATTERY: '⚠️ Low Battery',
             STANDBY: 'standby',
             WAITING_ASSIGNMENT: 'Waiting for a robot assignment...',
             ROUTING_PICKUP: '📦 Routing to pickup location',
@@ -286,60 +198,10 @@ const CONFIG = {
         DASH_ARRAY: '8, 8'
     },
 
-    // Predefined Data
-    DATA: {
-        STREETS: [
-            { name: "Phố Lê Thái Tổ", points: [[21.0240, 105.8480], [21.0250, 105.8486], [21.0260, 105.8492], [21.0270, 105.8498], [21.0280, 105.8504], [21.0290, 105.8509], [21.0300, 105.8513]], type: "main" },
-            { name: "Phố Đinh Tiên Hoàng", points: [[21.0300, 105.8513], [21.0310, 105.8517], [21.0320, 105.8521], [21.0330, 105.8525], [21.0340, 105.8529], [21.0355, 105.8532]], type: "main" },
-            { name: "Phố Tràng Tiền", points: [[21.0240, 105.8480], [21.0243, 105.8492], [21.0247, 105.8505], [21.0252, 105.8518], [21.0256, 105.8530]], type: "main" },
-            { name: "Phố Hàng Khay", points: [[21.0256, 105.8530], [21.0262, 105.8534], [21.0270, 105.8538], [21.0278, 105.8543], [21.0285, 105.8548]], type: "main" },
-            { name: "Phố Hai Bà Trưng", points: [[21.0220, 105.8510], [21.0240, 105.8515], [21.0260, 105.8520], [21.0280, 105.8525], [21.0300, 105.8530]], type: "main" },
-            { name: "Phố Lý Thường Kiệt", points: [[21.0210, 105.8500], [21.0230, 105.8505], [21.0250, 105.8510], [21.0270, 105.8515], [21.0290, 105.8520]], type: "main" },
-            { name: "Phố Hàng Đào", points: [[21.0300, 105.8530], [21.0310, 105.8528], [21.0320, 105.8526], [21.0330, 105.8524], [21.0340, 105.8522], [21.0350, 105.8520]], type: "secondary" },
-            { name: "Phố Hàng Ngang", points: [[21.0305, 105.8538], [21.0315, 105.8536], [21.0325, 105.8534], [21.0335, 105.8532], [21.0345, 105.8530]], type: "secondary" },
-            { name: "Phố Đồng Xuân", points: [[21.0345, 105.8530], [21.0350, 105.8525], [21.0353, 105.8519], [21.0355, 105.8516]], type: "secondary" },
-            { name: "Phố Bà Triệu", points: [[21.0220, 105.8510], [21.0230, 105.8513], [21.0240, 105.8515], [21.0250, 105.8517], [21.0260, 105.8520]], type: "secondary" }
-        ],
-        INTERSECTIONS: [
-            { lat: 21.0285, lon: 105.8542, name: "Hoan Kiem Lake", connections: [0, 1, 3] },
-            { lat: 21.0240, lon: 105.8480, name: "Trang Tien", connections: [1, 2] },
-            { lat: 21.0265, lon: 105.8505, name: "Hang Bai", connections: [2] },
-            { lat: 21.0275, lon: 105.8520, name: "Dinh Tien Hoang", connections: [0] }
-        ],
-        CHARGING_STATIONS: [
-            { lat: 21.0285, lon: 105.8542, name: "Hoan Kiem Hub", spots: 3 },
-            { lat: 21.0355, lon: 105.8516, name: "Dong Xuan", spots: 2 },
-            { lat: 21.0240, lon: 105.8480, name: "Trang Tien", spots: 2 },
-            { lat: 21.0220, lon: 105.8510, name: "Ly Thuong Kiet", spots: 2 },
-            { lat: 21.0300, lon: 105.8530, name: "Hang Ngang", spots: 2 },
-            { lat: 21.0275, lon: 105.8520, name: "Opera House", spots: 2 }
-        ],
-        OBSTACLE_COLORS: {
-            roadblock: '#ff6b6b',
-            construction: '#ffa94d',
-            accident: '#ffd43b'
-        },
-        LOCATIONS: [
-            { lat: 21.0285, lon: 105.8542, name: "Hoan Kiem Lake", category: "landmark", icon: "📍" },
-            { lat: 21.0355, lon: 105.8516, name: "Dong Xuan Market", category: "market", icon: "🛍" },
-            { lat: 21.0240, lon: 105.8480, name: "Trang Tien Plaza", category: "retail", icon: "🛒" },
-            { lat: 21.0275, lon: 105.8520, name: "Opera House", category: "office", icon: "🏛" },
-            { lat: 21.0220, lon: 105.8510, name: "Ly Thuong Kiet Residences", category: "residential", icon: "🏠" },
-            { lat: 21.0300, lon: 105.8530, name: "Hang Ngang Shops", category: "retail", icon: "🛍" },
-            { lat: 21.0318, lon: 105.8524, name: "Ngoc Son Gate", category: "landmark", icon: "📍" },
-            { lat: 21.0334, lon: 105.8509, name: "Ta Hien Bistro Row", category: "restaurant", icon: "🍜" },
-            { lat: 21.0268, lon: 105.8496, name: "Hang Trong Studios", category: "office", icon: "🏢" },
-            { lat: 21.0235, lon: 105.8504, name: "Melia Hanoi", category: "hotel", icon: "🏨" },
-            { lat: 21.0294, lon: 105.8555, name: "Water Puppet Theatre", category: "landmark", icon: "🎭" },
-            { lat: 21.0248, lon: 105.8528, name: "French Quarter Cafe", category: "restaurant", icon: "☕" },
-            { lat: 21.0271, lon: 105.8558, name: "Post Office Square", category: "office", icon: "🏢" },
-            { lat: 21.0343, lon: 105.8522, name: "Hang Dao Market", category: "market", icon: "🛍" },
-            { lat: 21.0218, lon: 105.8499, name: "Thong Nhat Apartments", category: "residential", icon: "🏠" },
-            { lat: 21.0298, lon: 105.8515, name: "Pho Cau Go Dining", category: "restaurant", icon: "🍲" },
-            { lat: 21.0257, lon: 105.8544, name: "Ba Kieu Temple", category: "landmark", icon: "⛩" },
-            { lat: 21.0326, lon: 105.8517, name: "Old Quarter Hostel", category: "hotel", icon: "🛎" },
-            { lat: 21.0261, lon: 105.8517, name: "Press Club Offices", category: "office", icon: "🏢" },
-            { lat: 21.0230, lon: 105.8522, name: "Tran Hung Dao Homes", category: "residential", icon: "🏡" }
-        ]
+    // UI Colors and Helpers
+    OBSTACLE_COLORS: {
+        roadblock: '#ff6b6b',
+        construction: '#ffa94d',
+        accident: '#ffd43b'
     }
 };

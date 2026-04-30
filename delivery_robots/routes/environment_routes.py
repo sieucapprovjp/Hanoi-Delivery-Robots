@@ -169,26 +169,35 @@ def register_environment_routes(app, ctx):
         rush_multiplier, rush_name = get_rush_hour_multiplier()
         is_rush_hour = rush_name != RUSH_HOUR_INACTIVE_LABEL
 
-        return jsonify(
-            {
-                "time": {
-                    "hours": hours,
-                    "minutes": minutes,
-                    "seconds": seconds,
-                    "display": f"{hours:02d}:{minutes:02d}:{seconds:02d}",
-                },
-                "rushHour": {
-                    "isActive": is_rush_hour,
-                    "name": rush_name,
-                    "multiplier": round(rush_multiplier, 2),
-                    "schedule": rush_hours,
-                },
-                "simulationSpeed": simulation_speed,
+        full = request.args.get("full", "false").lower() == "true"
+
+        payload = {
+            "time": {
+                "display": f"{hours:02d}:{minutes:02d}:{seconds:02d}",
+            },
+            "rushHour": {
+                "isActive": is_rush_hour,
+                "multiplier": round(rush_multiplier, 2),
             }
-        )
+        }
+
+        if full:
+            payload["time"].update({
+                "hours": hours,
+                "minutes": minutes,
+                "seconds": seconds,
+            })
+            payload["rushHour"].update({
+                "name": rush_name,
+                "schedule": rush_hours,
+            })
+            payload["simulationSpeed"] = simulation_speed
+
+        return jsonify(payload)
 
     @app.route("/api/metrics")
     def get_metrics():
+        include_static = request.args.get("static", "false").lower() == "true"
         return jsonify(
             build_metrics_payload(
                 metrics,
@@ -196,6 +205,7 @@ def register_environment_routes(app, ctx):
                 len(rain_zones),
                 len(dynamic_traffic_routes),
                 len(obstacles),
+                include_static=include_static
             )
         )
 

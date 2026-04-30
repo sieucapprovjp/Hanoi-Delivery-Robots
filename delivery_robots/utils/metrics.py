@@ -33,13 +33,13 @@ def record_route_metrics(metrics, calc_time_ms, nodes_explored, path_length):
         metrics["pathLengths"] = metrics["pathLengths"][-METRICS_PATH_LENGTHS_MAX_SIZE:]
 
 
-def build_metrics_payload(metrics, graph, rain_count, traffic_count, obstacle_count):
+def build_metrics_payload(metrics, graph, rain_count, traffic_count, obstacle_count, include_static=False):
     avg_path = (
         sum(metrics["pathLengths"]) / len(metrics["pathLengths"])
         if metrics["pathLengths"]
         else 0
     )
-    return {
+    payload = {
         "pathfinding": {
             "totalCalculations": metrics["totalCalculations"],
             "avgCalculationTime": round(metrics["avgCalculationTime"], 2),
@@ -51,13 +51,17 @@ def build_metrics_payload(metrics, graph, rain_count, traffic_count, obstacle_co
             "avgNodesExplored": round(metrics["avgNodesExplored"], 1),
             "avgPathLength": round(avg_path, 1),
         },
-        "graph": {
-            "totalNodes": graph.number_of_nodes() if graph else 0,
-            "totalEdges": graph.number_of_edges() if graph else 0,
-        },
         "activeFactors": {
             "rainZones": rain_count,
             "trafficRoutes": traffic_count,
             "obstacles": obstacle_count,
         },
     }
+
+    if include_static:
+        payload["graph"] = {
+            "totalNodes": graph.number_of_nodes() if graph else 0,
+            "totalEdges": graph.number_of_edges() if graph else 0,
+        }
+
+    return payload

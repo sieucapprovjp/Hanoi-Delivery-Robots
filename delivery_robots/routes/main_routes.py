@@ -11,6 +11,7 @@ from ..algorithms import (
     run_weighted_route_search,
 )
 from ..algorithms.dispatch.allocation import assign_deliveries
+from ..core.data import CHARGING_STATIONS, INITIAL_ROBOTS, LOCATIONS
 from ..core.hubs import append_delivery_points, compute_optimized_hubs
 from ..utils.geo import haversine_distance
 from ..config import (
@@ -42,6 +43,18 @@ def register_main_routes(app, ctx):
     record_route_metrics = ctx["record_route_metrics"]
     metrics = ctx["metrics"]
     app_state = ctx["app_state"]
+
+    @app.route("/api/data/locations")
+    def get_locations():
+        return jsonify({"locations": LOCATIONS})
+
+    @app.route("/api/data/hubs")
+    def get_hubs():
+        return jsonify({"hubs": CHARGING_STATIONS})
+
+    @app.route("/api/data/robots")
+    def get_robots():
+        return jsonify({"robots": INITIAL_ROBOTS})
 
     @app.route("/")
     def index():

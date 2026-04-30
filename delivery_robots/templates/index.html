@@ -66,8 +66,12 @@
                     this.metrics.minTime = d.pathfinding.minCalculationTime + 'ms';
                     this.metrics.maxTime = d.pathfinding.maxCalculationTime + 'ms';
                     this.metrics.pathLength = d.pathfinding.avgPathLength;
-                    this.metrics.graphNodes = d.graph.totalNodes;
-                    this.metrics.graphEdges = d.graph.totalEdges;
+
+                    if (d.graph) {
+                        this.metrics.graphNodes = d.graph.totalNodes;
+                        this.metrics.graphEdges = d.graph.totalEdges;
+                    }
+
                     this.metrics.rainCount = d.activeFactors.rainZones;
                     this.metrics.trafficCount = d.activeFactors.trafficRoutes;
                     this.metrics.obstacleCount = d.activeFactors.obstacles;
@@ -103,16 +107,8 @@
             :class="$store.sim.panels.control ? 'fab-active' : ''">🎮</button>
         <button class="fab" title="Robot Fleet" @click="$store.sim.panels.robot = !$store.sim.panels.robot"
             :class="$store.sim.panels.robot ? 'fab-active' : ''">🤖</button>
-        <button class="fab" title="Dispatch Center" @click="$store.sim.panels.dispatch = !$store.sim.panels.dispatch"
-            :class="$store.sim.panels.dispatch ? 'fab-active' : ''">🏢</button>
-        <button class="fab" title="Computing Center" @click="$store.sim.panels.computing = !$store.sim.panels.computing"
-            :class="$store.sim.panels.computing ? 'fab-active' : ''">💻</button>
         <button class="fab" title="Weather & Traffic" @click="$store.sim.panels.weather = !$store.sim.panels.weather"
             :class="$store.sim.panels.weather ? 'fab-active' : ''">🌦️</button>
-        <button class="fab" title="Academic Insights" @click="$store.sim.panels.decision = !$store.sim.panels.decision"
-            :class="$store.sim.panels.decision ? 'fab-active' : ''">📘</button>
-        <button class="fab" title="Insider View" @click="$store.sim.panels.insider = !$store.sim.panels.insider"
-            :class="$store.sim.panels.insider ? 'fab-active' : ''">🔍</button>
     </div>
 
     <!-- Control Panel -->
@@ -134,20 +130,6 @@
                 <input type="range" id="speed-slider" min="0.1" max="5" step="0.1" value="1">
             </div>
 
-            <div class="mb-20">
-                <h3 class="fs-13 color-secondary-text mb-10">Fleet Algorithm</h3>
-                <div class="d-flex gap-8">
-                    <select id="fleet-algo-select" class="algo-select">
-                        <option value="astar">Advanced A* (Optimized)</option>
-                        <option value="dijkstra">Dijkstra's Algorithm</option>
-                        <option value="greedy">Greedy Best-First</option>
-                        <option value="bfs">Breadth-First Search</option>
-                    </select>
-                    <button id="apply-fleet-algo-btn" class="btn-apply">Apply</button>
-                </div>
-            </div>
-
-            <button id="optimize-hubs-btn" class="btn-optimize">✨ Re-optimize Hub Locations</button>
 
             <div class="compact-summary">
                 <div class="summary-title">Network Statistics</div>
@@ -177,29 +159,6 @@
         </div>
     </div>
 
-    <!-- Dispatch Panel -->
-    <div class="dispatch-panel" x-show="$store.sim.panels.dispatch" x-transition x-cloak>
-        <div class="panel-header">
-            <h3>Dispatch Center</h3>
-            <button class="close-panel" @click="$store.sim.panels.dispatch = false">×</button>
-        </div>
-        <div class="panel-content">
-            <div id="delivery-queue"></div>
-        </div>
-    </div>
-
-    <!-- Computing Panel -->
-    <div class="computing-panel" x-show="$store.sim.panels.computing" x-transition x-cloak>
-        <div class="panel-header">
-            <h3>Computing Process</h3>
-            <button class="close-panel" @click="$store.sim.panels.computing = false">×</button>
-        </div>
-        <div class="panel-content">
-            <div id="computing-content" class="mono fs-11 lh-1-4 color-dark" x-html="$store.sim.computing.details">
-                Click a robot icon to view computing process
-            </div>
-        </div>
-    </div>
 
     <!-- Weather Panel -->
     <div class="weather-panel" x-show="$store.sim.panels.weather" x-transition x-cloak>
@@ -273,110 +232,13 @@
         </div>
     </div>
 
-    <!-- Academic Insights Panel -->
-    <div class="decision-panel" x-show="$store.sim.panels.decision" x-transition x-cloak>
-        <div class="panel-header">
-            <h3>📘 Academic Insights</h3>
-            <button class="close-panel" @click="$store.sim.panels.decision = false">×</button>
-        </div>
-        <div class="panel-content">
-            <div class="mb-15 bg-light p-12 br-8 fs-12">
-                <div class="fw-700 color-dark mb-6">Current Experiment Setup</div>
-                <div class="d-flex justify-between py-4"><span>Fleet Routing AI</span><strong
-                        x-text="$store.sim.metrics.fleetAlgo">A*</strong></div>
-                <div class="d-flex justify-between py-4"><span>Active Robots</span><strong>5</strong></div>
-                <div class="d-flex justify-between py-4"><span>Comparison Mode</span><strong>A* / Dijkstra /
-                        GBFS</strong></div>
-            </div>
-
-            <div class="mb-15">
-                <h3 class="fs-13 color-secondary-text mb-10">⚡ Pathfinding Performance</h3>
-                <div class="astar-metrics bg-light p-12 br-8 fs-12">
-                    <div class="stats-grid">
-                        <div class="metric-card-small">
-                            <div class="metric-label-small">Total Calculations</div>
-                            <div class="metric-value-large color-primary" x-text="$store.sim.metrics.totalCalculations">
-                                0</div>
-                        </div>
-                        <div class="metric-card-small">
-                            <div class="metric-label-small">Avg Time</div>
-                            <div class="metric-value-large color-success" x-text="$store.sim.metrics.avgTime">0ms</div>
-                        </div>
-                        <div class="metric-card-small">
-                            <div class="metric-label-small">Last Time</div>
-                            <div class="metric-value-large color-error" x-text="$store.sim.metrics.lastTime">0ms</div>
-                        </div>
-                        <div class="metric-card-small">
-                            <div class="metric-label-small">Nodes Explored</div>
-                            <div class="metric-value-large color-warning" x-text="$store.sim.metrics.nodesExplored">0
-                            </div>
-                        </div>
-                    </div>
-                    <div class="mt-10 pt-10 border-top-standard">
-                        <div class="fs-11 color-secondary-text mb-6">Speed Range</div>
-                        <div class="d-flex justify-between fs-11">
-                            <span>Min: <strong class="color-success"
-                                    x-text="$store.sim.metrics.minTime">0ms</strong></span>
-                            <span>Max: <strong class="color-error"
-                                    x-text="$store.sim.metrics.maxTime">0ms</strong></span>
-                        </div>
-                        <div class="mt-6 fs-11">
-                            Avg Path Length: <strong class="color-primary"
-                                x-text="$store.sim.metrics.pathLength">0</strong> nodes
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="mb-15">
-                <h3 class="fs-13 color-secondary-text mb-10">🧠 Search Model</h3>
-                <div class="search-model-box">
-                    <div><strong>A*</strong>: f(n) = g(n) + h(n)</div>
-                    <div><strong>Dijkstra</strong>: priority = g(n)</div>
-                    <div><strong>GBFS</strong>: priority = h(n)</div>
-                    <div class="mt-8 pt-8 border-top-standard">
-                        Heuristic h(n) uses Haversine distance to goal.
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Insider View Panel -->
-    <div class="insider-panel" x-show="$store.sim.panels.insider" x-transition x-cloak>
-        <div class="panel-header">
-            <h3>🔍 Insider View</h3>
-            <button class="close-panel" @click="$store.sim.panels.insider = false">×</button>
-        </div>
-        <div class="panel-content">
-            <div class="mb-20">
-                <h3 class="fs-14 color-dark mb-10">📊 Algorithm Comparison</h3>
-                <p class="fs-12 color-secondary-text mb-10">Compare performance of 4 core pathfinding algorithms in
-                    real-time.</p>
-                <button id="run-comparison-btn" class="btn-comparison">Run Comparison</button>
-                <div id="comparison-table" x-html="$store.sim.insider.comparison">
-                    Waiting for route metrics...
-                </div>
-            </div>
-
-            <div class="border-top-standard pt-20">
-                <h3 class="fs-14 color-dark mb-10">🔬 A* Expansion Step-by-Step</h3>
-                <p class="fs-12 color-secondary-text mb-10">Visualize how A* explores nodes and calculates f-scores.</p>
-                <button id="run-astar-viz-btn" class="btn-astar-viz">Run A* Visualization</button>
-                <div id="astep-visualizer" x-html="$store.sim.insider.astarSteps">
-                    Waiting for path calculation...
-                </div>
-            </div>
-        </div>
-    </div>
-
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="static/js/config.js" defer></script>
-    <script src="static/js/map.js" defer></script>
-    <script src="static/js/pathfinding.js" defer></script>
-    <script src="static/js/robot.js" defer></script>
-    <script src="static/js/simulation.js" defer></script>
-    <script src="static/js/app.js" defer></script>
+    <script src="static/js/api.js" defer></script>
+    <script src="static/js/viewer/DeliveryRobot.js" defer></script>
+    <script src="static/js/viewer/HanoiMap.js" defer></script>
+    <script src="static/js/viewer/DisplayEngine.js" defer></script>
+    <script src="static/js/main.js" defer></script>
 </body>
 
 </html>
