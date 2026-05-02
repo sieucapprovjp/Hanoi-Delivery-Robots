@@ -56,4 +56,3 @@ htmlcov/
 ./delivery_robots/test_server.py
 */__pycache__
 
-test_payload.json
