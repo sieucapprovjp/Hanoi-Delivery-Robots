@@ -37,33 +37,51 @@ class Simulation {
     }
 
     async initialize() {
-        // Map
-        pathfindingManager = new Pathfinding();
-        mapManager = new HanoiMap();
-        mapManager.initializeMap();
-        window.mapManager = mapManager;
+        if (this.robots && this.robots.length > 0) {
+            console.log('Cleaning up existing robots...');
+            this.robots.forEach(robot => robot.removeMarker());
+            this.robots = [];
+        }
 
-        const [startA, startB, startC, startD, startE] = await Promise.all(
-            CONFIG.DATA.LOCATIONS.slice(0, 5).map(loc => pathfindingManager.snapToRoad(loc.lat, loc.lon))
+        pathfindingManager = new Pathfinding();
+        if (mapManager) {
+            console.log('Map already initialized, reuse existing mapManager');
+        } else {
+            mapManager = new HanoiMap();
+            mapManager.initializeMap();
+            window.mapManager = mapManager;
+        }
+
+        console.log('📍 Snapping locations to road network...');
+        this.snappedLocations = await Promise.all(
+            CONFIG.DATA.LOCATIONS.map(async location => {
+                try {
+                    const snapped = await pathfindingManager.snapToRoad(location.lat, location.lon);
+                    return { ...location, lat: snapped.lat, lon: snapped.lon };
+                } catch (e) {
+                    console.warn(`Failed to snap ${location.name}, using original coords`);
+                    return location;
+                }
+            })
         );
 
-        // Robots
+        const initialStarts = this.snappedLocations.slice(0, 5);
+
         this.robots = CONFIG.SIMULATION.INITIAL_ROBOTS.map((r, i) => {
-            const start = [startA, startB, startC, startD, startE][i];
+            const start = initialStarts[i] || initialStarts[0];
             return new DeliveryRobot(i, start.lat, start.lon, r.name, r.color, this.fleetAlgorithm);
         });
 
+        console.log(`🚀 Creating markers for ${this.robots.length} robots`);
         this.robots.forEach(robot => robot.createMarker(mapManager.map));
 
-        // Initial deliveries
         for (let i = 0; i < CONFIG.SIMULATION.INITIAL_DELIVERY_COUNT; i++) {
-            await this.generateDelivery();
+            this.generateDelivery();
         }
 
-        console.log('✓ Ready - Click START!');
         logEvent('🚀 Click START to begin!');
         addDispatchInsight('Dispatch engine online. Monitoring queue pressure, weather, and traffic.', CONFIG.UI.LOG_LEVELS.NEUTRAL);
-        this.updateFleetAlgorithmLabel();
+        this.updateFleetAlgorithmState();
         this.updateAlgorithmComparison();
     }
 
@@ -84,35 +102,21 @@ class Simulation {
             }
         });
 
-        this.updateFleetAlgorithmLabel();
-        this.updateRobotStatus();
+        this.updateFleetAlgorithmState();
         this.updateAlgorithmComparison();
         logEvent(`🧠 Fleet AI switched to ${normalized.toUpperCase()} for all robots`);
         addDispatchInsight(`Fleet benchmark mode: all ${this.robots.length} robots now use ${normalized.toUpperCase()}. Metrics reset for fair comparison.`, CONFIG.UI.LOG_LEVELS.NEUTRAL);
     }
 
-    updateFleetAlgorithmLabel() {
-        const labelMap = {
-            astar: 'A*',
-            dijkstra: 'Dijkstra',
-            gbfs: 'GBFS'
-        };
-        const label = document.getElementById('fleet-algo-current');
-        if (label) label.textContent = labelMap[this.fleetAlgorithm] || 'A*';
-        const academicLabel = document.getElementById('academic-fleet-algo');
-        if (academicLabel) academicLabel.textContent = labelMap[this.fleetAlgorithm] || 'A*';
-        const select = document.getElementById('fleet-algo-select');
-        if (select) select.value = this.fleetAlgorithm;
+    updateFleetAlgorithmState() {
+        const store = Alpine.store('sim');
+        if (store) {
+            store.metrics.fleetAlgo = this.fleetAlgorithm.toUpperCase();
+        }
     }
 
-    async generateDelivery() {
-        const baseLocations = CONFIG.DATA.LOCATIONS;
-        const locations = await Promise.all(
-            baseLocations.map(async location => {
-                const snapped = await pathfindingManager.snapToRoad(location.lat, location.lon);
-                return { ...location, lat: snapped.lat, lon: snapped.lon };
-            })
-        );
+    generateDelivery() {
+        const locations = this.snappedLocations || CONFIG.DATA.LOCATIONS;
         const pickupGroups = CONFIG.SIMULATION.PICKUP_WEIGHTS;
         const dropoffGroups = CONFIG.SIMULATION.DROPOFF_WEIGHTS;
 
@@ -160,8 +164,6 @@ class Simulation {
         };
 
         this.pendingDeliveries.push(delivery);
-
-        // 🧠 Log delivery coordinates for k-means optimization
         this.logDeliveryData(delivery);
     }
 
@@ -183,9 +185,12 @@ class Simulation {
     }
 
     async assignDeliveries() {
+        if (this.isAssigning) return;
+
         const candidateRobots = this.robots.filter(r => r.status === CONFIG.ROBOT.STATUSES.IDLE && r.currentLoad < r.capacity && !r.isRouting);
         if (candidateRobots.length === 0 || this.pendingDeliveries.length === 0) return;
 
+        this.isAssigning = true;
         try {
             const response = await fetch(CONFIG.API.DISPATCH_ASSIGN, {
                 method: 'POST',
@@ -217,9 +222,7 @@ class Simulation {
                 const robot = this.robots.find(r => r.id === best.robotId);
                 if (!robot) continue;
 
-                // Sync the priority score back so the UI can show it if needed
                 delivery.priorityScore = best.priorityScore;
-
                 this.lastDecisionCost = best.totalScore;
                 this.latestDecision = {
                     robotName: best.robotName,
@@ -233,7 +236,7 @@ class Simulation {
                 };
 
                 addDispatchInsight(
-                    `${robot.name} assigned to order #${delivery.id} with priority ${best.priorityScore.toFixed(1)}. Cost breakdown: base ${best.breakdown.baseDistance.toFixed(0)}m, traffic +${best.breakdown.trafficPenalty.toFixed(0)}m, rain +${best.breakdown.rainPenalty.toFixed(0)}m, obstacles +${best.breakdown.obstaclePenalty.toFixed(0)}m, battery risk +${best.batteryRisk.toFixed(1)}.`,
+                    `${robot.name} assigned to order #${delivery.id} with priority ${best.priorityScore.toFixed(1)}.`,
                     CONFIG.UI.LOG_LEVELS.SUCCESS
                 );
 
@@ -244,36 +247,35 @@ class Simulation {
             }
         } catch (e) {
             console.error('Dispatch assignment error:', e);
+        } finally {
+            this.isAssigning = false;
         }
     }
 
-    async update() {
+    update() {
         if (!this.running) return;
 
         this.simulationTime += CONFIG.SIMULATION.TIME_DELTA * this.speed;
 
-        // Generate deliveries
         if (Date.now() - this.lastDeliveryTime > this.deliveryInterval / this.speed) {
-            await this.generateDelivery();
+            this.generateDelivery();
             this.lastDeliveryTime = Date.now();
         }
 
-        // Update robots
         const batteryBefore = this.robots.reduce((sum, r) => sum + r.battery, 0);
         this.robots.forEach(robot => robot.update());
         const batteryAfter = this.robots.reduce((sum, r) => sum + r.battery, 0);
         this.totalBatteryConsumed += Math.max(0, batteryBefore - batteryAfter);
         this.totalDistance = this.robots.reduce((sum, r) => sum + r.totalDistance, 0);
 
-        // Assign pending deliveries
-        await this.assignDeliveries();
+        if (!this.isAssigning) {
+            this.assignDeliveries();
+        }
 
-        // Update UI
         this.totalDeliveries = this.robots.reduce((sum, r) => sum + r.totalDeliveries, 0);
-        this.updateStats();
+
+        // UI Updates via store or minimal direct DOM for high frequency
         this.updateRobotStatus();
-        this.updateAnalytics();
-        this.updateLatestDecision();
         this.updateAlgorithmComparison();
     }
 
@@ -313,12 +315,11 @@ class Simulation {
             this.algorithmStats[algo] = this.createAlgoStats();
         });
 
-        const starts = await Promise.all(
-            CONFIG.DATA.LOCATIONS.slice(0, 5).map(loc => pathfindingManager.snapToRoad(loc.lat, loc.lon))
-        );
+        const starts = this.snappedLocations.slice(0, 5);
         this.robots.forEach((robot, i) => {
-            robot.lat = starts[i].lat;
-            robot.lon = starts[i].lon;
+            const start = starts[i] || starts[0];
+            robot.lat = start.lat;
+            robot.lon = start.lon;
             robot.battery = CONFIG.ROBOT.INITIAL_BATTERY;
             robot.status = CONFIG.ROBOT.STATUSES.IDLE;
             robot.currentLoad = 0;
@@ -336,19 +337,15 @@ class Simulation {
             if (robot.marker) robot.marker.setLatLng([robot.lat, robot.lon]);
         });
 
-        this.robots.forEach(robot => robot.createMarker(mapManager.map));
-        
+
         for (let i = 0; i < CONFIG.SIMULATION.INITIAL_DELIVERY_COUNT; i++) {
-            await this.generateDelivery();
+            this.generateDelivery();
         }
 
         logEvent('🔄 Reset');
         addDispatchInsight('Dispatch state reset. Queue rebuilt and analytics cleared.', CONFIG.UI.LOG_LEVELS.NEUTRAL);
-        this.updateStats();
-        this.updateFleetAlgorithmLabel();
+        this.updateFleetAlgorithmState();
         this.updateRobotStatus();
-        this.updateAnalytics();
-        this.updateLatestDecision();
         this.updateAlgorithmComparison();
     }
 
@@ -364,7 +361,6 @@ class Simulation {
 
             const hubs = data.hubs;
 
-            // Relocate robots to optimal centroids
             this.robots.forEach((robot, i) => {
                 if (i < hubs.length) {
                     const hub = hubs[i];
@@ -380,7 +376,6 @@ class Simulation {
             logEvent('✅ Hubs optimized!');
             addDispatchInsight(`Fleet repositioned to ${hubs.length} optimal centroids. Check map for new starting points.`, CONFIG.UI.LOG_LEVELS.SUCCESS);
 
-            // Optional: visualize hubs on map
             if (window.mapManager) {
                 window.mapManager.drawHubs(hubs);
             }
@@ -389,20 +384,6 @@ class Simulation {
             logEvent('❌ Optimization failed');
             addDispatchInsight(`Hub optimization error: ${e.message}`, CONFIG.UI.LOG_LEVELS.WARN);
         }
-    }
-
-    updateStats() {
-
-        const el = id => document.getElementById(id);
-        if (el('total-deliveries')) el('total-deliveries').textContent = this.totalDeliveries;
-        if (el('total-distance')) el('total-distance').textContent = `${(this.totalDistance / 1000).toFixed(2)} km`;
-
-        const avgBattery = this.robots.reduce((sum, r) => sum + r.battery, 0) / this.robots.length;
-        if (el('avg-battery')) el('avg-battery').textContent = `${avgBattery.toFixed(0)}%`;
-
-        const min = Math.floor(this.simulationTime / 60);
-        const sec = Math.floor(this.simulationTime % 60);
-        if (el('sim-time')) el('sim-time').textContent = `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
     }
 
     updateRobotStatus() {
@@ -427,6 +408,21 @@ class Simulation {
             `;
             container.appendChild(card);
         });
+
+        // Update delivery queue while we're at it
+        const queueContainer = document.getElementById('delivery-queue');
+        if (queueContainer) {
+            queueContainer.innerHTML = this.pendingDeliveries.length ? this.pendingDeliveries.map(d => `
+                <div class="delivery-item" style="padding:10px;background:#f8f9fa;border-radius:8px;margin-bottom:8px;border-left:4px solid #1a73e8;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                        <span style="font-weight:700;font-size:12px;">Order #${d.id}</span>
+                        <span style="font-size:10px;color:#5f6368;">${d.pickup.icon} → ${d.destination.icon}</span>
+                    </div>
+                    <div style="font-size:11px;color:#3c4043;">From: ${d.pickup.name}</div>
+                    <div style="font-size:11px;color:#3c4043;">To: ${d.destination.name}</div>
+                </div>
+            `).join('') : '<div style="padding:15px;text-align:center;color:#5f6368;font-size:12px;">All orders dispatched. Waiting for new orders...</div>';
+        }
     }
 
     recordRouteMetrics(algo, route) {
@@ -460,10 +456,10 @@ class Simulation {
     }
 
     updateAlgorithmComparison() {
-        const table = document.getElementById('algo-comparison-table');
-        if (!table) return;
+        const store = Alpine.store('sim');
+        if (!store) return;
 
-        const label = {
+        const labelMap = {
             astar: 'A*',
             dijkstra: 'Dijkstra',
             gbfs: 'GBFS'
@@ -478,94 +474,33 @@ class Simulation {
             const isActive = algo === this.fleetAlgorithm;
 
             return `
-                <tr style="background:${isActive ? CONFIG.UI.COLORS.infoLight : CONFIG.UI.COLORS.transparent};">
-                    <td><strong>${label[algo]}</strong></td>
-                    <td>${stats.deliveriesCompleted}</td>
-                    <td>${avgTimeMs.toFixed(1)} ms</td>
-                    <td>${avgNodes.toFixed(0)}</td>
-                    <td>${avgPathCost.toFixed(0)} m</td>
-                    <td>${stats.rerouteCount}</td>
-                    <td><strong>${efficiency.toFixed(3)}</strong></td>
+                <tr class="${isActive ? 'best-row' : ''}">
+                    <td><strong>${labelMap[algo]}</strong></td>
+                    <td style="text-align:center;">${stats.deliveriesCompleted}</td>
+                    <td style="text-align:center;">${avgTimeMs.toFixed(1)}ms</td>
+                    <td style="text-align:center;">${avgNodes.toFixed(0)}</td>
+                    <td style="text-align:center;">${avgPathCost.toFixed(0)}m</td>
+                    <td style="text-align:center;">${stats.rerouteCount}</td>
+                    <td style="text-align:center;"><strong>${efficiency.toFixed(3)}</strong></td>
                 </tr>
             `;
         }).join('');
 
-        table.innerHTML = `
-            <table style="width:100%;font-size:11px;border-collapse:collapse;">
+        store.insider.comparison = `
+            <table class="comparison-table">
                 <thead>
-                    <tr style="background:#f1f3f4;">
-                        <th style="padding:6px;text-align:left;">Algorithm</th>
-                        <th style="padding:6px;text-align:center;">Deliveries</th>
-                        <th style="padding:6px;text-align:center;">Avg Time</th>
-                        <th style="padding:6px;text-align:center;">Avg Nodes</th>
-                        <th style="padding:6px;text-align:center;">Avg Cost</th>
-                        <th style="padding:6px;text-align:center;">Reroutes</th>
-                        <th style="padding:6px;text-align:center;">Efficiency</th>
+                    <tr>
+                        <th>Algorithm</th>
+                        <th style="text-align:center;">Done</th>
+                        <th style="text-align:center;">Time</th>
+                        <th style="text-align:center;">Nodes</th>
+                        <th style="text-align:center;">Cost</th>
+                        <th style="text-align:center;">Reroutes</th>
+                        <th style="text-align:center;">Eff.</th>
                     </tr>
                 </thead>
                 <tbody>${rows}</tbody>
             </table>
         `;
-
-        const academicTable = document.getElementById('academic-algo-comparison-table');
-        if (academicTable) {
-            academicTable.innerHTML = table.innerHTML;
-        }
     }
-
-    updateLatestDecision() {
-        const container = document.getElementById('latest-route-choice');
-        if (!container) return;
-        if (!this.latestDecision) {
-            container.textContent = CONFIG.UI.STATE_LABELS.WAITING_ASSIGNMENT;
-            return;
-        }
-
-        const d = this.latestDecision;
-        container.innerHTML = `
-            <div style="font-weight:700;color:#202124;margin-bottom:8px;">${d.robotName} → Order #${d.deliveryId}</div>
-            <div style="font-size:11px;color:#5f6368;margin-bottom:8px;">${d.pickupName} → ${d.destinationName}</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;">
-                <div>📏 Base: <strong>${d.breakdown.baseDistance.toFixed(0)}m</strong></div>
-                <div>🚗 Traffic: <strong>+${d.breakdown.trafficPenalty.toFixed(0)}m</strong></div>
-                <div>🌧️ Rain: <strong>+${d.breakdown.rainPenalty.toFixed(0)}m</strong></div>
-                <div>🚧 Obstacles: <strong>+${d.breakdown.obstaclePenalty.toFixed(0)}m</strong></div>
-                <div>⚠️ Battery risk: <strong>${d.batteryRisk.toFixed(1)}</strong></div>
-                <div>⏱ ETA: <strong>${d.breakdown.estimatedMinutes.toFixed(1)} min</strong></div>
-            </div>
-            <div style="margin-top:8px;padding-top:8px;border-top:1px solid ${CONFIG.UI.COLORS.neutral};font-size:11px;">
-                <div>Priority score: <strong>${d.priorityScore.toFixed(1)}</strong></div>
-                <div>Chosen total cost: <strong style="color:${CONFIG.ROBOT.COLORS.info};">${d.breakdown.totalCost.toFixed(0)}m</strong></div>
-            </div>
-        `;
-    }
-
-    updateAnalytics() {
-        const setText = (id, value) => {
-            const el = document.getElementById(id);
-            if (el) el.textContent = value;
-        };
-        const setBar = (id, pct) => {
-            const el = document.getElementById(id);
-            if (el) el.style.width = `${Math.max(6, Math.min(100, pct))}%`;
-        };
-
-        const simHours = Math.max(this.simulationTime / 3600, 0.01);
-        const throughput = this.totalDeliveries / simHours;
-        const queuePressure = this.pendingDeliveries.length;
-        const avgEnergyPerDelivery = this.totalDeliveries > 0 ? this.totalBatteryConsumed / this.totalDeliveries : this.totalBatteryConsumed;
-
-        setText('metric-throughput', `${throughput.toFixed(1)}/hr`);
-        setText('metric-queue-pressure', `${queuePressure} waiting`);
-        setText('metric-reroutes', `${this.totalReroutes}`);
-        setText('metric-energy', `${avgEnergyPerDelivery.toFixed(1)}%/job`);
-        setText('metric-decision-cost', `${this.lastDecisionCost.toFixed(0)} m`);
-
-        setBar('bar-throughput', throughput * CONFIG.SIMULATION.BAR_SCALES.THROUGHPUT);
-        setBar('bar-queue-pressure', queuePressure * CONFIG.SIMULATION.BAR_SCALES.QUEUE);
-        setBar('bar-reroutes', this.totalReroutes * CONFIG.SIMULATION.BAR_SCALES.REROUTE);
-        setBar('bar-energy', avgEnergyPerDelivery * CONFIG.SIMULATION.BAR_SCALES.ENERGY);
-        setBar('bar-decision-cost', this.lastDecisionCost / CONFIG.SIMULATION.BAR_SCALES.COST);
-    }
-
 }

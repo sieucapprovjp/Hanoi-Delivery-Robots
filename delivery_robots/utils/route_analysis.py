@@ -1,23 +1,37 @@
-from ..config import DEFAULT_EDGE_LENGTH, DEFAULT_ROUTE_DISTANCE, ESTIMATED_SPEED_METERS_PER_MINUTE
+import numpy as np
+
+from ..config import (
+    DEFAULT_EDGE_LENGTH,
+    DEFAULT_ROUTE_DISTANCE,
+    ESTIMATED_SPEED_METERS_PER_MINUTE,
+)
 from .geo import haversine_distance
 
 
-def nearest_node_id(graph, lat, lon, ox=None):
-    if ox is not None:
-        try:
-            return ox.distance.nearest_nodes(graph, lon, lat)
-        except Exception:
-            pass
+def nearest_node_id(graph, lat, lon, state):
+    """
+    Find the nearest node in the graph to the given coordinates.
+    Uses the BallTree from state if available for O(log N) lookup.
+    """
+    spatial_tree = state.get("spatial_tree")
+    spatial_node_ids = state.get("spatial_node_ids")
+    ox = state.get("ox")
+    if spatial_tree is not None and spatial_node_ids is not None:
+        query_coord = np.array([[np.radians(lat), np.radians(lon)]])
+        _, indices = spatial_tree.query(query_coord, k=1)
+        return spatial_node_ids[indices[0][0]]
 
+    if ox:
+        return ox.nearest_nodes(graph, lon, lat)
+
+    nodes = graph.nodes(data=True)
     best_node_id = None
     best_distance = float("inf")
-
-    for node_id, node_data in graph.nodes(data=True):
+    for node_id, node_data in nodes:
         distance = haversine_distance(lat, lon, node_data["y"], node_data["x"])
         if distance < best_distance:
             best_distance = distance
             best_node_id = node_id
-
     return best_node_id
 
 
@@ -90,6 +104,8 @@ def build_route_response(
             "rainPenalty": round(rain_cost, 1),
             "obstaclePenalty": round(obstacle_cost, 1),
             "totalCost": round(total_cost, 1),
-            "estimatedMinutes": round(total_cost / ESTIMATED_SPEED_METERS_PER_MINUTE, 1),
+            "estimatedMinutes": round(
+                total_cost / ESTIMATED_SPEED_METERS_PER_MINUTE, 1
+            ),
         }
     return response

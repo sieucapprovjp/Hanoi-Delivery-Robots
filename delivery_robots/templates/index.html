@@ -1,411 +1,382 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hanoi Delivery Robots - Hoan Kiem District</title>
+    <title>AI Delivery Robot Simulation - Hanoi Hub</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="static/css/style.css">
+    <link rel="stylesheet" href="static/css/style.css" />
+    <!-- Load Alpine first, without defer, to ensure it is available for other scripts -->
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script>
+        document.addEventListener('alpine:init', () => {
+            console.log('Alpine Store Initializing...');
+            Alpine.store('sim', {
+                clock: '00:00:00',
+                rushHour: { active: false, multiplier: 1.0 },
+                panels: {
+                    control: true,
+                    robot: false,
+                    dispatch: false,
+                    computing: false,
+                    weather: false,
+                    decision: false,
+                    insider: false
+                },
+                metrics: {
+                    totalCalculations: 0,
+                    avgTime: '0ms',
+                    lastTime: '0ms',
+                    nodesExplored: 0,
+                    minTime: '0ms',
+                    maxTime: '0ms',
+                    pathLength: 0,
+                    graphNodes: 0,
+                    graphEdges: 0,
+                    rainCount: 0,
+                    trafficCount: 0,
+                    obstacleCount: 0,
+                    fleetAlgo: 'A*',
+                    speed: '1x'
+                },
+                weather: {
+                    mode: 'rain',
+                    rainRadius: 80,
+                    trafficSeverity: 0.7,
+                    obstacleRadius: 80,
+                    obstacleSeverity: 10,
+                    rainZonesHtml: '',
+                    trafficRoutesHtml: '',
+                    obstaclesHtml: ''
+                },
+                computing: {
+                    robotId: null,
+                    details: 'Click a robot icon to view computing process'
+                },
+                insider: {
+                    comparison: 'Waiting for route metrics...',
+                    astarSteps: 'Waiting for path calculation...'
+                },
+                updateMetrics(d) {
+                    this.metrics.totalCalculations = d.pathfinding.totalCalculations;
+                    this.metrics.avgTime = d.pathfinding.avgCalculationTime + 'ms';
+                    this.metrics.lastTime = d.pathfinding.lastCalculationTime + 'ms';
+                    this.metrics.nodesExplored = d.pathfinding.avgNodesExplored.toFixed(0);
+                    this.metrics.minTime = d.pathfinding.minCalculationTime + 'ms';
+                    this.metrics.maxTime = d.pathfinding.maxCalculationTime + 'ms';
+                    this.metrics.pathLength = d.pathfinding.avgPathLength;
+                    this.metrics.graphNodes = d.graph.totalNodes;
+                    this.metrics.graphEdges = d.graph.totalEdges;
+                    this.metrics.rainCount = d.activeFactors.rainZones;
+                    this.metrics.trafficCount = d.activeFactors.trafficRoutes;
+                    this.metrics.obstacleCount = d.activeFactors.obstacles;
+                }
+            });
+        });
+    </script>
 </head>
-<body>
+
+<body x-data>
     <div id="map"></div>
-    
-    <!-- Top Search Bar -->
+
+    <!-- Search/Status Bar -->
     <div class="search-bar">
         <div class="search-container">
-            <div class="menu-icon">☰</div>
+            <div class="menu-icon" @click="$store.sim.panels.control = !$store.sim.panels.control">☰</div>
             <div class="search-input">
-                <span class="search-icon">🔍</span>
-                <input type="text" id="search-box" placeholder="Search Hoan Kiem District...">
+                <div class="search-icon">🕒</div>
+                <div id="clock-time" class="fw-600 color-primary" x-text="$store.sim.clock">00:00:00</div>
+                <div id="rush-hour-display" class="rush-hour-badge" x-show="$store.sim.rushHour.active" x-cloak>
+                    RUSH HOUR (×<span x-text="$store.sim.rushHour.multiplier.toFixed(1)">1.5</span>)
+                </div>
             </div>
             <div class="user-info">
-                <span class="stats-badge">🤖 5 Robots Active</span>
-                <span class="clock-badge" id="clock-display" style="margin-left: 8px; background: #f8f9fa; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; color: #202124;">
-                    🕐 <span id="clock-time">--:--:--</span>
-                </span>
-                <span class="rush-badge" id="rush-hour-display" style="margin-left: 8px; display: none; background: #ea4335; color: white; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; animation: pulse 2s infinite;">
-                    🚗 Rush Hour (<span id="rush-multiplier">1.0</span>×)
-                </span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Map Controls -->
-    <div class="map-controls-wrapper">
-        <div class="map-controls">
-            <button class="control-btn" id="zoom-in" title="Zoom in">+</button>
-            <button class="control-btn" id="zoom-out" title="Zoom out">−</button>
-            <button class="control-btn" id="locate-btn" title="My location">⌖</button>
-            <button class="control-btn" id="fullscreen-btn" title="Fullscreen">⛶</button>
-        </div>
-    </div>
-
-    <!-- Simulation Control Panel -->
-    <div class="control-panel">
-        <div class="panel-header">
-            <h3>🚚 Delivery Control</h3>
-            <button class="close-panel" id="close-panel">×</button>
-        </div>
-        <div class="panel-content">
-            <div class="simulation-controls">
-                <button id="start-btn" class="btn-primary">▶ Start Simulation</button>
-                <button id="pause-btn" class="btn-secondary">⏸ Pause</button>
-                <button id="reset-btn" class="btn-secondary">🔄 Reset</button>
-                <button id="optimize-hubs-btn" class="btn-secondary">🧠 Optimize Hubs</button>
-            </div>
-            
-            <div class="speed-control">
-                <label>
-                    <span class="label-text">Speed</span>
-                    <span id="speed-value" class="label-value">1x</span>
-                </label>
-                <input type="range" id="speed-slider" min="1" max="10" value="1">
-            </div>
-
-            <div class="speed-control" style="margin-top: 10px;">
-                <label>
-                    <span class="label-text">Fleet Routing AI</span>
-                    <span class="label-value" id="fleet-algo-current">A*</span>
-                </label>
-                <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 6px;">
-                    <select id="fleet-algo-select" style="padding: 8px; border: 1px solid #dadce0; border-radius: 8px; font-size: 13px;">
-                        <option value="astar" selected>A*</option>
-                        <option value="dijkstra">Dijkstra</option>
-                        <option value="gbfs">GBFS</option>
-                    </select>
-                    <button id="apply-fleet-algo-btn" class="btn-secondary">Apply All 5</button>
-                </div>
-            </div>
-
-            <div class="compact-summary">
-                <div class="summary-title">Mission Snapshot</div>
-                <div class="summary-row">
-                    <span class="summary-item">Deliveries <strong id="total-deliveries">0</strong></span>
-                    <span class="summary-item">Avg Battery <strong id="avg-battery">100%</strong></span>
-                </div>
-                <div class="summary-row">
-                    <span class="summary-item">Distance <strong id="total-distance">0 m</strong></span>
-                    <span class="summary-item">Time <strong id="sim-time">00:00</strong></span>
-                </div>
-                <div class="summary-hint">Detailed analytics and AI metrics are in the side panels.</div>
-            </div>
-
-            <div class="compact-summary" style="margin-top: 10px;">
-                <div class="summary-title">Algorithm Comparison</div>
-                <div id="algo-comparison-table" style="font-size: 11px; color: #5f6368;">
-                    Waiting for route metrics...
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Robot Status Panel -->
-    <div class="robot-panel">
-        <div class="panel-header">
-            <h3>🤖 Robot Fleet</h3>
-            <button class="close-panel" id="close-robot-panel">×</button>
-        </div>
-        <div class="panel-content">
-            <div id="robot-status"></div>
-        </div>
-    </div>
-
-    <!-- Delivery Queue Panel -->
-    <div class="delivery-panel" style="display: none;">
-        <div class="panel-header">
-            <h3>📋 Delivery Queue</h3>
-            <button class="close-panel" id="close-delivery-panel">×</button>
-        </div>
-        <div class="panel-content">
-            <div id="delivery-queue"></div>
-        </div>
-    </div>
-
-    <!-- Event Log Panel -->
-    <div class="log-panel" style="display: none;">
-        <div class="panel-header">
-            <h3>📝 Event Log</h3>
-            <button class="close-panel" id="close-log-panel">×</button>
-        </div>
-        <div class="panel-content">
-            <div id="event-log"></div>
-        </div>
-    </div>
-
-    <!-- Dispatch Panel -->
-    <div class="dispatch-panel" style="display: none;">
-        <div class="panel-header">
-            <h3>🧠 Dispatch Brain</h3>
-            <button class="close-panel" id="close-dispatch-panel">×</button>
-        </div>
-        <div class="panel-content">
-            <div id="dispatch-insights"></div>
-        </div>
-    </div>
-
-    <!-- Analytics Panel -->
-    <div class="analytics-panel" style="display: none;">
-        <div class="panel-header">
-            <h3>📊 Fleet Analytics</h3>
-            <button class="close-panel" id="close-analytics-panel">×</button>
-        </div>
-        <div class="panel-content">
-            <div class="analytics-grid">
-                <div class="analytic-card">
-                    <div class="analytic-label">Throughput</div>
-                    <div class="analytic-value" id="metric-throughput">0.0/hr</div>
-                    <div class="analytic-bar"><div id="bar-throughput" class="analytic-fill throughput"></div></div>
-                </div>
-                <div class="analytic-card">
-                    <div class="analytic-label">Queue Pressure</div>
-                    <div class="analytic-value" id="metric-queue-pressure">0</div>
-                    <div class="analytic-bar"><div id="bar-queue-pressure" class="analytic-fill pressure"></div></div>
-                </div>
-                <div class="analytic-card">
-                    <div class="analytic-label">Reroutes</div>
-                    <div class="analytic-value" id="metric-reroutes">0</div>
-                    <div class="analytic-bar"><div id="bar-reroutes" class="analytic-fill reroutes"></div></div>
-                </div>
-                <div class="analytic-card">
-                    <div class="analytic-label">Energy Cost</div>
-                    <div class="analytic-value" id="metric-energy">0%</div>
-                    <div class="analytic-bar"><div id="bar-energy" class="analytic-fill energy"></div></div>
-                </div>
-                <div class="analytic-card">
-                    <div class="analytic-label">Decision Cost</div>
-                    <div class="analytic-value" id="metric-decision-cost">0 m</div>
-                    <div class="analytic-bar"><div id="bar-decision-cost" class="analytic-fill decision"></div></div>
-                </div>
+                <div class="stats-badge" x-text="'AI: ' + $store.sim.metrics.fleetAlgo">AI: A*</div>
             </div>
         </div>
     </div>
 
     <!-- Floating Action Buttons -->
     <div class="fab-container">
-        <button class="fab" id="toggle-robots" title="Toggle robots">🤖</button>
-        <button class="fab" id="toggle-deliveries" title="Toggle deliveries" style="display: none;">📦</button>
-        <button class="fab" id="toggle-log" title="Toggle log" style="display: none;">📝</button>
-        <button class="fab" id="toggle-dispatch" title="Toggle dispatch" style="display: none;">🧠</button>
-        <button class="fab" id="toggle-analytics" title="Toggle analytics" style="display: none;">📊</button>
-        <button class="fab" id="toggle-computing" title="Toggle computing details">⚙️</button>
-        <button class="fab" id="toggle-decision" title="Academic insights">📘</button>
-        <button class="fab" id="toggle-weather" title="Toggle weather/traffic">🌧️</button>
-        <button class="fab" id="toggle-insider" title="A* Algorithm Analysis" style="display: none; background: linear-gradient(135deg, #9c27b0, #673ab7); color: white;">🔬</button>
+        <button class="fab" title="Simulation Controls" @click="$store.sim.panels.control = !$store.sim.panels.control"
+            :class="$store.sim.panels.control ? 'fab-active' : ''">🎮</button>
+        <button class="fab" title="Robot Fleet" @click="$store.sim.panels.robot = !$store.sim.panels.robot"
+            :class="$store.sim.panels.robot ? 'fab-active' : ''">🤖</button>
+        <button class="fab" title="Dispatch Center" @click="$store.sim.panels.dispatch = !$store.sim.panels.dispatch"
+            :class="$store.sim.panels.dispatch ? 'fab-active' : ''">🏢</button>
+        <button class="fab" title="Computing Center" @click="$store.sim.panels.computing = !$store.sim.panels.computing"
+            :class="$store.sim.panels.computing ? 'fab-active' : ''">💻</button>
+        <button class="fab" title="Weather & Traffic" @click="$store.sim.panels.weather = !$store.sim.panels.weather"
+            :class="$store.sim.panels.weather ? 'fab-active' : ''">🌦️</button>
+        <button class="fab" title="Academic Insights" @click="$store.sim.panels.decision = !$store.sim.panels.decision"
+            :class="$store.sim.panels.decision ? 'fab-active' : ''">📘</button>
+        <button class="fab" title="Insider View" @click="$store.sim.panels.insider = !$store.sim.panels.insider"
+            :class="$store.sim.panels.insider ? 'fab-active' : ''">🔍</button>
     </div>
 
-    <!-- Insider: A* Algorithm Analysis Panel -->
-    <div class="insider-panel" style="display: none;">
-        <div class="panel-header" style="background: linear-gradient(135deg, #9c27b0, #673ab7); color: white;">
-            <h3>🔬 Insider — A* Algorithm Lab</h3>
-            <button class="close-panel" id="close-insider-panel" style="color: white;">×</button>
+    <!-- Control Panel -->
+    <div class="control-panel" x-show="$store.sim.panels.control" x-transition x-cloak>
+        <div class="panel-header">
+            <h3>Simulation Hub</h3>
+            <button class="close-panel" @click="$store.sim.panels.control = false">×</button>
         </div>
         <div class="panel-content">
-            <!-- Comparison Table -->
-            <div style="margin-bottom: 15px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <h3 style="font-size: 13px; color: #5f6368; margin: 0;">📊 Algorithm Comparison</h3>
-                    <button id="run-comparison-btn" style="padding: 6px 14px; background: linear-gradient(135deg, #9c27b0, #673ab7); color: white; border: none; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;">▶ Run Comparison</button>
+            <div class="simulation-controls">
+                <button id="start-btn" class="btn-primary">▶ Start</button>
+                <button id="pause-btn" class="btn-secondary">⏸ Pause</button>
+                <button id="reset-btn" class="btn-secondary">🔄 Reset</button>
+            </div>
+
+            <div class="speed-control">
+                <label><span class="label-text">Simulation Speed</span> <span class="label-value"
+                        x-text="$store.sim.metrics.speed">1x</span></label>
+                <input type="range" id="speed-slider" min="0.1" max="5" step="0.1" value="1">
+            </div>
+
+            <div class="mb-20">
+                <h3 class="fs-13 color-secondary-text mb-10">Fleet Algorithm</h3>
+                <div class="d-flex gap-8">
+                    <select id="fleet-algo-select" class="algo-select">
+                        <option value="astar">Advanced A* (Optimized)</option>
+                        <option value="dijkstra">Dijkstra's Algorithm</option>
+                        <option value="greedy">Greedy Best-First</option>
+                        <option value="bfs">Breadth-First Search</option>
+                    </select>
+                    <button id="apply-fleet-algo-btn" class="btn-apply">Apply</button>
                 </div>
-                <div id="comparison-table" style="background: #f8f9fa; border-radius: 8px; padding: 10px; min-height: 100px;">
-                    <div style="text-align: center; color: #5f6368; padding: 20px; font-size: 12px;">
-                        Click <strong>▶ Run Comparison</strong> to see how A* stacks up against Dijkstra, Greedy, and BFS
+            </div>
+
+            <button id="optimize-hubs-btn" class="btn-optimize">✨ Re-optimize Hub Locations</button>
+
+            <div class="compact-summary">
+                <div class="summary-title">Network Statistics</div>
+                <div class="summary-row">
+                    <div class="summary-item">Nodes: <strong x-text="$store.sim.metrics.graphNodes">0</strong></div>
+                    <div class="summary-item">Edges: <strong x-text="$store.sim.metrics.graphEdges">0</strong></div>
+                </div>
+                <div class="summary-row">
+                    <div class="summary-item">Rain: <strong x-text="$store.sim.metrics.rainCount">0</strong></div>
+                    <div class="summary-item">Traffic: <strong x-text="$store.sim.metrics.trafficCount">0</strong></div>
+                    <div class="summary-item">Obstacles: <strong x-text="$store.sim.metrics.obstacleCount">0</strong>
                     </div>
                 </div>
-            </div>
-
-            <!-- A* Step Visualizer -->
-            <div>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <h3 style="font-size: 13px; color: #5f6368; margin: 0;">🔍 A* Step-by-Step Expansion</h3>
-                    <button id="run-astar-viz-btn" style="padding: 6px 14px; background: linear-gradient(135deg, #1a73e8, #1557b0); color: white; border: none; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;">▶ Visualize A*</button>
-                </div>
-                <div id="astep-visualizer" style="background: #f8f9fa; border-radius: 8px; padding: 10px; min-height: 150px;">
-                    <div style="text-align: center; color: #5f6368; padding: 20px; font-size: 12px;">
-                        Click <strong>▶ Visualize A*</strong> to watch the algorithm explore nodes step by step
-                    </div>
-                </div>
-            </div>
-
-            <!-- Legend -->
-            <div style="margin-top: 12px; padding: 10px; background: #fff8e1; border-radius: 8px; font-size: 10px; color: #5f6368; border-left: 3px solid #ffc107;">
-                <strong style="font-size: 11px;">📖 Legend:</strong><br>
-                <span style="display: inline-block; width: 12px; height: 12px; background: #34a853; border-radius: 2px; vertical-align: middle;"></span> Start &nbsp;
-                <span style="display: inline-block; width: 12px; height: 12px; background: #ea4335; border-radius: 2px; vertical-align: middle;"></span> Goal &nbsp;
-                <span style="display: inline-block; width: 12px; height: 12px; background: #4285f4; border-radius: 2px; vertical-align: middle;"></span> Open Set (being explored) &nbsp;
-                <span style="display: inline-block; width: 12px; height: 12px; background: #ff9800; border-radius: 2px; vertical-align: middle;"></span> Closed Set (evaluated) &nbsp;
-                <span style="display: inline-block; width: 12px; height: 12px; background: #9c27b0; border-radius: 2px; vertical-align: middle;"></span> Final Path
+                <div class="summary-hint">Real-time graph data from Hanoi OpenStreetMap.</div>
             </div>
         </div>
     </div>
 
-    <!-- Computing Behind The Scenes Panel -->
-    <div class="computing-panel" style="display: none;">
+    <!-- Robot Panel -->
+    <div class="robot-panel" x-show="$store.sim.panels.robot" x-transition x-cloak>
         <div class="panel-header">
-            <h3>⚙️ Computing Behind The Scenes</h3>
-            <button class="close-panel" id="close-computing-panel">×</button>
+            <h3>Active Fleet</h3>
+            <button class="close-panel" @click="$store.sim.panels.robot = false">×</button>
         </div>
         <div class="panel-content">
-            <div id="computing-content" style="font-size: 11px; line-height: 1.4;">
-                <div style="text-align: center; color: #5f6368; padding: 20px;">
-                    Click a robot on the map to see its computing details
-                </div>
+            <div id="robot-status"></div>
+        </div>
+    </div>
+
+    <!-- Dispatch Panel -->
+    <div class="dispatch-panel" x-show="$store.sim.panels.dispatch" x-transition x-cloak>
+        <div class="panel-header">
+            <h3>Dispatch Center</h3>
+            <button class="close-panel" @click="$store.sim.panels.dispatch = false">×</button>
+        </div>
+        <div class="panel-content">
+            <div id="delivery-queue"></div>
+        </div>
+    </div>
+
+    <!-- Computing Panel -->
+    <div class="computing-panel" x-show="$store.sim.panels.computing" x-transition x-cloak>
+        <div class="panel-header">
+            <h3>Computing Process</h3>
+            <button class="close-panel" @click="$store.sim.panels.computing = false">×</button>
+        </div>
+        <div class="panel-content">
+            <div id="computing-content" class="mono fs-11 lh-1-4 color-dark" x-html="$store.sim.computing.details">
+                Click a robot icon to view computing process
             </div>
         </div>
     </div>
 
-    <!-- Weather & Traffic Control Panel -->
-    <div class="weather-panel" style="display: none;">
+    <!-- Weather Panel -->
+    <div class="weather-panel" x-show="$store.sim.panels.weather" x-transition x-cloak>
         <div class="panel-header">
-            <h3>🌧️🚗 Weather & Traffic</h3>
-            <button class="close-panel" id="close-weather-panel">×</button>
+            <h3>Environment Controls</h3>
+            <button class="close-panel" @click="$store.sim.panels.weather = false">×</button>
         </div>
         <div class="panel-content">
-            <div class="mode-tabs" style="display: flex; gap: 5px; margin-bottom: 15px;">
-                <button class="mode-tab active" data-mode="rain" style="flex: 1; padding: 8px; border: none; background: #e8eaed; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">🌧️ Rain</button>
-                <button class="mode-tab" data-mode="traffic" style="flex: 1; padding: 8px; border: none; background: #e8eaed; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">🚗 Traffic</button>
-                <button class="mode-tab" data-mode="obstacle" style="display: none; flex: 1; padding: 8px; border: none; background: #e8eaed; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">🚧 Obstacles</button>
+            <div class="weather-tabs-container">
+                <button class="mode-tab" :class="$store.sim.weather.mode === 'rain' ? 'mode-tab-active' : ''"
+                    @click="$store.sim.weather.mode = 'rain'">🌧️ Rain</button>
+                <button class="mode-tab" :class="$store.sim.weather.mode === 'traffic' ? 'mode-tab-active' : ''"
+                    @click="$store.sim.weather.mode = 'traffic'">🚗 Traffic</button>
+                <button class="mode-tab" :class="$store.sim.weather.mode === 'obstacle' ? 'mode-tab-active' : ''"
+                    @click="$store.sim.weather.mode = 'obstacle'">🚧 Obstacle</button>
             </div>
 
-            <div id="rain-controls">
-                <p class="info-text" style="font-size: 12px; color: #5f6368; margin: 10px 0;">Click on map to place rain zone</p>
-                <div class="slider-control" style="margin: 8px 0;">
-                    <label style="font-size: 12px;">Radius: <span id="rain-radius-value" style="font-weight: 600; color: #1a73e8;">150</span>m</label>
-                    <input type="range" id="rain-radius" min="50" max="300" value="150" step="10" style="width: 100%;">
+            <div id="rain-controls" x-show="$store.sim.weather.mode === 'rain'">
+                <p class="info-text fs-12 color-secondary-text mb-10">Click on map to place rain zone</p>
+                <div class="slider-control py-4">
+                    <label class="fs-12">Radius: <span id="rain-radius-value" class="fw-600 color-primary"
+                            x-text="$store.sim.weather.rainRadius">80</span>m</label>
+                    <input type="range" id="rain-radius" min="30" max="300" x-model="$store.sim.weather.rainRadius"
+                        class="w-100">
                 </div>
-                <button id="randomize-rain-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #1a73e8; color: white; border-radius: 8px; cursor: pointer;">🎲 Randomize Rain</button>
-                <button id="clear-rain-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #ea4335; color: white; border-radius: 8px; cursor: pointer;">🗑️ Clear Rain</button>
-                <div id="rain-list" style="background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 12px; max-height: 120px; overflow-y: auto;"></div>
+                <button id="randomize-rain-btn" class="btn-weather-action btn-weather-primary">🎲 Randomize
+                    Rain</button>
+                <button id="clear-rain-btn" class="btn-weather-action btn-weather-danger">🗑️ Clear Rain</button>
+                <div id="rain-list" class="list-container" x-html="$store.sim.weather.rainZonesHtml || 'No rain zones'">
+                </div>
             </div>
 
-            <div id="traffic-controls" style="display: none;">
-                <p class="info-text" style="font-size: 12px; color: #5f6368; margin: 10px 0;">Click two points to create traffic route</p>
-                <div class="slider-control" style="margin: 8px 0;">
-                    <label style="font-size: 12px;">Severity: <span id="traffic-severity-value" style="font-weight: 600; color: #1a73e8;">0.7</span></label>
-                    <input type="range" id="traffic-severity" min="0" max="1" value="0.7" step="0.05" style="width: 100%;">
+            <div id="traffic-controls" x-show="$store.sim.weather.mode === 'traffic'">
+                <p class="info-text fs-12 color-secondary-text mb-10">Click two points to create traffic route</p>
+                <div class="slider-control py-4">
+                    <label class="fs-12">Severity: <span id="traffic-severity-value" class="fw-600 color-primary"
+                            x-text="$store.sim.weather.trafficSeverity">0.7</span></label>
+                    <input type="range" id="traffic-severity" min="0" max="1"
+                        x-model="$store.sim.weather.trafficSeverity" step="0.05" class="w-100">
                 </div>
-                <button id="reset-traffic-points-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #e8eaed; color: #3c4043; border-radius: 8px; cursor: pointer;">🔄 Reset Points</button>
-                <button id="randomize-traffic-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #1a73e8; color: white; border-radius: 8px; cursor: pointer;">🎲 Randomize Traffic</button>
-                <button id="clear-traffic-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #ea4335; color: white; border-radius: 8px; cursor: pointer;">🗑️ Clear Traffic</button>
-                <div id="traffic-list" style="background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 12px; max-height: 120px; overflow-y: auto;"></div>
+                <button id="reset-traffic-points-btn" class="btn-weather-action btn-weather-neutral">🔄 Reset
+                    Points</button>
+                <button id="randomize-traffic-btn" class="btn-weather-action btn-weather-primary">🎲 Randomize
+                    Traffic</button>
+                <button id="clear-traffic-btn" class="btn-weather-action btn-weather-danger">🗑️ Clear Traffic</button>
+                <div id="traffic-list" class="list-container"
+                    x-html="$store.sim.weather.trafficRoutesHtml || 'No traffic routes'"></div>
             </div>
 
-            <div id="obstacle-controls" style="display: none;">
-                <p class="info-text" style="font-size: 12px; color: #5f6368; margin: 10px 0;">Click on map to place obstacle</p>
-                <div class="slider-control" style="margin: 8px 0;">
-                    <label style="font-size: 12px;">Radius: <span id="obstacle-radius-value" style="font-weight: 600; color: #1a73e8;">80</span>m</label>
-                    <input type="range" id="obstacle-radius" min="30" max="150" value="80" step="10" style="width: 100%;">
+            <div id="obstacle-controls" x-show="$store.sim.weather.mode === 'obstacle'">
+                <p class="info-text fs-12 color-secondary-text mb-10">Click on map to place obstacle</p>
+                <div class="slider-control py-4">
+                    <label class="fs-12">Radius: <span id="obstacle-radius-value" class="fw-600 color-primary"
+                            x-text="$store.sim.weather.obstacleRadius">80</span>m</label>
+                    <input type="range" id="obstacle-radius" min="30" max="150"
+                        x-model="$store.sim.weather.obstacleRadius" step="10" class="w-100">
                 </div>
-                <div class="slider-control" style="margin: 8px 0;">
-                    <label style="font-size: 12px;">Severity: <span id="obstacle-severity-value" style="font-weight: 600; color: #1a73e8;">10</span></label>
-                    <input type="range" id="obstacle-severity" min="1" max="50" value="10" step="1" style="width: 100%;">
+                <div class="slider-control py-4">
+                    <label class="fs-12">Severity: <span id="obstacle-severity-value" class="fw-600 color-primary"
+                            x-text="$store.sim.weather.obstacleSeverity">10</span></label>
+                    <input type="range" id="obstacle-severity" min="1" max="50"
+                        x-model="$store.sim.weather.obstacleSeverity" step="1" class="w-100">
                 </div>
-                <button id="randomize-obstacle-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #1a73e8; color: white; border-radius: 8px; cursor: pointer;">🎲 Randomize Obstacles</button>
-                <button id="clear-obstacle-btn" style="width: 100%; padding: 10px; margin: 5px 0; border: none; background: #ea4335; color: white; border-radius: 8px; cursor: pointer;">🗑️ Clear Obstacles</button>
-                <div id="obstacle-list" style="background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 12px; max-height: 120px; overflow-y: auto;"></div>
-            </div>
-
-            <div style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
-                <h3 style="font-size: 13px; color: #5f6368; margin-bottom: 10px;">🧠 Scheduling Algorithm</h3>
-                <div style="display: flex; gap: 5px;">
-                    <button class="algo-btn active" data-algo="priority" style="flex: 1; padding: 8px; border: none; background: #1a73e8; color: white; border-radius: 6px; cursor: pointer; font-size: 12px;">Priority</button>
-                    <button class="algo-btn" data-algo="fifo" style="flex: 1; padding: 8px; border: none; background: #e8eaed; color: #3c4043; border-radius: 6px; cursor: pointer; font-size: 12px;">FIFO</button>
-                    <button class="algo-btn" data-algo="nearest" style="flex: 1; padding: 8px; border: none; background: #e8eaed; color: #3c4043; border-radius: 6px; cursor: pointer; font-size: 12px;">Nearest</button>
-                </div>
-                <div id="algorithm-comparison" style="margin-top: 10px;"></div>
+                <button id="randomize-obstacle-btn" class="btn-weather-action btn-weather-primary">🎲 Randomize
+                    Obstacles</button>
+                <button id="clear-obstacle-btn" class="btn-weather-action btn-weather-danger">🗑️ Clear
+                    Obstacles</button>
+                <div id="obstacle-list" class="list-container"
+                    x-html="$store.sim.weather.obstaclesHtml || 'No obstacles'"></div>
             </div>
         </div>
     </div>
 
     <!-- Academic Insights Panel -->
-    <div class="decision-panel" style="display: none;">
+    <div class="decision-panel" x-show="$store.sim.panels.decision" x-transition x-cloak>
         <div class="panel-header">
             <h3>📘 Academic Insights</h3>
-            <button class="close-panel" id="close-decision-panel">×</button>
+            <button class="close-panel" @click="$store.sim.panels.decision = false">×</button>
         </div>
         <div class="panel-content">
-            <div style="margin-bottom: 15px; background: #f8f9fa; padding: 12px; border-radius: 8px; font-size: 12px;">
-                <div style="font-weight: 700; color: #202124; margin-bottom: 6px;">Current Experiment Setup</div>
-                <div style="display: flex; justify-content: space-between; margin: 4px 0;"><span>Fleet Routing AI</span><strong id="academic-fleet-algo">A*</strong></div>
-                <div style="display: flex; justify-content: space-between; margin: 4px 0;"><span>Active Robots</span><strong>5</strong></div>
-                <div style="display: flex; justify-content: space-between; margin: 4px 0;"><span>Comparison Mode</span><strong>A* / Dijkstra / GBFS</strong></div>
+            <div class="mb-15 bg-light p-12 br-8 fs-12">
+                <div class="fw-700 color-dark mb-6">Current Experiment Setup</div>
+                <div class="d-flex justify-between py-4"><span>Fleet Routing AI</span><strong
+                        x-text="$store.sim.metrics.fleetAlgo">A*</strong></div>
+                <div class="d-flex justify-between py-4"><span>Active Robots</span><strong>5</strong></div>
+                <div class="d-flex justify-between py-4"><span>Comparison Mode</span><strong>A* / Dijkstra /
+                        GBFS</strong></div>
             </div>
 
-            <div style="margin-bottom: 15px;">
-                <h3 style="font-size: 13px; color: #5f6368; margin-bottom: 10px;">🧠 Latest Dispatch Decision</h3>
-                <div id="latest-route-choice" style="background: #f8f9fa; padding: 12px; border-radius: 8px; font-size: 12px; color: #5f6368;">
-                    Waiting for a robot assignment...
-                </div>
-            </div>
-
-            <div style="margin-bottom: 15px;">
-                <h3 style="font-size: 13px; color: #5f6368; margin-bottom: 10px;">📊 Runtime Algorithm Comparison</h3>
-                <div id="academic-algo-comparison-table" style="background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 12px;">
-                    Waiting for route metrics...
-                </div>
-            </div>
-
-            <div style="margin-bottom: 15px;">
-                <h3 style="font-size: 13px; color: #5f6368; margin-bottom: 10px;">⚡ Pathfinding Performance</h3>
-                <div id="astar-metrics" style="background: #f8f9fa; padding: 12px; border-radius: 8px; font-size: 12px;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                        <div style="text-align: center;">
-                            <div style="font-size: 10px; color: #5f6368;">Total Calculations</div>
-                            <div id="metric-total-calc" style="font-size: 18px; font-weight: 700; color: #1a73e8;">0</div>
+            <div class="mb-15">
+                <h3 class="fs-13 color-secondary-text mb-10">⚡ Pathfinding Performance</h3>
+                <div class="astar-metrics bg-light p-12 br-8 fs-12">
+                    <div class="stats-grid">
+                        <div class="metric-card-small">
+                            <div class="metric-label-small">Total Calculations</div>
+                            <div class="metric-value-large color-primary" x-text="$store.sim.metrics.totalCalculations">
+                                0</div>
                         </div>
-                        <div style="text-align: center;">
-                            <div style="font-size: 10px; color: #5f6368;">Avg Time</div>
-                            <div id="metric-avg-time" style="font-size: 18px; font-weight: 700; color: #34a853;">0ms</div>
+                        <div class="metric-card-small">
+                            <div class="metric-label-small">Avg Time</div>
+                            <div class="metric-value-large color-success" x-text="$store.sim.metrics.avgTime">0ms</div>
                         </div>
-                        <div style="text-align: center;">
-                            <div style="font-size: 10px; color: #5f6368;">Last Time</div>
-                            <div id="metric-last-time" style="font-size: 18px; font-weight: 700; color: #ea4335;">0ms</div>
+                        <div class="metric-card-small">
+                            <div class="metric-label-small">Last Time</div>
+                            <div class="metric-value-large color-error" x-text="$store.sim.metrics.lastTime">0ms</div>
                         </div>
-                        <div style="text-align: center;">
-                            <div style="font-size: 10px; color: #5f6368;">Nodes Explored</div>
-                            <div id="metric-nodes" style="font-size: 18px; font-weight: 700; color: #fbbc04;">0</div>
+                        <div class="metric-card-small">
+                            <div class="metric-label-small">Nodes Explored</div>
+                            <div class="metric-value-large color-warning" x-text="$store.sim.metrics.nodesExplored">0
+                            </div>
                         </div>
                     </div>
-                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #e0e0e0;">
-                        <div style="font-size: 11px; color: #5f6368; margin-bottom: 6px;">Speed Range</div>
-                        <div style="display: flex; justify-content: space-between; font-size: 11px;">
-                            <span>Min: <strong id="metric-min-time" style="color: #34a853;">0ms</strong></span>
-                            <span>Max: <strong id="metric-max-time" style="color: #ea4335;">0ms</strong></span>
+                    <div class="mt-10 pt-10 border-top-standard">
+                        <div class="fs-11 color-secondary-text mb-6">Speed Range</div>
+                        <div class="d-flex justify-between fs-11">
+                            <span>Min: <strong class="color-success"
+                                    x-text="$store.sim.metrics.minTime">0ms</strong></span>
+                            <span>Max: <strong class="color-error"
+                                    x-text="$store.sim.metrics.maxTime">0ms</strong></span>
                         </div>
-                        <div style="margin-top: 6px; font-size: 11px;">
-                            Avg Path Length: <strong id="metric-path-length" style="color: #1a73e8;">0</strong> nodes
+                        <div class="mt-6 fs-11">
+                            Avg Path Length: <strong class="color-primary"
+                                x-text="$store.sim.metrics.pathLength">0</strong> nodes
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div style="margin-bottom: 15px;">
-                <h3 style="font-size: 13px; color: #5f6368; margin-bottom: 10px;">🧠 Search Model</h3>
-                <div style="background: #e3f2fd; padding: 10px; border-radius: 8px; font-size: 11px; line-height: 1.5;">
+            <div class="mb-15">
+                <h3 class="fs-13 color-secondary-text mb-10">🧠 Search Model</h3>
+                <div class="search-model-box">
                     <div><strong>A*</strong>: f(n) = g(n) + h(n)</div>
                     <div><strong>Dijkstra</strong>: priority = g(n)</div>
                     <div><strong>GBFS</strong>: priority = h(n)</div>
-                    <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #bbdefb;">
+                    <div class="mt-8 pt-8 border-top-standard">
                         Heuristic h(n) uses Haversine distance to goal.
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
 
-            <div>
-                <h3 style="font-size: 13px; color: #5f6368; margin-bottom: 10px;">📐 Efficiency Formula</h3>
-                <div style="background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 11px;">
-                    <div style="font-family: monospace; margin-bottom: 6px;">score = deliveries / (costKm + 0.02*avgTimeMs + 0.005*avgNodes + 0.5*reroutes + 1)</div>
-                    <div style="color: #5f6368;">Higher score means better overall operational efficiency.</div>
+    <!-- Insider View Panel -->
+    <div class="insider-panel" x-show="$store.sim.panels.insider" x-transition x-cloak>
+        <div class="panel-header">
+            <h3>🔍 Insider View</h3>
+            <button class="close-panel" @click="$store.sim.panels.insider = false">×</button>
+        </div>
+        <div class="panel-content">
+            <div class="mb-20">
+                <h3 class="fs-14 color-dark mb-10">📊 Algorithm Comparison</h3>
+                <p class="fs-12 color-secondary-text mb-10">Compare performance of 4 core pathfinding algorithms in
+                    real-time.</p>
+                <button id="run-comparison-btn" class="btn-comparison">Run Comparison</button>
+                <div id="comparison-table" x-html="$store.sim.insider.comparison">
+                    Waiting for route metrics...
+                </div>
+            </div>
+
+            <div class="border-top-standard pt-20">
+                <h3 class="fs-14 color-dark mb-10">🔬 A* Expansion Step-by-Step</h3>
+                <p class="fs-12 color-secondary-text mb-10">Visualize how A* explores nodes and calculates f-scores.</p>
+                <button id="run-astar-viz-btn" class="btn-astar-viz">Run A* Visualization</button>
+                <div id="astep-visualizer" x-html="$store.sim.insider.astarSteps">
+                    Waiting for path calculation...
                 </div>
             </div>
         </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="static/js/config.js"></script>
-    <script src="static/js/map.js"></script>
-    <script src="static/js/pathfinding.js"></script>
-    <script src="static/js/robot.js"></script>
-    <script src="static/js/simulation.js"></script>
-    <script src="static/js/app.js"></script>
+    <script src="static/js/config.js" defer></script>
+    <script src="static/js/map.js" defer></script>
+    <script src="static/js/pathfinding.js" defer></script>
+    <script src="static/js/robot.js" defer></script>
+    <script src="static/js/simulation.js" defer></script>
+    <script src="static/js/app.js" defer></script>
 </body>
+
 </html>

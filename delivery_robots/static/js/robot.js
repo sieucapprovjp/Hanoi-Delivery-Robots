@@ -126,43 +126,50 @@ class DeliveryRobot {
     }
 
     async arriveAtWaypoint() {
-        if (this.routeMode === CONFIG.ROBOT.ROUTE_MODES.CHARGING && this.chargingStation) {
-            this.startCharging();
-            return;
-        }
+        if (this.isRouting) return;
+        this.isRouting = true;
 
-        if (this.currentDelivery && this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_PICKUP) {
-            this.deliveryPhase = CONFIG.ROBOT.PHASES.TO_DROPOFF;
-            this.routeTarget = {
-                lat: this.currentDelivery.destination.lat,
-                lon: this.currentDelivery.destination.lon
-            };
-            logEvent(`📍 ${this.name} picked up order #${this.currentDelivery.id}`);
-            addDispatchInsight(`${this.name} completed pickup and is now committing to the final dropoff leg.`, CONFIG.UI.LOG_LEVELS.SUCCESS);
-            await this.buildRouteToTarget(this.currentDelivery.destination.lat, this.currentDelivery.destination.lon);
-            return;
-        }
-
-        if (this.currentDelivery && this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_DROPOFF) {
-            this.currentLoad--;
-            this.totalDeliveries++;
-            if (typeof simulation !== 'undefined' && simulation && typeof simulation.recordDeliveryCompleted === 'function') {
-                simulation.recordDeliveryCompleted(this.currentDeliveryAlgorithm || this.routeAlgorithm);
+        try {
+            if (this.routeMode === CONFIG.ROBOT.ROUTE_MODES.CHARGING && this.chargingStation) {
+                this.startCharging();
+                return;
             }
-            logEvent(`✅ ${this.name} completed delivery #${this.currentDelivery.id}`);
-            mapManager.clearDeliveryMarkers(this.currentDelivery.id);
-            this.currentDelivery = null;
-            this.currentDeliveryAlgorithm = null;
-        }
 
-        this.status = CONFIG.ROBOT.STATUSES.IDLE;
-        this.currentPath = [];
-        this.pathIndex = 0;
-        this.routeMode = null;
-        this.routeDeliveryId = null;
-        this.routeTarget = null;
-        this.deliveryPhase = null;
-        this.clearPathLine();
+            if (this.currentDelivery && this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_PICKUP) {
+                this.deliveryPhase = CONFIG.ROBOT.PHASES.TO_DROPOFF;
+                this.routeTarget = {
+                    lat: this.currentDelivery.destination.lat,
+                    lon: this.currentDelivery.destination.lon
+                };
+                logEvent(`📍 ${this.name} picked up order #${this.currentDelivery.id}`);
+                addDispatchInsight(`${this.name} completed pickup and is now committing to the final dropoff leg.`, CONFIG.UI.LOG_LEVELS.SUCCESS);
+                await this.buildRouteToTarget(this.currentDelivery.destination.lat, this.currentDelivery.destination.lon);
+                return;
+            }
+
+            if (this.currentDelivery && this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_DROPOFF) {
+                this.currentLoad--;
+                this.totalDeliveries++;
+                if (typeof simulation !== 'undefined' && simulation && typeof simulation.recordDeliveryCompleted === 'function') {
+                    simulation.recordDeliveryCompleted(this.currentDeliveryAlgorithm || this.routeAlgorithm);
+                }
+                logEvent(`✅ ${this.name} completed delivery #${this.currentDelivery.id}`);
+                mapManager.clearDeliveryMarkers(this.currentDelivery.id);
+                this.currentDelivery = null;
+                this.currentDeliveryAlgorithm = null;
+            }
+
+            this.status = CONFIG.ROBOT.STATUSES.IDLE;
+            this.currentPath = [];
+            this.pathIndex = 0;
+            this.routeMode = null;
+            this.routeDeliveryId = null;
+            this.routeTarget = null;
+            this.deliveryPhase = null;
+            this.clearPathLine();
+        } finally {
+            this.isRouting = false;
+        }
     }
 
     async goCharge() {
@@ -246,44 +253,43 @@ class DeliveryRobot {
         }
     }
 
+    removeMarker() {
+        if (this.marker) {
+            this.marker.remove();
+            this.marker = null;
+        }
+        this.clearPathLine();
+    }
+
     createMarker(map) {
+        this.removeMarker();
+
         this.marker = L.marker([this.lat, this.lon], {
             icon: L.divIcon({
-                html: `<div style="width:44px;height:44px;background:${this.color};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;border:3px solid white;box-shadow:0 3px 10px rgba(0,0,0,0.3);">🤖</div>`,
+                html: `<div class="robot-marker-icon" style="--robot-color: ${this.color}">🤖</div>`,
                 iconSize: [44, 44],
                 iconAnchor: [22, 22]
             }),
             zIndexOffset: 1000
         }).addTo(map);
 
-        // Initialize popup
         this.marker.bindPopup('Loading...');
         this.marker.on('click', () => {
             this.updatePopup();
             this.marker.openPopup();
-            // Update computing panel if open
-            const compPanel = document.querySelector('.computing-panel');
-            if (compPanel && compPanel.style.display === 'block') {
-                const content = document.getElementById('computing-content');
-                if (content) {
-                    content.dataset.robotId = this.id;
-                    content.innerHTML = this.getComputingDetails();
-                }
+            
+            // Sync with Alpine store for Computing panel
+            const store = Alpine.store('sim');
+            if (store) {
+                store.computing.robotId = this.id;
+                store.computing.details = this.getComputingDetails();
             }
         });
     }
 
     updatePopup() {
-        const deliveryInfo = this.currentDelivery ?
-            `<div style="margin:4px 0;padding:5px;background:${CONFIG.UI.COLORS.surfaceLight};border-radius:6px;"><div style="font-size:10px;color:${CONFIG.UI.COLORS.textLight};">📦 Order #${this.currentDelivery.id}</div><div style="font-size:11px;">${this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_PICKUP ? '🔵 Going to pickup' : '🔴 Going to deliver'}</div></div>` :
-            `<div style="font-size:11px;color:${CONFIG.UI.COLORS.textLight};">No delivery</div>`;
+        const batteryClass = this.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.GOOD ? 'battery-good' : this.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.WARN ? 'battery-warn' : 'battery-error';
 
-        const destInfo = this.routeTarget ?
-            `<div style="margin:4px 0;padding:5px;background:${CONFIG.UI.COLORS.successLight};border-radius:6px;font-size:11px;">🎯 ${this.routeTarget.lat.toFixed(4)}, ${this.routeTarget.lon.toFixed(4)}<br>${this.currentPath.length - this.pathIndex} waypoints left<br>⏱ ETA ${this.getEtaText()}</div>` : '';
-
-        const batteryColor = this.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.GOOD ? CONFIG.ROBOT.COLORS.good : this.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.WARN ? CONFIG.ROBOT.COLORS.warn : CONFIG.ROBOT.COLORS.error;
-
-        // Current decision state
         let decisionState = CONFIG.UI.STATE_LABELS.IDLE;
         if (this.status === CONFIG.ROBOT.STATUSES.MOVING) {
             if (this.routeMode === CONFIG.ROBOT.ROUTE_MODES.CHARGING) decisionState = CONFIG.UI.STATE_LABELS.CHARGING;
@@ -294,33 +300,37 @@ class DeliveryRobot {
         if (this.isRouting) decisionState = CONFIG.UI.STATE_LABELS.REROUTING;
         if (this.battery < CONFIG.ROBOT.BATTERY_LOW_THRESHOLD && this.status !== CONFIG.ROBOT.STATUSES.CHARGING) decisionState = CONFIG.UI.STATE_LABELS.LOW_BATTERY;
 
-        const content = `<div style="min-width:240px;font-family:'Segoe UI',Arial,sans-serif;max-height:80vh;overflow-y:auto;">
-            <div style="font-size:13px;font-weight:700;color:${this.color};margin-bottom:4px;">🤖 ${this.name}</div>
-            
-            <div style="margin:4px 0;padding:5px;background:${this.isRouting ? CONFIG.UI.COLORS.warnLight : this.status === CONFIG.ROBOT.STATUSES.MOVING ? CONFIG.UI.COLORS.successLight : CONFIG.UI.COLORS.surfaceLight};border-radius:6px;font-size:11px;border-left:3px solid ${this.isRouting ? CONFIG.ROBOT.COLORS.highlight : this.status === CONFIG.ROBOT.STATUSES.MOVING ? CONFIG.ROBOT.COLORS.good : CONFIG.ROBOT.COLORS.neutral};">
-                <div style="font-weight:600;">${decisionState}</div>
-            </div>
+        const content = `
+            <div class="robot-popup">
+                <div class="popup-title" style="--robot-color: ${this.color}">🤖 ${this.name}</div>
+                
+                <div class="popup-status-badge ${this.isRouting ? 'status-warn' : this.status === CONFIG.ROBOT.STATUSES.MOVING ? 'status-success' : 'status-neutral'}">
+                    ${decisionState}
+                </div>
 
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin:4px 0;">
-                <div style="padding:4px;background:${CONFIG.UI.COLORS.surfaceLight};border-radius:4px;text-align:center;"><div style="font-size:8px;color:${CONFIG.UI.COLORS.textLight};">Speed</div><div style="font-size:11px;font-weight:600;">${(this.speedMultiplier * 100).toFixed(0)}%</div></div>
-                <div style="padding:4px;background:${CONFIG.UI.COLORS.surfaceLight};border-radius:4px;text-align:center;"><div style="font-size:8px;color:${CONFIG.UI.COLORS.textLight};">Battery</div><div style="font-size:11px;font-weight:600;color:${batteryColor};">${this.battery.toFixed(1)}%</div></div>
-                <div style="padding:4px;background:${CONFIG.UI.COLORS.surfaceLight};border-radius:4px;text-align:center;"><div style="font-size:8px;color:${CONFIG.UI.COLORS.textLight};">Drain</div><div style="font-size:11px;font-weight:600;">${this.batteryDrain.toFixed(3)}/s</div></div>
-            </div>
+                <div class="popup-grid-3">
+                    <div class="grid-item"><div class="item-label">Speed</div><div class="item-value">${(this.speedMultiplier * 100).toFixed(0)}%</div></div>
+                    <div class="grid-item"><div class="item-label">Battery</div><div class="item-value ${batteryClass}">${this.battery.toFixed(1)}%</div></div>
+                    <div class="grid-item"><div class="item-label">Drain</div><div class="item-value">${this.batteryDrain.toFixed(3)}/s</div></div>
+                </div>
 
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:4px 0;">
-                <div style="padding:4px;background:${CONFIG.UI.COLORS.surfaceLight};border-radius:4px;text-align:center;"><div style="font-size:8px;color:${CONFIG.UI.COLORS.textLight};">Completed</div><div style="font-size:14px;font-weight:700;color:${CONFIG.ROBOT.COLORS.good};">${this.totalDeliveries}</div></div>
-                <div style="padding:4px;background:${CONFIG.UI.COLORS.surfaceLight};border-radius:4px;text-align:center;"><div style="font-size:8px;color:${CONFIG.UI.COLORS.textLight};">Distance</div><div style="font-size:14px;font-weight:700;color:${CONFIG.ROBOT.COLORS.info};">${this.totalDistance.toFixed(0)}m</div></div>
-            </div>
+                <div class="popup-grid-2">
+                    <div class="grid-item"><div class="item-label">Completed</div><div class="item-value color-success">${this.totalDeliveries}</div></div>
+                    <div class="grid-item"><div class="item-label">Distance</div><div class="item-value color-primary">${this.totalDistance.toFixed(0)}m</div></div>
+                </div>
 
-            ${destInfo}${deliveryInfo}
-        </div>`;
+                ${this.routeTarget ? `<div class="popup-info-box status-success">🎯 ${this.routeTarget.lat.toFixed(4)}, ${this.routeTarget.lon.toFixed(4)}<br>${this.currentPath.length - this.pathIndex} waypoints left<br>⏱ ETA ${this.getEtaText()}</div>` : ''}
+                
+                ${this.currentDelivery ? `<div class="popup-info-box status-neutral"><div class="item-label">📦 Order #${this.currentDelivery.id}</div><div class="item-value">${this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_PICKUP ? '🔵 Going to pickup' : '🔴 Going to deliver'}</div></div>` : '<div class="popup-info-box status-neutral">No delivery</div>'}
+            </div>
+        `;
 
         const popup = this.marker.getPopup();
         if (popup) popup.setContent(content);
     }
 
     getComputingDetails() {
-        const batteryColor = this.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.GOOD ? CONFIG.ROBOT.COLORS.good : this.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.WARN ? CONFIG.ROBOT.COLORS.warn : CONFIG.ROBOT.COLORS.error;
+        const batteryClass = this.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.GOOD ? 'battery-good' : this.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.WARN ? 'battery-warn' : 'battery-error';
 
         let decisionState = CONFIG.UI.STATE_LABELS.IDLE;
         if (this.status === CONFIG.ROBOT.STATUSES.MOVING) {
@@ -335,149 +345,72 @@ class DeliveryRobot {
         const calcHistory = this._calcHistory && this._calcHistory.length > 0 ?
             this._calcHistory.slice(-8).reverse().map(c => {
                 const ago = ((Date.now() - c.timestamp) / 1000).toFixed(1);
-                const color = c.time < CONFIG.ROBOT.CALC_TIME_THRESHOLDS.GOOD ? CONFIG.ROBOT.COLORS.good : c.time < CONFIG.ROBOT.CALC_TIME_THRESHOLDS.WARN ? CONFIG.ROBOT.COLORS.warn : CONFIG.ROBOT.COLORS.error;
-                return `<tr style="border-bottom:1px solid ${CONFIG.UI.COLORS.border};">
-                    <td style="padding:3px;color:${CONFIG.UI.COLORS.textLight};">${ago}s</td>
-                    <td style="padding:3px;text-align:center;">${c.nodes}</td>
-                    <td style="padding:3px;text-align:right;color:${color};font-weight:600;">${c.time.toFixed(1)}ms</td>
-                </tr>`;
-            }).join('') : `<tr><td colspan="3" style="padding:6px;text-align:center;color:${CONFIG.UI.COLORS.textLight};">${CONFIG.UI.STATE_LABELS.WAITING}</td></tr>`;
+                const colorClass = c.time < CONFIG.ROBOT.CALC_TIME_THRESHOLDS.GOOD ? 'color-success' : c.time < CONFIG.ROBOT.CALC_TIME_THRESHOLDS.WARN ? 'color-warning' : 'color-error';
+                return `<tr><td>${ago}s</td><td class="text-center">${c.nodes}</td><td class="text-right fw-600 ${colorClass}">${c.time.toFixed(1)}ms</td></tr>`;
+            }).join('') : `<tr><td colspan="3" class="p-8 text-center">${CONFIG.UI.STATE_LABELS.WAITING}</td></tr>`;
 
         const routeInfo = this.lastRouteBreakdown ?
-            `<div style="background:${CONFIG.UI.GRADIENTS.info};padding:10px;border-radius:8px;margin:6px 0;">
-                <div style="font-weight:700;font-size:11px;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-                    🧠 A* Route Cost Breakdown
+            `<div class="insight-box">
+                <div class="insight-title">🧠 A* Route Cost Breakdown</div>
+                <div class="breakdown-container">
+                    <div class="breakdown-row"><span>📏 Base Distance:</span><strong>${this.lastRouteBreakdown.baseDistance.toFixed(0)}m</strong></div>
+                    <div class="breakdown-row"><span>🚗 Traffic Penalty:</span><span class="color-error">+${this.lastRouteBreakdown.trafficPenalty.toFixed(0)}m</span></div>
+                    <div class="breakdown-row"><span>🌧️ Rain Penalty:</span><span class="color-primary">+${this.lastRouteBreakdown.rainPenalty.toFixed(0)}m</span></div>
+                    <div class="breakdown-row"><span>🚧 Obstacle Penalty:</span><span class="color-warning">+${this.lastRouteBreakdown.obstaclePenalty.toFixed(0)}m</span></div>
+                    <div class="breakdown-total"><span>🎯 Total Cost:</span><strong>${this.lastRouteBreakdown.totalCost.toFixed(0)}m</strong></div>
+                    <div class="breakdown-row"><span>⏱ Sim ETA:</span><strong class="color-success">${this.getEtaText()}</strong></div>
                 </div>
-                <div style="background:${CONFIG.UI.COLORS.surface};border-radius:6px;padding:8px;font-size:11px;">
-                    <div style="display:flex;justify-content:space-between;margin:3px 0;padding:3px 0;border-bottom:1px dashed ${CONFIG.UI.COLORS.border};">
-                        <span>📏 Base Distance (Haversine):</span><strong style="color:${CONFIG.ROBOT.COLORS.info};">${this.lastRouteBreakdown.baseDistance.toFixed(0)}m</strong>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;margin:3px 0;padding:3px 0;border-bottom:1px dashed ${CONFIG.UI.COLORS.border};">
-                        <span>🚗 Traffic Penalty:</span><span style="color:${CONFIG.ROBOT.COLORS.error};font-weight:600;">+${this.lastRouteBreakdown.trafficPenalty.toFixed(0)}m</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;margin:3px 0;padding:3px 0;border-bottom:1px dashed ${CONFIG.UI.COLORS.border};">
-                        <span>🌧️ Rain Penalty:</span><span style="color:${CONFIG.ROBOT.COLORS.info};font-weight:600;">+${this.lastRouteBreakdown.rainPenalty.toFixed(0)}m</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;margin:3px 0;padding:3px 0;border-bottom:1px dashed ${CONFIG.UI.COLORS.border};">
-                        <span>🚧 Obstacle Penalty:</span><span style="color:${CONFIG.ROBOT.COLORS.highlight};font-weight:600;">+${this.lastRouteBreakdown.obstaclePenalty.toFixed(0)}m</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;margin:6px 0 3px 0;padding-top:6px;border-top:2px solid ${CONFIG.ROBOT.COLORS.info};background:${CONFIG.UI.COLORS.surfaceLight};padding:6px;border-radius:4px;">
-                        <span style="font-weight:700;">🎯 Total Cost:</span><strong style="color:${CONFIG.ROBOT.COLORS.info};font-size:13px;">${this.lastRouteBreakdown.totalCost.toFixed(0)}m</strong>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;margin:3px 0 0 0;padding-top:4px;">
-                        <span>⏱ Sim ETA:</span><strong style="color:${CONFIG.UI.COLORS.success};">${this.getEtaText()}</strong>
-                    </div>
-                </div>
-                <div style="margin-top:6px;font-size:9px;color:${CONFIG.UI.COLORS.textLight};">
-                    <strong>A* Formula:</strong> f(n) = g(n) + h(n)<br>
-                    g(n) = actual cost from start | h(n) = Haversine heuristic to goal
-                </div>
-            </div>` : `<div style="background:${CONFIG.UI.COLORS.surfaceLight};padding:10px;border-radius:8px;margin:6px 0;text-align:center;font-size:11px;color:${CONFIG.UI.COLORS.textLight};">Waiting for route calculation...</div>`;
+            </div>` : `<div class="insight-box text-center">Waiting for route calculation...</div>`;
 
-        const avgTime = this._calcHistory?.length > 0 ?
-            (this._calcHistory.reduce((a, b) => a + b.time, 0) / this._calcHistory.length).toFixed(1) : '0';
-        const fastest = this._calcHistory?.length > 0 ?
-            Math.min(...this._calcHistory.map(c => c.time)).toFixed(1) : '0';
-        const slowest = this._calcHistory?.length > 0 ?
-            Math.max(...this._calcHistory.map(c => c.time)).toFixed(1) : '0';
-
-        // 🧠 Memory stats
-        const memorySize = Object.keys(this.roadMemory).length;
-        const hotRoads = Object.values(this.roadMemory).filter(p => p > 1.4).length;
-        const avgMemoryPenalty = memorySize > 0 ?
-            (Object.values(this.roadMemory).reduce((a, b) => a + b, 0) / memorySize).toFixed(2) : '1.00';
+        const avgTime = this._calcHistory?.length > 0 ? (this._calcHistory.reduce((a, b) => a + b.time, 0) / this._calcHistory.length).toFixed(1) : '0';
+        const fastest = this._calcHistory?.length > 0 ? Math.min(...this._calcHistory.map(c => c.time)).toFixed(1) : '0';
+        const slowest = this._calcHistory?.length > 0 ? Math.max(...this._calcHistory.map(c => c.time)).toFixed(1) : '0';
 
         return `
-            <div style="font-family:'Segoe UI',Arial,sans-serif;max-height:85vh;overflow-y:auto;">
-                <div style="font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;">
-                    🤖 ${this.name} <span style="font-size:10px;color:${CONFIG.UI.COLORS.textLight};font-weight:400;">| Computing Engine</span>
+            <div class="computing-details">
+                <div class="details-header">
+                    🤖 ${this.name} <span>| Computing Engine</span>
                 </div>
                 
-                <div style="background:${this.isRouting ? CONFIG.UI.COLORS.warnLight : this.status === CONFIG.ROBOT.STATUSES.MOVING ? CONFIG.UI.COLORS.successLight : CONFIG.UI.COLORS.surfaceLight};padding:6px 8px;border-radius:6px;margin:6px 0;border-left:4px solid ${this.isRouting ? CONFIG.ROBOT.COLORS.highlight : this.status === CONFIG.ROBOT.STATUSES.MOVING ? CONFIG.ROBOT.COLORS.good : CONFIG.ROBOT.COLORS.neutral};">
-                    <div style="font-size:11px;font-weight:600;">State: ${decisionState}</div>
+                <div class="status-badge ${this.isRouting ? 'status-warn' : this.status === CONFIG.ROBOT.STATUSES.MOVING ? 'status-success' : 'status-neutral'}">
+                    State: ${decisionState}
                 </div>
 
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px;">
-                    <div style="background:${CONFIG.UI.GRADIENTS.surface};padding:6px;border-radius:6px;text-align:center;">
-                        <div style="font-size:8px;color:${CONFIG.UI.COLORS.textLight};text-transform:uppercase;">Speed</div>
-                        <div style="font-size:11px;font-weight:700;">${(this.speedMultiplier * 100).toFixed(0)}%</div>
-                    </div>
-                    <div style="background:${CONFIG.UI.GRADIENTS.surface};padding:6px;border-radius:6px;text-align:center;">
-                        <div style="font-size:8px;color:${CONFIG.UI.COLORS.textLight};text-transform:uppercase;">Battery</div>
-                        <div style="font-size:11px;font-weight:700;color:${batteryColor};">${this.battery.toFixed(1)}%</div>
-                    </div>
-                    <div style="background:${CONFIG.UI.GRADIENTS.surface};padding:6px;border-radius:6px;text-align:center;">
-                        <div style="font-size:8px;color:${CONFIG.UI.COLORS.textLight};text-transform:uppercase;">Drain/s</div>
-                        <div style="font-size:11px;font-weight:700;">${this.batteryDrain.toFixed(3)}</div>
-                    </div>
+                <div class="stats-grid-3">
+                    <div class="stat-card"><div class="stat-label">Speed</div><div class="stat-value">${(this.speedMultiplier * 100).toFixed(0)}%</div></div>
+                    <div class="stat-card"><div class="stat-label">Battery</div><div class="stat-value ${batteryClass}">${this.battery.toFixed(1)}%</div></div>
+                    <div class="stat-card"><div class="stat-label">Drain/s</div><div class="stat-value">${this.batteryDrain.toFixed(3)}</div></div>
                 </div>
 
                 ${routeInfo}
 
-                <div style="background:${CONFIG.UI.GRADIENTS.purple};padding:10px;border-radius:8px;margin:8px 0;">
-                    <div style="font-weight:700;font-size:11px;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-                        📊 Calculation History
-                        <span style="font-size:9px;color:${CONFIG.UI.COLORS.textLight};font-weight:400;">(last ${Math.min(8, this._calcHistory?.length || 0)})</span>
-                    </div>
-                    <table style="width:100%;border-collapse:collapse;font-size:10px;background:${CONFIG.UI.COLORS.surface};border-radius:6px;overflow:hidden;">
-                        <thead>
-                            <tr style="background:${CONFIG.UI.COLORS.purpleDark};color:white;">
-                                <th style="padding:5px;text-align:left;padding-left:8px;">⏱ When</th>
-                                <th style="padding:5px;text-align:center;">🔢 Nodes</th>
-                                <th style="padding:5px;text-align:right;padding-right:8px;">⚡ Time</th>
-                            </tr>
-                        </thead>
+                <div class="history-container">
+                    <div class="history-title">📊 Calculation History</div>
+                    <table class="history-table">
+                        <thead><tr><th>⏱ When</th><th>🔢 Nodes</th><th>⚡ Time</th></tr></thead>
                         <tbody>${calcHistory}</tbody>
                     </table>
                 </div>
 
-                <div style="background:${CONFIG.UI.GRADIENTS.success};padding:10px;border-radius:8px;margin:6px 0;">
-                    <div style="font-weight:700;font-size:11px;margin-bottom:6px;">📈 Lifetime Performance</div>
-                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
-                        <div style="background:${CONFIG.UI.COLORS.surface};padding:6px;border-radius:6px;text-align:center;">
-                            <div style="font-size:8px;color:${CONFIG.UI.COLORS.textLight};text-transform:uppercase;">Deliveries</div>
-                            <div style="font-size:16px;font-weight:700;color:${CONFIG.ROBOT.COLORS.good};">${this.totalDeliveries}</div>
-                        </div>
-                        <div style="background:${CONFIG.UI.COLORS.surface};padding:6px;border-radius:6px;text-align:center;">
-                            <div style="font-size:8px;color:${CONFIG.UI.COLORS.textLight};text-transform:uppercase;">Distance</div>
-                            <div style="font-size:16px;font-weight:700;color:${CONFIG.ROBOT.COLORS.info};">${this.totalDistance.toFixed(0)}m</div>
-                        </div>
-                        <div style="background:${CONFIG.UI.COLORS.surface};padding:6px;border-radius:6px;text-align:center;">
-                            <div style="font-size:8px;color:${CONFIG.UI.COLORS.textLight};text-transform:uppercase;">Calculations</div>
-                            <div style="font-size:16px;font-weight:700;color:${CONFIG.ROBOT.COLORS.highlight};">${this._calcHistory?.length || 0}</div>
-                        </div>
+                <div class="performance-container">
+                    <div class="perf-title">📈 Lifetime Performance</div>
+                    <div class="perf-grid">
+                        <div class="perf-card"><div class="stat-label">Deliveries</div><div class="stat-value text-success">${this.totalDeliveries}</div></div>
+                        <div class="perf-card"><div class="stat-label">Distance</div><div class="stat-value text-info">${this.totalDistance.toFixed(0)}m</div></div>
+                        <div class="perf-card"><div class="stat-label">Calculations</div><div class="stat-value text-highlight">${this._calcHistory?.length || 0}</div></div>
                     </div>
-                    <div style="margin-top:6px;background:${CONFIG.UI.COLORS.surface};padding:6px;border-radius:6px;display:flex;justify-content:space-around;font-size:10px;">
-                        <div>⚡ Fastest: <strong style="color:${CONFIG.ROBOT.COLORS.good};">${fastest}ms</strong></div>
-                        <div>🐌 Slowest: <strong style="color:${CONFIG.ROBOT.COLORS.error};">${slowest}ms</strong></div>
-                        <div>📊 Avg: <strong style="color:${CONFIG.UI.COLORS.purpleDark};">${avgTime}ms</strong></div>
-                    </div>
-                    <div style="margin-top:6px;background:${CONFIG.UI.GRADIENTS.purple};padding:6px;border-radius:6px;">
-                        <div style="font-size:9px;font-weight:700;margin-bottom:3px;">🧠 Road Memory (Learning)</div>
-                        <div style="display:flex;gap:8px;font-size:10px;">
-                            <span>📍 Roads: <strong>${memorySize}</strong></span>
-                            <span>🔥 Hot: <strong style="color:${CONFIG.ROBOT.COLORS.error};">${hotRoads}</strong></span>
-                            <span>⚖️ Avg: <strong>${avgMemoryPenalty}x</strong></span>
-                        </div>
+                    <div class="perf-summary">
+                        <div>⚡ Fast: <strong class="text-success">${fastest}ms</strong></div>
+                        <div>🐌 Slow: <strong class="text-error">${slowest}ms</strong></div>
+                        <div>📊 Avg: <strong>${avgTime}ms</strong></div>
                     </div>
                 </div>
 
-                <div style="background:${CONFIG.UI.COLORS.warnLight};padding:8px;border-radius:6px;margin:6px 0;font-size:9px;color:${CONFIG.UI.COLORS.textLight};border-left:3px solid ${CONFIG.ROBOT.COLORS.warn};">
-                    <strong>💡 How A* + Learning Works:</strong><br>
-                    1. Start node added to open set<br>
-                    2. Node with lowest f(n) selected<br>
-                    3. Neighbors evaluated with penalties<br>
-                    4. <strong>🧠 Robot remembers slow roads → avoids them next time</strong><br>
-                    5. Path reconstructed from start to goal<br>
-                    6. <strong>Penalties:</strong> 🌧️ Rain ${CONFIG.ROBOT.RAIN_REROUTE_THRESHOLD}x | 🚗 Traffic ${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER}-${(CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER * 2.5).toFixed(1)}x | 🚧 Obstacles ${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER}-${(CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER * 4).toFixed(1)}x | 🧠 Memory ${CONFIG.ROBOT.EXPERIENCE_PENALTIES.light}-${CONFIG.ROBOT.EXPERIENCE_PENALTIES.heavy}x
-                </div>
-
-                <div style="margin:8px 0;">
-                    <button onclick="showAStarProcess(${this.id})" style="width:100%;padding:10px;background:${CONFIG.UI.GRADIENTS.info};color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(26,115,232,${CONFIG.UI.OPACITY.low});">
+                <div class="action-container">
+                    <button @click="$store.sim.panels.insider = true; showAStarProcess(${this.id})" class="btn-primary-small">
                         🔬 Show Full A* Calculation Process
                     </button>
                 </div>
-                <div id="astep-visual-${this.id}" style="display:none;"></div>
             </div>
         `;
     }
@@ -575,7 +508,6 @@ class DeliveryRobot {
         this.status = CONFIG.ROBOT.STATUSES.MOVING;
         this.drawPathLine();
 
-        // Track calculation history
         this._calcHistory.push({
             time: calcTime,
             nodes: route.nodesExplored || route.path.length,

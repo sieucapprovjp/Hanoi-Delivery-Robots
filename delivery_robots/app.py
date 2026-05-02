@@ -61,6 +61,9 @@ _metrics = create_metrics()
 _api_logs_lock = threading.Lock()
 _api_logs = deque(maxlen=API_LOGS_MAX_LENGTH)
 
+_spatial_node_ids = None
+_spatial_tree = None
+
 
 _app_state = {
     "graph_center": GRAPH_CENTER,
@@ -83,9 +86,10 @@ _app_state = {
     "dynamic_traffic_routes": _dynamic_traffic_routes,
     "obstacles_lock": _obstacles_lock,
     "obstacles": _obstacles,
-    "metrics": _metrics,
     "api_logs": _api_logs,
     "api_logs_lock": _api_logs_lock,
+    "spatial_node_ids": _spatial_node_ids,
+    "spatial_tree": _spatial_tree,
 }
 
 
@@ -98,21 +102,25 @@ def _sync_state_from_globals():
     _app_state["dynamic_traffic_routes"] = _dynamic_traffic_routes
     _app_state["obstacles"] = _obstacles
     _app_state["delivery_history"] = DELIVERY_HISTORY
+    _app_state["spatial_node_ids"] = _spatial_node_ids
+    _app_state["spatial_tree"] = _spatial_tree
 
 
 def _sync_globals_from_state():
-    global _road_graph, _projected_road_graph, _traffic_routes, _ox
+    global _road_graph, _projected_road_graph, _traffic_routes, _ox, _spatial_node_ids, _spatial_tree
     _road_graph = _app_state["road_graph"]
     _projected_road_graph = _app_state["projected_road_graph"]
     _traffic_routes = _app_state["traffic_routes"]
     _ox = _app_state["ox"]
+    _spatial_node_ids = _app_state["spatial_node_ids"]
+    _spatial_tree = _app_state["spatial_tree"]
 
 
 def get_road_graph():
     _sync_state_from_globals()
     result = core_get_road_graph(
         _app_state,
-        nearest_node_id,
+        lambda g, lat, lon, ox=None: nearest_node_id(g, lat, lon, _app_state),
         build_route_response,
         traffic_penalty_for_point,
         rain_penalty_for_point,
@@ -162,7 +170,7 @@ def _build_routes_context():
         "build_metrics_payload": build_metrics_payload,
         "record_route_metrics": record_route_metrics,
         "build_route_response": build_route_response,
-        "nearest_node_id": nearest_node_id,
+        "nearest_node_id": lambda g, lat, lon, ox=None: nearest_node_id(g, lat, lon, _app_state),
         "validate_coordinate": validate_coordinate,
         "validate_lat_lon": validate_lat_lon,
         "validate_non_negative_int": validate_non_negative_int,
@@ -183,6 +191,8 @@ def _build_routes_context():
         "api_logs": _api_logs,
         "api_logs_lock": _api_logs_lock,
         "get_ox": lambda: _ox,
+        "spatial_node_ids": _spatial_node_ids,
+        "spatial_tree": _spatial_tree,
     }
 
 
