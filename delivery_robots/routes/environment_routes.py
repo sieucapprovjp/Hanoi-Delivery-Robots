@@ -79,6 +79,7 @@ def register_environment_routes(app, ctx):
     api_logs = ctx["api_logs"]
     api_logs_lock = ctx["api_logs_lock"]
     get_ox = ctx["get_ox"]
+    app_state = ctx["app_state"]
 
     @app.route("/api/logs", methods=["GET", "POST"])
     def api_logs_endpoint():
@@ -108,6 +109,49 @@ def register_environment_routes(app, ctx):
     @app.route("/api/health")
     def health():
         return jsonify({"status": "ok"})
+
+    @app.route("/api/charging-stations", methods=["GET"])
+    def list_charging_stations():
+        with app_state["charging_stations_lock"]:
+            stations = [
+                {
+                    "id": station["id"],
+                    "lat": station["lat"],
+                    "lon": station["lon"],
+                    "name": station["name"],
+                    "spots": station["spots"],
+                }
+                for station in app_state["charging_stations"]
+            ]
+        return jsonify({"stations": stations})
+
+    @app.route("/api/charging-stations/<int:station_id>", methods=["PUT"])
+    def update_charging_station(station_id):
+        payload = request.get_json(silent=True) or {}
+        try:
+            lat = validate_coordinate(payload.get("lat"), "lat")
+            lon = validate_coordinate(payload.get("lon"), "lon")
+            validate_lat_lon(lat, lon)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        with app_state["charging_stations_lock"]:
+            station = next(
+                (
+                    item
+                    for item in app_state["charging_stations"]
+                    if item["id"] == station_id
+                ),
+                None,
+            )
+            if station is None:
+                return jsonify({"error": "Charging station not found"}), 404
+
+            station["lat"] = lat
+            station["lon"] = lon
+            updated = dict(station)
+
+        return jsonify({"status": "ok", "station": updated})
 
     @app.route("/api/traffic")
     def traffic():

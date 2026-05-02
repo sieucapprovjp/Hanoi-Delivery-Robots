@@ -75,6 +75,16 @@ RANDOM_OBSTACLE_RADIUS_MAX = 120
 RANDOM_OBSTACLE_SEVERITY_MIN = 5
 RANDOM_OBSTACLE_SEVERITY_MAX = 50
 
+# ── Charging Stations ──
+CHARGING_STATIONS_INITIAL = [
+    {"id": 1, "lat": 21.0285, "lon": 105.8542, "name": "Hoan Kiem Hub", "spots": 3},
+    {"id": 2, "lat": 21.0355, "lon": 105.8516, "name": "Dong Xuan", "spots": 2},
+    {"id": 3, "lat": 21.0240, "lon": 105.8480, "name": "Trang Tien", "spots": 2},
+    {"id": 4, "lat": 21.0220, "lon": 105.8510, "name": "Ly Thuong Kiet", "spots": 2},
+    {"id": 5, "lat": 21.0300, "lon": 105.8530, "name": "Hang Ngang", "spots": 2},
+    {"id": 6, "lat": 21.0275, "lon": 105.8520, "name": "Opera House", "spots": 2},
+]
+
 # ── Routing ──
 DEFAULT_ROUTING_ALGORITHM = "astar"
 VALID_ROUTING_ALGORITHMS = {"astar", "gbfs", "dijkstra"}

@@ -266,7 +266,12 @@ class DeliveryRobot {
 
         this.marker = L.marker([this.lat, this.lon], {
             icon: L.divIcon({
-                html: `<div class="robot-marker-icon" style="--robot-color: ${this.color}">🤖</div>`,
+                className: 'robot-marker',
+                html: `
+                    <div class="robot-marker-icon" style="--robot-color: ${this.color}">
+                        <div class="robot-marker-avatar">🤖</div>
+                    </div>
+                `,
                 iconSize: [44, 44],
                 iconAnchor: [22, 22]
             }),

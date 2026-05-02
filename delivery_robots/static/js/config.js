@@ -196,7 +196,8 @@ const CONFIG = {
         INSIDER: '/api/insider',
         LOG_DELIVERY: '/api/log_delivery',
         OPTIMIZE_HUBS: '/api/optimize-hubs',
-        DISPATCH_ASSIGN: '/api/dispatch/assign'
+        DISPATCH_ASSIGN: '/api/dispatch/assign',
+        CHARGING_STATIONS: '/api/charging-stations'
     },
 
     // UI Settings

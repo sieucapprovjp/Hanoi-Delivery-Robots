@@ -1,11 +1,13 @@
 import threading
 import time
 from collections import deque
+from copy import deepcopy
 
 from flask import Flask
 
 from .config import (
     API_LOGS_MAX_LENGTH,
+    CHARGING_STATIONS_INITIAL,
     GRAPH_CENTER,
     GRAPH_DIST_METERS,
     GRAPH_NETWORK_TYPE,
@@ -57,6 +59,9 @@ _dynamic_traffic_routes = []
 _obstacles_lock = threading.Lock()
 _obstacles = []
 
+_charging_stations_lock = threading.Lock()
+_charging_stations = deepcopy(CHARGING_STATIONS_INITIAL)
+
 _metrics = create_metrics()
 _api_logs_lock = threading.Lock()
 _api_logs = deque(maxlen=API_LOGS_MAX_LENGTH)
@@ -86,6 +91,8 @@ _app_state = {
     "dynamic_traffic_routes": _dynamic_traffic_routes,
     "obstacles_lock": _obstacles_lock,
     "obstacles": _obstacles,
+    "charging_stations_lock": _charging_stations_lock,
+    "charging_stations": _charging_stations,
     "api_logs": _api_logs,
     "api_logs_lock": _api_logs_lock,
     "spatial_node_ids": _spatial_node_ids,
@@ -101,6 +108,7 @@ def _sync_state_from_globals():
     _app_state["rain_zones"] = RAIN_ZONES
     _app_state["dynamic_traffic_routes"] = _dynamic_traffic_routes
     _app_state["obstacles"] = _obstacles
+    _app_state["charging_stations"] = _charging_stations
     _app_state["delivery_history"] = DELIVERY_HISTORY
     _app_state["spatial_node_ids"] = _spatial_node_ids
     _app_state["spatial_tree"] = _spatial_tree
