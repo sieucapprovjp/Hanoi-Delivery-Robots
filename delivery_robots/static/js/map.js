@@ -116,6 +116,16 @@ class HanoiMap {
         });
     }
 
+    async reloadChargingStations() {
+        this.chargingStations.forEach(station => {
+            if (station.marker) {
+                station.marker.remove();
+            }
+        });
+        this.chargingStations = [];
+        await this.setupChargingStations();
+    }
+
     enableRainOverlay() {
         const style = document.createElement('style');
         style.textContent = `

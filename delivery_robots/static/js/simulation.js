@@ -378,6 +378,7 @@ class Simulation {
 
             if (window.mapManager) {
                 window.mapManager.drawHubs(hubs);
+                await window.mapManager.reloadChargingStations();
             }
 
         } catch (e) {

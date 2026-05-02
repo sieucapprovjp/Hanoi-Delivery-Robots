@@ -303,8 +303,7 @@ async function fetchMetrics() {
 }
 
 setInterval(() => {
-    const store = Alpine.store('sim');
-    if (store.panels.decision) fetchMetrics();
+    fetchMetrics();
 }, CONFIG.UI.METRICS_REFRESH_INTERVAL_MS);
 
 // Auto-refresh computing panel every 2s

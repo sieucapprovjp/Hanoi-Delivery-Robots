@@ -211,6 +211,19 @@ def register_main_routes(app, ctx):
             hubs = compute_optimized_hubs(
                 app_state, cluster_count=DEFAULT_HUB_CLUSTER_COUNT
             )
+            # Sync charging stations with optimized hubs (1:1 replace strategy)
+            with app_state["charging_stations_lock"]:
+                app_state["charging_stations"].clear()
+                for idx, hub in enumerate(hubs, start=1):
+                    app_state["charging_stations"].append(
+                        {
+                            "id": idx,
+                            "lat": hub["lat"],
+                            "lon": hub["lon"],
+                            "name": hub["name"],
+                            "spots": 2,
+                        }
+                    )
             return jsonify({"hubs": hubs}), 200
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400

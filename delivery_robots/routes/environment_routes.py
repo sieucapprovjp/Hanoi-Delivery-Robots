@@ -233,10 +233,13 @@ def register_environment_routes(app, ctx):
 
     @app.route("/api/metrics")
     def get_metrics():
+        graph = ctx["road_graph_getter"]()
+        if graph is None:
+            graph = get_road_graph()[0]
         return jsonify(
             build_metrics_payload(
                 metrics,
-                ctx["road_graph_getter"](),
+                graph,
                 len(rain_zones),
                 len(dynamic_traffic_routes),
                 len(obstacles),
