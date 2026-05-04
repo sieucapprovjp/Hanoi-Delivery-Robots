@@ -34,8 +34,12 @@ from .utils.validation import (
     validate_non_negative_int,
     validate_positive_number,
 )
+from flask_socketio import SocketIO
+from .core.simulation.simulator import SimulatorManager
+from .algorithms import run_weighted_route_search
 
 app = Flask(__name__)
+socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
 
 RAIN_ZONES = list(RAIN_ZONES_INITIAL)
 
@@ -199,3 +203,23 @@ def _build_routes_context():
 _ctx = _build_routes_context()
 register_main_routes(app, _ctx)
 register_environment_routes(app, _ctx)
+
+simulator = SimulatorManager(
+    socketio=socketio,
+    app_state=_app_state,
+    nearest_node_id=lambda g, lat, lon: nearest_node_id(g, lat, lon, _app_state),
+    run_weighted_route_search=run_weighted_route_search,
+    edge_weight_with_traffic=core_edge_weight_with_traffic
+)
+
+@socketio.on('start_simulation')
+def handle_start():
+    simulator.start()
+
+@socketio.on('pause_simulation')
+def handle_pause():
+    simulator.pause()
+
+@socketio.on('reset_simulation')
+def handle_reset():
+    simulator.reset()

@@ -135,3 +135,10 @@ INVALID_COORDS_ERROR = "Invalid coords"
 CLASSICAL_COMPARE_NOTE = (
     "Classical AI compare uses base edge length only (no rain/traffic/obstacle penalties)."
 )
+
+# ── Robot Statuses ──
+ROBOT_STATUS_IDLE = "idle"
+ROBOT_STATUS_MOVING_TO_PICKUP = "moving_to_pickup"
+ROBOT_STATUS_MOVING_TO_DROPOFF = "moving_to_dropoff"
+ROBOT_STATUS_MOVING_TO_CHARGE = "moving_to_charge"
+ROBOT_STATUS_CHARGING = "charging"

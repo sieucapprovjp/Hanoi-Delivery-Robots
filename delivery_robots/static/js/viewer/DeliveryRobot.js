@@ -14,30 +14,36 @@ class DeliveryRobot {
         this.speedMultiplier = 1;
         this.routeTarget = null;
         this.deliveryPhase = null;
+        this.battery = 100;
+        this.currentPathLength = 0;
     }
 
     update() {
-        if (this.status !== CONFIG.ROBOT.STATUSES.MOVING) return;
+        if (this.status === CONFIG.ROBOT.STATUSES.IDLE) return;
 
-        if (this.currentPath.length === 0 || this.pathIndex >= this.currentPath.length - 1) {
-            this.status = CONFIG.ROBOT.STATUSES.IDLE;
+        if (!this.currentPath || this.currentPath.length === 0 || this.pathIndex >= this.currentPath.length - 1) {
             return;
         }
 
         const target = this.currentPath[this.pathIndex + 1];
         const dist = this.distanceTo(target);
 
+        let currentSpeed = this.speed * this.speedMultiplier;
+        let lag = (this.backendPathIndex || 0) - this.pathIndex;
+        if (lag > 0) {
+            currentSpeed *= (1 + lag * 2);
+        }
+
         // Smooth interpolation
-        if (dist < this.speed * this.speedMultiplier) {
+        if (dist < currentSpeed) {
             this.lat = target.lat;
             this.lon = target.lon;
-            this.pathIndex++;
-
-            if (this.pathIndex >= this.currentPath.length - 1) {
-                this.status = CONFIG.ROBOT.STATUSES.IDLE;
+            // Only advance if backend has already moved past this target
+            if ((this.backendPathIndex || 0) >= this.pathIndex + 1) {
+                this.pathIndex++;
             }
         } else {
-            const ratio = (this.speed * this.speedMultiplier) / dist;
+            const ratio = currentSpeed / dist;
             this.lat += (target.lat - this.lat) * ratio;
             this.lon += (target.lon - this.lon) * ratio;
         }
@@ -45,7 +51,15 @@ class DeliveryRobot {
         // Update marker
         if (this.marker) {
             this.marker.setLatLng([this.lat, this.lon]);
-            if (this.marker.isPopupOpen()) this.updatePopup();
+        }
+
+        // Dynamically trim the path line
+        if (this.pathLine && this.currentPath && this.currentPath.length > 0) {
+            const remainingPath = [[this.lat, this.lon]];
+            for (let i = this.pathIndex + 1; i < this.currentPath.length; i++) {
+                remainingPath.push([this.currentPath[i].lat, this.currentPath[i].lon]);
+            }
+            this.pathLine.setLatLngs(remainingPath);
         }
     }
 
@@ -78,9 +92,9 @@ class DeliveryRobot {
 
     updatePopup() {
         let decisionState = CONFIG.UI.STATE_LABELS.IDLE;
-        if (this.status === CONFIG.ROBOT.STATUSES.MOVING) {
-            if (this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_PICKUP) decisionState = CONFIG.UI.STATE_LABELS.ROUTING_PICKUP;
-            else if (this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_DROPOFF) decisionState = CONFIG.UI.STATE_LABELS.ROUTING_DROPOFF;
+        if (this.status !== CONFIG.ROBOT.STATUSES.IDLE) {
+            if (this.status === 'moving_to_pickup') decisionState = CONFIG.UI.STATE_LABELS.ROUTING_PICKUP;
+            else if (this.status === 'moving_to_dropoff') decisionState = CONFIG.UI.STATE_LABELS.ROUTING_DROPOFF;
             else decisionState = CONFIG.UI.STATE_LABELS.MOVING;
         }
 
@@ -94,10 +108,10 @@ class DeliveryRobot {
 
                 <div class="popup-grid-2">
                     <div class="grid-item"><div class="item-label">Status</div><div class="item-value">${this.status.toUpperCase()}</div></div>
-                    <div class="grid-item"><div class="item-label">Position</div><div class="item-value">${this.lat.toFixed(4)}, ${this.lon.toFixed(4)}</div></div>
+                    <div class="grid-item"><div class="item-label">Battery</div><div class="item-value">${(this.battery || 100).toFixed(1)}%</div></div>
                 </div>
 
-                ${this.routeTarget ? `<div class="popup-info-box status-success">🎯 Target: ${this.routeTarget.lat.toFixed(4)}, ${this.routeTarget.lon.toFixed(4)}<br>${this.currentPath.length - this.pathIndex} waypoints left</div>` : ''}
+                ${this.routeTarget ? `<div class="popup-info-box status-success">🎯 Target: ${this.routeTarget}<br>${(this.currentPathLength || this.currentPath.length) - this.pathIndex} waypoints left</div>` : ''}
             </div>
         `;
 
@@ -130,12 +144,19 @@ class DeliveryRobot {
         return Math.sqrt((this.lat - point.lat) ** 2 + (this.lon - point.lon) ** 2);
     }
 
-    setPath(path, target = null, phase = null) {
+    setPath(path, target = null, phase = null, startIndex = 0) {
         this.currentPath = path;
-        this.pathIndex = 0;
+        this.pathIndex = startIndex;
         this.routeTarget = target;
         this.deliveryPhase = phase;
         this.status = path.length > 0 ? CONFIG.ROBOT.STATUSES.MOVING : CONFIG.ROBOT.STATUSES.IDLE;
+        
+        if (startIndex > 0 && startIndex < path.length) {
+            this.lat = path[startIndex].lat;
+            this.lon = path[startIndex].lon;
+            if (this.marker) this.marker.setLatLng([this.lat, this.lon]);
+        }
+        
         this.drawPathLine();
     }
 }

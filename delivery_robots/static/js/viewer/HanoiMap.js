@@ -63,7 +63,8 @@ class HanoiMap {
                     html: `<div class="charging-station-inner">⚡</div>`,
                     iconSize: [CONFIG.UI.RADII.markerLarge * 6, CONFIG.UI.RADII.markerLarge * 6],
                     iconAnchor: [CONFIG.UI.RADII.markerLarge * 3, CONFIG.UI.RADII.markerLarge * 3]
-                })
+                }),
+                zIndexOffset: 900
             }).addTo(this.map);
 
             this.chargingStations.push(station);

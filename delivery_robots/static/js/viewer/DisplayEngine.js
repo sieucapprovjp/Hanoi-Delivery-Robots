@@ -1,8 +1,7 @@
 class DisplayEngine {
     constructor() {
         this.robots = [];
-        this.running = false;
-        this.speed = 1;
+        this.socket = null;
     }
 
     async initialize() {
@@ -33,54 +32,84 @@ class DisplayEngine {
 
         this.robots.forEach(robot => robot.createMarker(mapManager.map));
 
-        logEvent('🚀 Frontend Display Ready');
-        addDispatchInsight('Display engine online. Waiting for backend updates.', CONFIG.UI.LOG_LEVELS.NEUTRAL);
+        // Connect WebSocket
+        if (typeof io !== 'undefined') {
+            this.socket = io();
+            
+            this.socket.on('robot_state_update', (state) => {
+                this.handleRobotState(state);
+            });
+            
+            this.socket.on('system_event', (data) => {
+                logEvent('🌐 ' + data.message);
+                addDispatchInsight(data.message);
+            });
+        }
+
+        this.startAnimationLoop();
+        logEvent('🚀 Frontend Display Ready (Event-Driven)');
     }
 
-    update() {
-        if (!this.running) return;
-        this.robots.forEach(robot => robot.update());
+    startAnimationLoop() {
+        const loop = () => {
+            this.robots.forEach(robot => robot.update());
+            requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
+    }
+
+    handleRobotState(state) {
+        const robot = this.robots[state.id];
+        if (!robot) return;
+        
+        robot.status = state.status;
+        robot.backendPathIndex = state.path_index;
+        robot.battery = state.battery;
+        robot.routeTarget = state.route_target;
+        robot.currentPathLength = state.current_path_length;
+
+        if (state.path_coords && state.path_coords.length > 0) {
+            if (!robot.currentPath || robot.currentPath.length !== state.current_path_length || robot.routeTarget !== state.route_target) {
+                robot.setPath(state.path_coords, state.route_target, null, state.path_index);
+            }
+        } else if (state.status === 'idle') {
+            robot.clearPathLine();
+            robot.currentPath = [];
+        }
+        
+        // Only snap position if idle to allow interpolation to work when moving
+        if (state.status === 'idle') {
+            robot.lat = state.lat;
+            robot.lon = state.lon;
+            if (robot.marker) robot.marker.setLatLng([state.lat, state.lon]);
+        }
+        
+        if (robot.marker && robot.marker.isPopupOpen()) {
+            robot.updatePopup();
+        }
+        
         this.updateRobotStatus();
     }
 
     start() {
-        if (this.running) return;
-        this.running = true;
-
-        const loop = () => {
-            if (!this.running) return;
-            this.update();
-            requestAnimationFrame(loop);
-        };
-
-        requestAnimationFrame(loop);
-        logEvent('▶ Started Display Loop');
+        if (this.socket) {
+            this.socket.emit('start_simulation');
+            logEvent('▶ Requested Start');
+        }
     }
 
     pause() {
-        this.running = false;
-        logEvent('⏸ Paused Display Loop');
+        if (this.socket) {
+            this.socket.emit('pause_simulation');
+            logEvent('⏸ Requested Pause');
+        }
     }
 
     reset() {
-        this.pause();
-
-        const starts = this.snappedLocations.slice(0, 5);
-        this.robots.forEach((robot, i) => {
-            const start = starts[i] || starts[0];
-            robot.lat = start.lat;
-            robot.lon = start.lon;
-            robot.status = CONFIG.ROBOT.STATUSES.IDLE;
-            robot.currentPath = [];
-            robot.pathIndex = 0;
-            robot.routeTarget = null;
-            robot.deliveryPhase = null;
-            robot.clearPathLine();
-            if (robot.marker) robot.marker.setLatLng([robot.lat, robot.lon]);
-        });
-
-        logEvent('🔄 Reset Display');
-        this.updateRobotStatus();
+        if (this.socket) {
+            this.socket.emit('reset_simulation');
+            logEvent('🔄 Requested Reset');
+        }
     }
 
     updateRobotStatus() {
@@ -96,7 +125,10 @@ class DisplayEngine {
             card.innerHTML = `
                 <div class="robot-name" style="color:${robot.color}">${robot.name}</div>
                 <div class="robot-detail">Status: ${robot.status.toUpperCase()}</div>
-                <div class="robot-detail">Pos: ${robot.lat.toFixed(4)}, ${robot.lon.toFixed(4)}</div>
+                <div class="robot-detail">Target: ${robot.routeTarget ? robot.routeTarget : 'None'}</div>
+                <div class="battery-bar">
+                    <div class="battery-fill" style="width: ${robot.battery || 100}%; background: ${robot.battery < 20 ? '#ea4335' : 'linear-gradient(90deg, #34a853, #4285f4)'}"></div>
+                </div>
             `;
             container.appendChild(card);
         });

@@ -3,4 +3,5 @@ osmnx==2.1.0
 networkx==3.6.1
 scikit-learn
 numpy
-
+flask-socketio
+simpy

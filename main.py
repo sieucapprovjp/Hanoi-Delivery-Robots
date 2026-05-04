@@ -1,6 +1,6 @@
 import os
 
-from delivery_robots.app import app, get_road_graph
+from delivery_robots.app import app, get_road_graph, socketio
 
 
 if __name__ == "__main__":
@@ -9,4 +9,4 @@ if __name__ == "__main__":
     print("Loading OpenStreetMap road graph for Hoan Kiem...")
     get_road_graph()
     print(f"Open http://127.0.0.1:{port} in your browser")
-    app.run(host="127.0.0.1", port=port)
+    socketio.run(app, host="127.0.0.1", port=port, debug=True, allow_unsafe_werkzeug=True, use_reloader=False)
