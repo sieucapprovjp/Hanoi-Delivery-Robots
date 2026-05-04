@@ -4,7 +4,7 @@ from delivery_robots.app import app, get_road_graph
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "5002"))
+    port = int(os.environ.get("PORT", "5000"))
     print("Starting Hanoi Delivery Robots...")
     print("Loading OpenStreetMap road graph for Hoan Kiem...")
     get_road_graph()
