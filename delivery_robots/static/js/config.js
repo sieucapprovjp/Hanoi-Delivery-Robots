@@ -24,7 +24,6 @@ const CONFIG = {
 
     // Robot Settings
     ROBOT: {
-        DEFAULT_SPEED: 0.000010,
         COLORS: {
             error: '#ea4335',
             info: '#1a73e8'

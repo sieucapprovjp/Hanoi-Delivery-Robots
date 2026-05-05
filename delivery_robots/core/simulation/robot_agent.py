@@ -2,11 +2,9 @@ from ...config import (
     ROBOT_STATUS_IDLE,
     ROBOT_STATUS_MOVING_TO_PICKUP,
     ROBOT_STATUS_MOVING_TO_DROPOFF,
-    ESTIMATED_SPEED_METERS_PER_MINUTE,
+    SPEED_METERS_PER_SECOND,
 )
 from ..environment import edge_weight_with_traffic
-
-SPEED_METERS_PER_SECOND = ESTIMATED_SPEED_METERS_PER_MINUTE / 60.0
 
 
 class RobotAgent:
@@ -35,6 +33,9 @@ class RobotAgent:
         self.path_index = 0
         self.route_target = None
         self.delivery_phase = None
+        self.segment_duration = 0
+        self.geometry_path = []      # flat [{lat,lon},...] — for drawing
+        self.segment_geometry = []   # [[{lat,lon},...], ...] — per-node-segment for interpolation
 
         # Battery could be implemented here; for now we simulate basic movement
         self.battery = 100.0
@@ -48,7 +49,6 @@ class RobotAgent:
     def assign_task(self, task):
         self.task_queue.append(task)
         if self.status == ROBOT_STATUS_IDLE:
-            # Wake up the process if it's idle
             if self.action.is_alive and not self.action.triggered:
                 self.action.interrupt()
 
@@ -71,8 +71,11 @@ class RobotAgent:
         # 1. Move to pickup
         self.status = ROBOT_STATUS_MOVING_TO_PICKUP
         self.current_path = task["pickup_path"]
+        self.geometry_path = task.get("pickup_geometry_path", [])
+        self.segment_geometry = task.get("pickup_segment_geometry", [])
         self.path_index = 0
         self.route_target = "Pickup"
+        self.segment_duration = 0
         self._emit_state()
         yield from self.traverse_path(self.current_path)
 
@@ -82,8 +85,11 @@ class RobotAgent:
         # 3. Move to dropoff
         self.status = ROBOT_STATUS_MOVING_TO_DROPOFF
         self.current_path = task["dropoff_path"]
+        self.geometry_path = task.get("dropoff_geometry_path", [])
+        self.segment_geometry = task.get("dropoff_segment_geometry", [])
         self.path_index = 0
         self.route_target = "Dropoff"
+        self.segment_duration = 0
         self._emit_state()
         yield from self.traverse_path(self.current_path)
 
@@ -91,7 +97,10 @@ class RobotAgent:
         yield self.env.timeout(30)
 
         self.current_path = []
+        self.geometry_path = []
+        self.segment_geometry = []
         self.route_target = None
+        self.segment_duration = 0
         self._emit_state()
 
     def traverse_path(self, path_nodes):
@@ -112,25 +121,26 @@ class RobotAgent:
                 self.lat = from_node_data["y"]
                 self.lon = from_node_data["x"]
 
-                # Emit state BEFORE yielding. Frontend knows we are at `i` and moving to `i+1`
-                self._emit_state()
-
                 # Calculate time to traverse
                 weight = edge_weight_with_traffic(
                     self.app_state, from_node, to_node, edge_data
                 )
-                travel_time_seconds = weight / SPEED_METERS_PER_SECOND
+                self.segment_duration = weight / SPEED_METERS_PER_SECOND
+
+                # Emit state BEFORE yielding. Frontend knows we are at `i` and moving to `i+1`
+                self._emit_state()
 
                 # Deplete battery (e.g. 1% per 60 sim seconds of travel)
-                self.battery = max(0.0, self.battery - (travel_time_seconds / 60.0))
+                self.battery = max(0.0, self.battery - (self.segment_duration / 60.0))
 
-                yield self.env.timeout(travel_time_seconds)
+                yield self.env.timeout(self.segment_duration)
 
         # Final node
         final_node = path_nodes[-1]
         self.lat = graph.nodes[final_node]["y"]
         self.lon = graph.nodes[final_node]["x"]
         self.path_index = len(path_nodes) - 1
+        self.segment_duration = 0
         self._emit_state()
 
     def _emit_state(self):
@@ -150,14 +160,13 @@ class RobotAgent:
             "route_target": self.route_target,
             "battery": self.battery,
             "current_path_length": len(self.current_path),
+            "segment_duration": self.segment_duration,
         }
 
-        if self.current_path and len(self.current_path) > 0:
-            graph = self.app_state.get("road_graph")
-            if graph:
-                state["path_coords"] = [
-                    {"lat": graph.nodes[n]["y"], "lon": graph.nodes[n]["x"]}
-                    for n in self.current_path
-                ]
+        if self.geometry_path:
+            state["geometry_path"] = self.geometry_path
+
+        if self.segment_geometry:
+            state["segment_geometry"] = self.segment_geometry
 
         return state

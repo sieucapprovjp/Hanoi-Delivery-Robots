@@ -76,13 +76,9 @@ RANDOM_OBSTACLE_SEVERITY_MIN = 5
 RANDOM_OBSTACLE_SEVERITY_MAX = 50
 
 # ── Routing ──
-DEFAULT_ROUTING_ALGORITHM = "astar"
-VALID_ROUTING_ALGORITHMS = {"astar", "gbfs", "dijkstra"}
-INVALID_ALGORITHM_ERROR = "Invalid algo. Use astar, gbfs, or dijkstra."
-DEFAULT_ROAD_MEMORY_PENALTY = 1.0
 DEFAULT_EDGE_LENGTH = 0.0
 DEFAULT_ROUTE_DISTANCE = 0.0
-ESTIMATED_SPEED_METERS_PER_MINUTE = 180
+SPEED_METERS_PER_SECOND = 2
 
 # ── Hub Optimization ──
 DEFAULT_HUB_CLUSTER_COUNT = 5
@@ -132,9 +128,7 @@ DEFAULT_DEMO_FROM_LON = 105.8542
 DEFAULT_DEMO_TO_LAT = 21.0355
 DEFAULT_DEMO_TO_LON = 105.8516
 INVALID_COORDS_ERROR = "Invalid coords"
-CLASSICAL_COMPARE_NOTE = (
-    "Classical AI compare uses base edge length only (no rain/traffic/obstacle penalties)."
-)
+CLASSICAL_COMPARE_NOTE = "Classical AI compare uses base edge length only (no rain/traffic/obstacle penalties)."
 
 # ── Robot Statuses ──
 ROBOT_STATUS_IDLE = "idle"

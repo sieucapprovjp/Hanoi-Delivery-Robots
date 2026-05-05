@@ -46,9 +46,9 @@ def get_road_graph(
     obstacle_penalty_for_point,
 ):
     if (
-        state["road_graph"] is not None
-        and state["projected_road_graph"] is not None
-        and state["traffic_routes"] is not None
+        state["road_graph"]
+        and state["projected_road_graph"]
+        and state["traffic_routes"]
     ):
         return state["road_graph"], state["projected_road_graph"], state["traffic_routes"]
 
@@ -58,7 +58,7 @@ def get_road_graph(
 
             state["ox"] = ox
 
-        if state["road_graph"] is None:
+        if not state["road_graph"]:
             state["road_graph"] = state["ox"].graph_from_point(
                 state["graph_center"],
                 dist=state["graph_dist_meters"],

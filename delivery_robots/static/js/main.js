@@ -44,7 +44,6 @@ async function init() {
         setupWeather();
         await fetchMetrics(true);
         await updateClock(true);
-        setInterval(updateClock, 1000);
         logEvent('✅ Display Ready');
     } catch (error) {
         console.error('Init error:', error);
@@ -258,9 +257,11 @@ async function updateClock(isFull = false) {
         const url = isFull ? `${CONFIG.API.CLOCK}?full=true` : CONFIG.API.CLOCK;
         const d = await (await fetch(url)).json();
         const store = Alpine.store('sim');
-        store.clock = d.time.display;
-        store.rushHour.active = d.rushHour.isActive;
-        store.rushHour.multiplier = d.rushHour.multiplier;
+        if (store) {
+            store.clock = d.time.display;
+            store.rushHour.active = d.rushHour.isActive;
+            store.rushHour.multiplier = d.rushHour.multiplier;
+        }
     } catch (e) { }
 }
 

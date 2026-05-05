@@ -25,8 +25,7 @@ from ..config import (
 
 
 def get_simulation_time(state):
-    elapsed_real = time.time() - state["simulation_start_time"]
-    elapsed_simulated = elapsed_real * state["simulation_speed"]
+    elapsed_simulated = state.get("sim_now", 0)
     sim_seconds_from_midnight = SIMULATION_START_OFFSET_SECONDS + elapsed_simulated
     sim_seconds_from_midnight %= SECONDS_PER_DAY
     hours = int(sim_seconds_from_midnight // SECONDS_PER_HOUR)
@@ -51,7 +50,7 @@ def get_rush_hour_multiplier(state):
 def traffic_penalty_for_point(state, lat, lon):
     penalty = DEFAULT_TRAFFIC_PENALTY
     now = time.time()
-    if state["traffic_routes"] is None and not state["dynamic_traffic_routes"]:
+    if not state["traffic_routes"] and not state["dynamic_traffic_routes"]:
         return penalty
 
     traffic_routes = list(state["traffic_routes"] or [])
@@ -78,8 +77,16 @@ def traffic_penalty_for_point(state, lat, lon):
             )
 
             if distance <= TRAFFIC_INFLUENCE_RADIUS_METERS:
-                segment_strength = max(TRAFFIC_MIN_SEGMENT_STRENGTH, 1 - abs(idx - active_segment))
-                penalty = max(penalty, 1 + road["severity"] * segment_strength * TRAFFIC_SEVERITY_SCALING_FACTOR)
+                segment_strength = max(
+                    TRAFFIC_MIN_SEGMENT_STRENGTH, 1 - abs(idx - active_segment)
+                )
+                penalty = max(
+                    penalty,
+                    1
+                    + road["severity"]
+                    * segment_strength
+                    * TRAFFIC_SEVERITY_SCALING_FACTOR,
+                )
 
     return penalty
 
@@ -108,7 +115,12 @@ def obstacle_penalty_for_point(state, lat, lon):
             continue
         closeness = 1 - (distance / radius if radius else 1)
         severity = obstacle.get("severity", DEFAULT_OBSTACLE_SEVERITY)
-        penalty = max(penalty, 1 + (severity / OBSTACLE_SEVERITY_DIVISOR) * max(OBSTACLE_MIN_CLOSENESS_FACTOR, closeness))
+        penalty = max(
+            penalty,
+            1
+            + (severity / OBSTACLE_SEVERITY_DIVISOR)
+            * max(OBSTACLE_MIN_CLOSENESS_FACTOR, closeness),
+        )
 
     return penalty
 

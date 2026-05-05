@@ -3,7 +3,7 @@ import numpy as np
 from ..config import (
     DEFAULT_EDGE_LENGTH,
     DEFAULT_ROUTE_DISTANCE,
-    ESTIMATED_SPEED_METERS_PER_MINUTE,
+    SPEED_METERS_PER_SECOND,
 )
 from .geo import haversine_distance
 
@@ -16,7 +16,7 @@ def nearest_node_id(graph, lat, lon, state):
     spatial_tree = state.get("spatial_tree")
     spatial_node_ids = state.get("spatial_node_ids")
     ox = state.get("ox")
-    if spatial_tree is not None and spatial_node_ids is not None:
+    if spatial_tree is not None and spatial_node_ids.size > 0:
         query_coord = np.array([[np.radians(lat), np.radians(lon)]])
         _, indices = spatial_tree.query(query_coord, k=1)
         return spatial_node_ids[indices[0][0]]
@@ -47,6 +47,50 @@ def edge_geometry_coordinates(graph, from_node, to_node, edge_data):
         ]
 
     return [{"lat": lat, "lon": lon} for lon, lat in geometry.coords]
+
+
+def build_geometry_path(graph, route_nodes):
+    """
+    Build a flat list of geometry coordinates for an entire route.
+    Used by the frontend to draw an accurate polyline on the map.
+    Each edge may contain intermediate shape points from OSM geometry.
+    """
+    route_path = []
+    for idx in range(len(route_nodes) - 1):
+        from_node = route_nodes[idx]
+        to_node = route_nodes[idx + 1]
+        edge_options = graph.get_edge_data(from_node, to_node)
+        edge_data = min(
+            edge_options.values(),
+            key=lambda e: e.get("length", float("inf")),
+        )
+        segment_pts = edge_geometry_coordinates(graph, from_node, to_node, edge_data)
+        if route_path and segment_pts:
+            segment_pts = segment_pts[1:]  # avoid duplicating junction point
+        route_path.extend(segment_pts)
+    return route_path
+
+
+def build_segment_geometry(graph, route_nodes):
+    """
+    Build a per-node-segment geometry list for proportional interpolation.
+    Returns a list where index i contains the geometry points for the
+    edge from route_nodes[i] to route_nodes[i+1].
+    The frontend uses this to interpolate position within each segment
+    at a speed proportional to sub-segment length.
+    """
+    segments = []
+    for idx in range(len(route_nodes) - 1):
+        from_node = route_nodes[idx]
+        to_node = route_nodes[idx + 1]
+        edge_options = graph.get_edge_data(from_node, to_node)
+        edge_data = min(
+            edge_options.values(),
+            key=lambda e: e.get("length", float("inf")),
+        )
+        seg_pts = edge_geometry_coordinates(graph, from_node, to_node, edge_data)
+        segments.append(seg_pts)
+    return segments
 
 
 def build_route_response(
@@ -104,8 +148,6 @@ def build_route_response(
             "rainPenalty": round(rain_cost, 1),
             "obstaclePenalty": round(obstacle_cost, 1),
             "totalCost": round(total_cost, 1),
-            "estimatedMinutes": round(
-                total_cost / ESTIMATED_SPEED_METERS_PER_MINUTE, 1
-            ),
+            "estimatedMinutes": round(total_cost / SPEED_METERS_PER_SECOND / 60.0, 1),
         }
     return response

@@ -5,9 +5,10 @@ class DeliveryRobot {
         this.lon = lon;
         this.name = name;
         this.color = color;
-        this.speed = CONFIG.ROBOT.DEFAULT_SPEED;
         this.status = CONFIG.ROBOT.STATUSES.IDLE;
-        this.currentPath = [];
+        this.currentPath = [];       // node-level coords [{lat,lon},...] — length tracking
+        this.geometryPath = [];      // flat geometry coords [{lat,lon},...] — for drawing
+        this.segmentGeometry = [];   // [[{lat,lon},...], ...] — per-node-segment for interpolation
         this.pathIndex = 0;
         this.marker = null;
         this.pathLine = null;
@@ -16,50 +17,187 @@ class DeliveryRobot {
         this.deliveryPhase = null;
         this.battery = 100;
         this.currentPathLength = 0;
+        this.segmentStartTime = null;
+        this.segmentDuration = 0;
+        this._lastPathIndex = -1;
     }
 
     update() {
         if (this.status === CONFIG.ROBOT.STATUSES.IDLE) return;
 
-        if (!this.currentPath || this.currentPath.length === 0 || this.pathIndex >= this.currentPath.length - 1) {
-            return;
+        const hasGeometry = this.segmentGeometry && this.segmentGeometry.length > 0;
+        const hasPath = this.currentPath && this.currentPath.length > 0;
+
+        if (!hasGeometry && !hasPath) return;
+        if (hasGeometry && this.pathIndex >= this.segmentGeometry.length) return;
+        if (hasPath && !hasGeometry && this.pathIndex >= this.currentPath.length - 1) return;
+
+        this._updateMovement();
+        this._updateMarker();
+        this._updatePathLineVisual();
+    }
+
+    _updateMovement() {
+        // Initialize or reset timer when moving to a new segment
+        if (this._lastPathIndex !== this.pathIndex) {
+            this.segmentStartTime = Date.now();
+            this._lastPathIndex = this.pathIndex;
         }
 
-        const target = this.currentPath[this.pathIndex + 1];
-        const dist = this.distanceTo(target);
+        // Get simulation speed to convert real elapsed time to simulation time
+        const simSpeed = (window.Alpine && Alpine.store('sim')) ? (Alpine.store('sim').speed || 60) : 60;
 
-        let currentSpeed = this.speed * this.speedMultiplier;
-        let lag = (this.backendPathIndex || 0) - this.pathIndex;
+        const realElapsedMs = Date.now() - this.segmentStartTime;
+        let simElapsedSec = (realElapsedMs / 1000) * simSpeed * this.speedMultiplier;
+
+        // Handle lag by artificially increasing elapsed time
+        const lag = (this.backendPathIndex || 0) - this.pathIndex;
         if (lag > 0) {
-            currentSpeed *= (1 + lag * 2);
+            simElapsedSec *= (1 + lag * 2);
         }
 
-        // Smooth interpolation
-        if (dist < currentSpeed) {
-            this.lat = target.lat;
-            this.lon = target.lon;
-            // Only advance if backend has already moved past this target
-            if ((this.backendPathIndex || 0) >= this.pathIndex + 1) {
-                this.pathIndex++;
-            }
+        // Calculate interpolation ratio (t): 0 = segment start, 1 = segment end
+        let t = this.segmentDuration > 0 ? simElapsedSec / this.segmentDuration : 1;
+        t = Math.min(1, Math.max(0, t));
+
+        // Geometry-aware interpolation: proportional to sub-segment distances
+        const segGeo = this.segmentGeometry[this.pathIndex];
+        if (segGeo && segGeo.length >= 2) {
+            [this.lat, this.lon] = this._interpolateAlongGeometry(segGeo, t);
         } else {
-            const ratio = currentSpeed / dist;
-            this.lat += (target.lat - this.lat) * ratio;
-            this.lon += (target.lon - this.lon) * ratio;
+            // Fallback: straight-line interpolation between node coords
+            const startNode = this.currentPath[this.pathIndex];
+            const target = this.currentPath[this.pathIndex + 1];
+            if (startNode && target) {
+                this.lat = startNode.lat + (target.lat - startNode.lat) * t;
+                this.lon = startNode.lon + (target.lon - startNode.lon) * t;
+            }
         }
 
-        // Update marker
+        // Advance to next node if interpolation is complete AND backend has moved on
+        if (t >= 1 && (this.backendPathIndex || 0) >= this.pathIndex + 1) {
+            this.pathIndex++;
+            this.segmentStartTime = Date.now();
+        }
+    }
+
+    /**
+     * Interpolate position along a geometry sub-path proportionally by distance.
+     * Since speed is constant within the node segment, t (time ratio) == distance ratio.
+     *
+     * Example: A --(2x)--> C --(1x)--> B, total = 3x
+     *   t=0.0 → A, t=0.667 → C, t=1.0 → B
+     *   t=0.5 → 75% of the way from A to C
+     *
+     * @param {Array<{lat,lon}>} segGeo - Geometry points for the current node segment
+     * @param {number} t - Time/distance ratio in [0, 1]
+     * @returns {[number, number]} [lat, lon]
+     */
+    _interpolateAlongGeometry(segGeo, t) {
+        // 1. Build cumulative distance array
+        const distances = [0];
+        for (let i = 1; i < segGeo.length; i++) {
+            distances.push(
+                distances[i - 1] + this._haversineM(
+                    segGeo[i - 1].lat, segGeo[i - 1].lon,
+                    segGeo[i].lat, segGeo[i].lon
+                )
+            );
+        }
+        const totalDist = distances[distances.length - 1];
+
+        // Edge case: all points are the same location
+        if (totalDist === 0) return [segGeo[0].lat, segGeo[0].lon];
+
+        const targetDist = t * totalDist;
+
+        // 2. Find the sub-segment that contains targetDist
+        for (let i = 1; i < segGeo.length; i++) {
+            if (distances[i] >= targetDist || i === segGeo.length - 1) {
+                this.currentSubSegmentIndex = i;
+                const segLen = distances[i] - distances[i - 1];
+                const localT = segLen > 0
+                    ? (targetDist - distances[i - 1]) / segLen
+                    : 1;
+                const a = segGeo[i - 1];
+                const b = segGeo[i];
+                return [
+                    a.lat + (b.lat - a.lat) * localT,
+                    a.lon + (b.lon - a.lon) * localT,
+                ];
+            }
+        }
+
+        this.currentSubSegmentIndex = segGeo.length - 1;
+        // Should never reach here, but return last point as safety
+        return [segGeo[segGeo.length - 1].lat, segGeo[segGeo.length - 1].lon];
+    }
+
+    /**
+     * Haversine distance between two lat/lon points in metres.
+     * Pure JS — no external dependency needed.
+     */
+    _haversineM(lat1, lon1, lat2, lon2) {
+        const R = 6371000;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2
+            + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180)
+            * Math.sin(dLon / 2) ** 2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    /**
+     * Returns the index in the flat geometryPath where node `nodeIdx` begins.
+     * Used to trim the displayed remaining path correctly.
+     *
+     * Each segment_geometry[i] has its own point list. When built into the flat
+     * geometryPath, junction points are deduplicated (segment[i][-1] == segment[i+1][0]).
+     * So the geometry flat index for node i = sum of (seg.length - 1) for seg in [0..i-1].
+     */
+    _getGeometryIndexForNode(nodeIdx) {
+        let idx = 0;
+        const limit = Math.min(nodeIdx, this.segmentGeometry.length);
+        for (let i = 0; i < limit; i++) {
+            idx += this.segmentGeometry[i].length - 1;
+        }
+        return idx;
+    }
+
+    _updateMarker() {
         if (this.marker) {
             this.marker.setLatLng([this.lat, this.lon]);
         }
+    }
 
-        // Dynamically trim the path line
-        if (this.pathLine && this.currentPath && this.currentPath.length > 0) {
-            const remainingPath = [[this.lat, this.lon]];
-            for (let i = this.pathIndex + 1; i < this.currentPath.length; i++) {
-                remainingPath.push([this.currentPath[i].lat, this.currentPath[i].lon]);
+    _updatePathLineVisual() {
+        if (!this.pathLine) return;
+
+        if (this.geometryPath && this.geometryPath.length > 0) {
+            const remaining = [[this.lat, this.lon]];
+
+            // Add remaining subnodes from current segment
+            const segGeo = this.segmentGeometry[this.pathIndex];
+            if (segGeo && this.currentSubSegmentIndex !== undefined) {
+                for (let i = this.currentSubSegmentIndex; i < segGeo.length; i++) {
+                    remaining.push([segGeo[i].lat, segGeo[i].lon]);
+                }
             }
-            this.pathLine.setLatLngs(remainingPath);
+
+            // Trim geometry path to start from next node boundary
+            const geoStartIdx = this._getGeometryIndexForNode(this.pathIndex + 1);
+            // Skip the first point of the next segment to avoid duplicate junction point
+            for (let i = geoStartIdx + 1; i < this.geometryPath.length; i++) {
+                remaining.push([this.geometryPath[i].lat, this.geometryPath[i].lon]);
+            }
+            this.pathLine.setLatLngs(remaining);
+        } else if (this.currentPath && this.currentPath.length > 0) {
+            // Fallback: use node coords
+            const remaining = [[this.lat, this.lon]];
+            for (let i = this.pathIndex + 1; i < this.currentPath.length; i++) {
+                remaining.push([this.currentPath[i].lat, this.currentPath[i].lon]);
+            }
+            this.pathLine.setLatLngs(remaining);
         }
     }
 
@@ -101,7 +239,7 @@ class DeliveryRobot {
         const content = `
             <div class="robot-popup">
                 <div class="popup-title" style="--robot-color: ${this.color}">🤖 ${this.name}</div>
-                
+
                 <div class="popup-status-badge ${this.status === CONFIG.ROBOT.STATUSES.MOVING ? 'status-success' : 'status-neutral'}">
                     ${decisionState}
                 </div>
@@ -122,8 +260,13 @@ class DeliveryRobot {
     drawPathLine() {
         if (this.pathLine) this.pathLine.remove();
 
-        if (this.currentPath.length > 1) {
-            const latlngs = this.currentPath.map(p => [p.lat, p.lon]);
+        // Prefer geometry path for accurate road-following display
+        const pathToDraw = (this.geometryPath && this.geometryPath.length > 1)
+            ? this.geometryPath
+            : this.currentPath;
+
+        if (pathToDraw.length > 1) {
+            const latlngs = pathToDraw.map(p => [p.lat, p.lon]);
             this.pathLine = L.polyline(latlngs, {
                 color: this.color,
                 weight: CONFIG.UI.WEIGHTS.medium,
@@ -144,19 +287,31 @@ class DeliveryRobot {
         return Math.sqrt((this.lat - point.lat) ** 2 + (this.lon - point.lon) ** 2);
     }
 
-    setPath(path, target = null, phase = null, startIndex = 0) {
+    setPath(path, geometryPath = [], segmentGeometry = [], target = null, phase = null, startIndex = 0) {
         this.currentPath = path;
+        this.geometryPath = geometryPath;
+        this.segmentGeometry = segmentGeometry;
         this.pathIndex = startIndex;
         this.routeTarget = target;
         this.deliveryPhase = phase;
-        this.status = path.length > 0 ? CONFIG.ROBOT.STATUSES.MOVING : CONFIG.ROBOT.STATUSES.IDLE;
-        
-        if (startIndex > 0 && startIndex < path.length) {
-            this.lat = path[startIndex].lat;
-            this.lon = path[startIndex].lon;
-            if (this.marker) this.marker.setLatLng([this.lat, this.lon]);
+        this.status = (path.length > 0 || geometryPath.length > 0) ? CONFIG.ROBOT.STATUSES.MOVING : CONFIG.ROBOT.STATUSES.IDLE;
+
+        // Reset time-based interpolation
+        this._lastPathIndex = -1;
+        this.segmentStartTime = Date.now();
+
+        if (startIndex > 0) {
+            if (segmentGeometry.length > 0 && startIndex < segmentGeometry.length) {
+                this.lat = segmentGeometry[startIndex][0].lat;
+                this.lon = segmentGeometry[startIndex][0].lon;
+                if (this.marker) this.marker.setLatLng([this.lat, this.lon]);
+            } else if (path.length > 0 && startIndex < path.length) {
+                this.lat = path[startIndex].lat;
+                this.lon = path[startIndex].lon;
+                if (this.marker) this.marker.setLatLng([this.lat, this.lon]);
+            }
         }
-        
+
         this.drawPathLine();
     }
 }

@@ -9,12 +9,6 @@ from ..config import (
 )
 
 
-def append_delivery_points(state, pickup_lat, pickup_lon, dropoff_lat, dropoff_lon):
-    with state["history_lock"]:
-        state["delivery_history"].append([pickup_lat, pickup_lon])
-        state["delivery_history"].append([dropoff_lat, dropoff_lon])
-
-
 def compute_optimized_hubs(state, cluster_count=DEFAULT_HUB_CLUSTER_COUNT):
     import numpy as np
     from sklearn.cluster import KMeans

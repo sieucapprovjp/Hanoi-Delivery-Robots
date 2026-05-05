@@ -1,5 +1,8 @@
 import threading
 import time
+import networkx as nx
+import numpy as np
+import osmnx as ox
 from collections import deque
 
 from flask import Flask
@@ -27,7 +30,12 @@ from .core.environment import (
 from .core.graph import get_road_graph as core_get_road_graph
 from .routes import register_environment_routes, register_main_routes
 from .utils.metrics import build_metrics_payload, create_metrics, record_route_metrics
-from .utils.route_analysis import build_route_response, nearest_node_id
+from .utils.route_analysis import (
+    build_geometry_path,
+    build_route_response,
+    build_segment_geometry,
+    nearest_node_id,
+)
 from .utils.validation import (
     validate_coordinate,
     validate_lat_lon,
@@ -47,10 +55,10 @@ _simulation_start_time = time.time()
 _simulation_speed = SIMULATION_SPEED
 
 _graph_lock = threading.Lock()
-_road_graph = None
-_projected_road_graph = None
-_traffic_routes = None
-_ox = None
+_road_graph = nx.DiGraph()
+_projected_road_graph = nx.DiGraph()
+_traffic_routes = []
+_ox = ox
 
 DELIVERY_HISTORY = []
 _history_lock = threading.Lock()
@@ -65,9 +73,10 @@ _metrics = create_metrics()
 _api_logs_lock = threading.Lock()
 _api_logs = deque(maxlen=API_LOGS_MAX_LENGTH)
 
-_spatial_node_ids = None
+_spatial_node_ids = np.array([])
 _spatial_tree = None
 
+_sim_now = 0
 
 _app_state = {
     "graph_center": GRAPH_CENTER,
@@ -94,6 +103,7 @@ _app_state = {
     "api_logs_lock": _api_logs_lock,
     "spatial_node_ids": _spatial_node_ids,
     "spatial_tree": _spatial_tree,
+    "sim_now": _sim_now,
 }
 
 
@@ -111,7 +121,13 @@ def _sync_state_from_globals():
 
 
 def _sync_globals_from_state():
-    global _road_graph, _projected_road_graph, _traffic_routes, _ox, _spatial_node_ids, _spatial_tree
+    global \
+        _road_graph, \
+        _projected_road_graph, \
+        _traffic_routes, \
+        _ox, \
+        _spatial_node_ids, \
+        _spatial_tree
     _road_graph = _app_state["road_graph"]
     _projected_road_graph = _app_state["projected_road_graph"]
     _traffic_routes = _app_state["traffic_routes"]
@@ -124,7 +140,9 @@ def get_road_graph():
     _sync_state_from_globals()
     result = core_get_road_graph(
         _app_state,
-        lambda g, lat, lon, ox=None: nearest_node_id(g, lat, lon, _app_state),
+        lambda g, lat, lon, ox=_app_state["ox"]: nearest_node_id(
+            g, lat, lon, _app_state
+        ),
         build_route_response,
         traffic_penalty_for_point,
         rain_penalty_for_point,
@@ -174,7 +192,9 @@ def _build_routes_context():
         "build_metrics_payload": build_metrics_payload,
         "record_route_metrics": record_route_metrics,
         "build_route_response": build_route_response,
-        "nearest_node_id": lambda g, lat, lon, ox=None: nearest_node_id(g, lat, lon, _app_state),
+        "nearest_node_id": lambda g, lat, lon, ox=_app_state["ox"]: nearest_node_id(
+            g, lat, lon, _app_state
+        ),
         "validate_coordinate": validate_coordinate,
         "validate_lat_lon": validate_lat_lon,
         "validate_non_negative_int": validate_non_negative_int,
@@ -204,22 +224,33 @@ _ctx = _build_routes_context()
 register_main_routes(app, _ctx)
 register_environment_routes(app, _ctx)
 
+def _build_route_geometry(graph, route_nodes):
+    """Helper that returns (geometry_path, segment_geometry) for a route."""
+    geometry_path = build_geometry_path(graph, route_nodes)
+    segment_geometry = build_segment_geometry(graph, route_nodes)
+    return geometry_path, segment_geometry
+
+
 simulator = SimulatorManager(
     socketio=socketio,
     app_state=_app_state,
     nearest_node_id=lambda g, lat, lon: nearest_node_id(g, lat, lon, _app_state),
     run_weighted_route_search=run_weighted_route_search,
-    edge_weight_with_traffic=core_edge_weight_with_traffic
+    edge_weight_with_traffic=core_edge_weight_with_traffic,
+    build_route_geometry=_build_route_geometry,
 )
 
-@socketio.on('start_simulation')
+
+@socketio.on("start_simulation")
 def handle_start():
     simulator.start()
 
-@socketio.on('pause_simulation')
+
+@socketio.on("pause_simulation")
 def handle_pause():
     simulator.pause()
 
-@socketio.on('reset_simulation')
+
+@socketio.on("reset_simulation")
 def handle_reset():
     simulator.reset()

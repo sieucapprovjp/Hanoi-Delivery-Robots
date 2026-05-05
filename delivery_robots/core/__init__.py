@@ -7,10 +7,9 @@ from .environment import (
     traffic_penalty_for_point,
 )
 from .graph import get_road_graph
-from .hubs import append_delivery_points, compute_optimized_hubs
+from .hubs import compute_optimized_hubs
 
 __all__ = [
-    "append_delivery_points",
     "compute_optimized_hubs",
     "edge_weight_with_traffic",
     "get_road_graph",
