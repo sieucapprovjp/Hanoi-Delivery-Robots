@@ -61,12 +61,25 @@ def get_road_graph(
             state["ox"] = ox
 
         if not state["road_graph"]:
-            state["road_graph"] = state["ox"].graph_from_point(
-                state["graph_center"],
-                dist=state["graph_dist_meters"],
-                network_type=state["graph_network_type"],
-                simplify=True,
-            )
+            import os
+            center = state["graph_center"]
+            dist = state["graph_dist_meters"]
+            network_type = state["graph_network_type"]
+            graph_filename = f"cache/road_graph_{center[0]}_{center[1]}_{dist}_{network_type}.graphml"
+            
+            if os.path.exists(graph_filename):
+                print(f"Loading graph from {graph_filename}...")
+                state["road_graph"] = state["ox"].load_graphml(graph_filename)
+            else:
+                print(f"Fetching graph from osmnx and saving to {graph_filename}...")
+                os.makedirs("cache", exist_ok=True)
+                state["road_graph"] = state["ox"].graph_from_point(
+                    state["graph_center"],
+                    dist=state["graph_dist_meters"],
+                    network_type=state["graph_network_type"],
+                    simplify=True,
+                )
+                state["ox"].save_graphml(state["road_graph"], graph_filename)
             state["projected_road_graph"] = state["ox"].project_graph(
                 state["road_graph"]
             )
