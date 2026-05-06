@@ -46,7 +46,11 @@ class DeliveryRobot {
 
         if (!this.lastUpdateTime) this.lastUpdateTime = Date.now();
         const now = Date.now();
-        const dtRealMs = now - this.lastUpdateTime;
+        let dtRealMs = now - this.lastUpdateTime;
+        // Cap dtRealMs to avoid massive accumulation when returning from an inactive browser tab
+        if (dtRealMs > 100) {
+            dtRealMs = 100;
+        }
         this.lastUpdateTime = now;
 
         const isPaused = window.displayEngine && window.displayEngine.isPaused;
@@ -61,20 +65,43 @@ class DeliveryRobot {
             // because lag = 1 simply means the backend finished the segment slightly before us.
             const lag = (this.backendPathIndex || 0) - this.pathIndex;
             if (lag > 1) {
-                dtSimSec *= (1 + (lag - 1) * 2);
+                // Cap lag multiplier to prevent absurd speeds
+                const multiplier = Math.min(10, 1 + (lag - 1) * 2);
+                dtSimSec *= multiplier;
             }
             
             this.simElapsedSec = (this.simElapsedSec || 0) + dtSimSec;
         }
 
         // Use the segment duration specific to the segment we are currently interpolating
-        const duration = (this.backendDurations && this.backendDurations[this.pathIndex] !== undefined)
+        let duration = (this.backendDurations && this.backendDurations[this.pathIndex] !== undefined)
             ? this.backendDurations[this.pathIndex]
             : this.segmentDuration;
 
         // Calculate interpolation ratio (t): 0 = segment start, 1 = segment end
         let rawT = duration > 0 ? (this.simElapsedSec || 0) / duration : 1;
         let t = Math.min(1, Math.max(0, rawT));
+
+        // Advance to next node if interpolation is complete AND backend has moved on.
+        // Use a while loop to consume multiple segments in a single frame if simElapsedSec is large.
+        while (t >= 1 && (this.backendPathIndex || 0) >= this.pathIndex + 1) {
+            this.pathIndex++;
+            
+            if (rawT > 0 && duration > 0) {
+                // Preserve fractional time overage perfectly by subtracting the consumed duration
+                this.simElapsedSec -= duration;
+            } else {
+                this.simElapsedSec = 0;
+            }
+
+            // Update duration and t for the new segment in case we need to advance again
+            duration = (this.backendDurations && this.backendDurations[this.pathIndex] !== undefined)
+                ? this.backendDurations[this.pathIndex]
+                : this.segmentDuration;
+                
+            rawT = duration > 0 ? (this.simElapsedSec || 0) / duration : 1;
+            t = Math.min(1, Math.max(0, rawT));
+        }
 
         // Geometry-aware interpolation: proportional to sub-segment distances
         const segGeo = this.segmentGeometry[this.pathIndex];
@@ -87,18 +114,6 @@ class DeliveryRobot {
             if (startNode && target) {
                 this.lat = startNode.lat + (target.lat - startNode.lat) * t;
                 this.lon = startNode.lon + (target.lon - startNode.lon) * t;
-            }
-        }
-
-        // Advance to next node if interpolation is complete AND backend has moved on
-        if (t >= 1 && (this.backendPathIndex || 0) >= this.pathIndex + 1) {
-            this.pathIndex++;
-            
-            if (rawT > 0 && duration > 0) {
-                // Preserve fractional time overage perfectly by subtracting the consumed duration
-                this.simElapsedSec -= duration;
-            } else {
-                this.simElapsedSec = 0;
             }
         }
     }
