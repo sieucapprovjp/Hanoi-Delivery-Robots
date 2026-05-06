@@ -1,6 +1,4 @@
 import networkx as nx
-import numpy as np
-from sklearn.neighbors import BallTree
 
 
 def _build_traffic_routes(
@@ -16,8 +14,8 @@ def _build_traffic_routes(
     for anchor in state["traffic_anchors"]:
         start_lat, start_lon = anchor["start"]
         end_lat, end_lon = anchor["end"]
-        start_node = nearest_node_id(graph, start_lat, start_lon, state["ox"])
-        end_node = nearest_node_id(graph, end_lat, end_lon, state["ox"])
+        start_node = nearest_node_id(graph, start_lat, start_lon)
+        end_node = nearest_node_id(graph, end_lat, end_lon)
         route_nodes = nx.shortest_path(graph, start_node, end_node, weight="length")
         route_payload = build_route_response(
             graph,
@@ -50,7 +48,11 @@ def get_road_graph(
         and state["projected_road_graph"]
         and state["traffic_routes"]
     ):
-        return state["road_graph"], state["projected_road_graph"], state["traffic_routes"]
+        return (
+            state["road_graph"],
+            state["projected_road_graph"],
+            state["traffic_routes"],
+        )
 
     with state["graph_lock"]:
         if state["ox"] is None:
@@ -65,7 +67,9 @@ def get_road_graph(
                 network_type=state["graph_network_type"],
                 simplify=True,
             )
-            state["projected_road_graph"] = state["ox"].project_graph(state["road_graph"])
+            state["projected_road_graph"] = state["ox"].project_graph(
+                state["road_graph"]
+            )
             state["traffic_routes"] = _build_traffic_routes(
                 state["road_graph"],
                 state,
@@ -75,16 +79,5 @@ def get_road_graph(
                 rain_penalty_for_point,
                 obstacle_penalty_for_point,
             )
-
-            # Initialize spatial index (BallTree) for fast nearest neighbor lookups
-            nodes_data = list(state["road_graph"].nodes(data=True))
-            state["spatial_node_ids"] = np.array([node[0] for node in nodes_data])
-            coords = np.array(
-                [
-                    (np.radians(data["y"]), np.radians(data["x"]))
-                    for _, data in nodes_data
-                ]
-            )
-            state["spatial_tree"] = BallTree(coords, metric="haversine")
 
     return state["road_graph"], state["projected_road_graph"], state["traffic_routes"]

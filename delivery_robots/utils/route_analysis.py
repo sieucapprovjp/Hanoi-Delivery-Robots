@@ -1,38 +1,18 @@
-import numpy as np
+import osmnx as ox
+
 
 from ..config import (
     DEFAULT_EDGE_LENGTH,
     DEFAULT_ROUTE_DISTANCE,
     SPEED_METERS_PER_SECOND,
 )
-from .geo import haversine_distance
 
 
-def nearest_node_id(graph, lat, lon, state):
+def nearest_node_id(graph, lat, lon, state=None):
     """
-    Find the nearest node in the graph to the given coordinates.
-    Uses the BallTree from state if available for O(log N) lookup.
+    Find the nearest node in the graph to the given coordinates using OSMnx.
     """
-    spatial_tree = state.get("spatial_tree")
-    spatial_node_ids = state.get("spatial_node_ids")
-    ox = state.get("ox")
-    if spatial_tree is not None and spatial_node_ids.size > 0:
-        query_coord = np.array([[np.radians(lat), np.radians(lon)]])
-        _, indices = spatial_tree.query(query_coord, k=1)
-        return spatial_node_ids[indices[0][0]]
-
-    if ox:
-        return ox.nearest_nodes(graph, lon, lat)
-
-    nodes = graph.nodes(data=True)
-    best_node_id = None
-    best_distance = float("inf")
-    for node_id, node_data in nodes:
-        distance = haversine_distance(lat, lon, node_data["y"], node_data["x"])
-        if distance < best_distance:
-            best_distance = distance
-            best_node_id = node_id
-    return best_node_id
+    return ox.distance.nearest_nodes(graph, lon, lat)
 
 
 def edge_geometry_coordinates(graph, from_node, to_node, edge_data):

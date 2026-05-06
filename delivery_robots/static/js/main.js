@@ -43,7 +43,6 @@ async function init() {
 
         setupControls();
         await fetchMetrics(true);
-        await updateClock(true);
         logEvent('✅ Display Ready');
     } catch (error) {
         console.error('Init error:', error);
@@ -76,20 +75,6 @@ setInterval(() => {
     fetchMetrics();
 }, CONFIG.UI.METRICS_REFRESH_INTERVAL_MS);
 
-async function updateClock(isFull = false) {
-    try {
-        const url = isFull ? `${CONFIG.API.CLOCK}?full=true` : CONFIG.API.CLOCK;
-        const d = await (await fetch(url)).json();
-        const store = Alpine.store('sim');
-        if (store) {
-            store.clock = d.time.display;
-            store.rushHour.active = d.rushHour.isActive;
-            store.rushHour.multiplier = d.rushHour.multiplier;
-        }
-    } catch (e) { }
-}
-
 window.addEventListener('load', () => {
     init().catch(e => { console.error(e); logEvent('❌ Init failed'); });
 });
-
