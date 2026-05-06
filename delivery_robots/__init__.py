@@ -1,4 +1,3 @@
-from .algorithms.classical import compare_classical_algorithms
 from .app import (
     DELIVERY_HISTORY,
     RAIN_ZONES,
@@ -34,7 +33,6 @@ __all__ = [
     "_road_graph",
     "app",
     "build_route_response",
-    "compare_classical_algorithms",
     "flask_app",
     "get_road_graph",
     "validate_coordinate",

@@ -67,7 +67,6 @@ const CONFIG = {
         OBSTACLE_CLEAR: '/api/obstacle/clear',
         OBSTACLE_RANDOMIZE: '/api/obstacle/randomize',
         METRICS: '/api/metrics',
-        CLOCK: '/api/clock',
         DATA_LOCATIONS: '/api/data/locations',
         DATA_HUBS: '/api/data/hubs',
         DATA_ROBOTS: '/api/data/robots'

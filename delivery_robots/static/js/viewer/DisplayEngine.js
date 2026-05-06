@@ -73,11 +73,23 @@ class DisplayEngine {
         if (!robot) return;
 
         robot.status = state.status;
-        robot.backendPathIndex = state.path_index;
         robot.battery = state.battery;
-        robot.routeTarget = state.route_target;
         robot.currentPathLength = state.current_path_length;
-        robot.segmentDuration = state.segment_duration;
+        
+        // Save duration per path index to prevent overwriting the duration of the current interpolating segment
+        robot.backendDurations = robot.backendDurations || {};
+        if (state.segment_duration !== undefined) {
+            robot.backendDurations[state.path_index] = state.segment_duration;
+        }
+        robot.segmentDuration = state.segment_duration; // fallback
+
+        if (robot.routeTarget !== state.route_target) {
+            robot.backendPathIndex = state.path_index;
+        } else {
+            robot.backendPathIndex = Math.max(robot.backendPathIndex || 0, state.path_index);
+        }
+
+        robot.routeTarget = state.route_target
 
         if (state.geometry_path && state.geometry_path.length > 0) {
             // Detect route change: new target or different path length
@@ -86,6 +98,8 @@ class DisplayEngine {
                 || robot.routeTarget !== state.route_target;
 
             if (needsReset) {
+                const isSameRoute = (robot.routeTarget === state.route_target && robot.status !== 'idle');
+                const safePathIndex = isSameRoute ? Math.max(robot.path_index || 0, state.path_index) : state.path_index;
                 robot.setPath(
                     [],                           // currentPath: not needed, kept empty
                     state.geometry_path,          // flat geometry — for drawing
@@ -100,6 +114,7 @@ class DisplayEngine {
             robot.currentPath    = [];
             robot.geometryPath   = [];
             robot.segmentGeometry = [];
+            robot.backendDurations = {};
         }
 
         if (state.status === 'idle') {
@@ -118,6 +133,7 @@ class DisplayEngine {
     start() {
         if (this.socket) {
             this.socket.emit('start_simulation');
+            this.isPaused = false;
             logEvent('▶ Requested Start');
         }
     }
@@ -125,6 +141,7 @@ class DisplayEngine {
     pause() {
         if (this.socket) {
             this.socket.emit('pause_simulation');
+            this.isPaused = true;
             logEvent('⏸ Requested Pause');
         }
     }

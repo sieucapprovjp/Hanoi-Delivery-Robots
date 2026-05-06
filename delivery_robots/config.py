@@ -10,7 +10,7 @@ GRAPH_DIST_METERS = 2200
 GRAPH_NETWORK_TYPE = "bike"
 
 # ── Simulation Time ──
-SIMULATION_SPEED = 60
+SIMULATION_SPEED = 20
 SIMULATION_START_OFFSET_SECONDS = 21600  # 6:00 AM expressed as seconds from midnight
 SECONDS_PER_DAY = 86400
 SECONDS_PER_HOUR = 3600
@@ -121,14 +121,6 @@ DEFAULT_LOG_SOURCE = "frontend"
 DEFAULT_LOGS_LIMIT = 200
 LOGS_LIMIT_MIN = 1
 LOGS_LIMIT_MAX = 1000
-
-# ── Demo Defaults ──
-DEFAULT_DEMO_FROM_LAT = 21.0285
-DEFAULT_DEMO_FROM_LON = 105.8542
-DEFAULT_DEMO_TO_LAT = 21.0355
-DEFAULT_DEMO_TO_LON = 105.8516
-INVALID_COORDS_ERROR = "Invalid coords"
-CLASSICAL_COMPARE_NOTE = "Classical AI compare uses base edge length only (no rain/traffic/obstacle penalties)."
 
 # ── Robot Statuses ──
 ROBOT_STATUS_IDLE = "idle"

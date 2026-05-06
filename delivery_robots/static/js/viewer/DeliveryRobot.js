@@ -17,7 +17,8 @@ class DeliveryRobot {
         this.deliveryPhase = null;
         this.battery = 100;
         this.currentPathLength = 0;
-        this.segmentStartTime = null;
+        this.simElapsedSec = 0;
+        this.lastUpdateTime = null;
         this.segmentDuration = 0;
         this._lastPathIndex = -1;
     }
@@ -40,25 +41,40 @@ class DeliveryRobot {
     _updateMovement() {
         // Initialize or reset timer when moving to a new segment
         if (this._lastPathIndex !== this.pathIndex) {
-            this.segmentStartTime = Date.now();
             this._lastPathIndex = this.pathIndex;
         }
 
-        // Get simulation speed to convert real elapsed time to simulation time
-        const simSpeed = (window.Alpine && Alpine.store('sim')) ? (Alpine.store('sim').speed || 60) : 60;
+        if (!this.lastUpdateTime) this.lastUpdateTime = Date.now();
+        const now = Date.now();
+        const dtRealMs = now - this.lastUpdateTime;
+        this.lastUpdateTime = now;
 
-        const realElapsedMs = Date.now() - this.segmentStartTime;
-        let simElapsedSec = (realElapsedMs / 1000) * simSpeed * this.speedMultiplier;
+        const isPaused = window.displayEngine && window.displayEngine.isPaused;
 
-        // Handle lag by artificially increasing elapsed time
-        const lag = (this.backendPathIndex || 0) - this.pathIndex;
-        if (lag > 0) {
-            simElapsedSec *= (1 + lag * 2);
+        if (!isPaused) {
+            // Get simulation speed to convert real elapsed time to simulation time
+            const simSpeed = (window.Alpine && Alpine.store('sim')) ? (Alpine.store('sim').speed || 60) : 60;
+            let dtSimSec = (dtRealMs / 1000) * simSpeed * this.speedMultiplier;
+
+            // Handle lag by artificially increasing elapsed time.
+            // We only compensate if lag > 1 (i.e. backend is at least 2 nodes ahead),
+            // because lag = 1 simply means the backend finished the segment slightly before us.
+            const lag = (this.backendPathIndex || 0) - this.pathIndex;
+            if (lag > 1) {
+                dtSimSec *= (1 + (lag - 1) * 2);
+            }
+            
+            this.simElapsedSec = (this.simElapsedSec || 0) + dtSimSec;
         }
 
+        // Use the segment duration specific to the segment we are currently interpolating
+        const duration = (this.backendDurations && this.backendDurations[this.pathIndex] !== undefined)
+            ? this.backendDurations[this.pathIndex]
+            : this.segmentDuration;
+
         // Calculate interpolation ratio (t): 0 = segment start, 1 = segment end
-        let t = this.segmentDuration > 0 ? simElapsedSec / this.segmentDuration : 1;
-        t = Math.min(1, Math.max(0, t));
+        let rawT = duration > 0 ? (this.simElapsedSec || 0) / duration : 1;
+        let t = Math.min(1, Math.max(0, rawT));
 
         // Geometry-aware interpolation: proportional to sub-segment distances
         const segGeo = this.segmentGeometry[this.pathIndex];
@@ -77,17 +93,19 @@ class DeliveryRobot {
         // Advance to next node if interpolation is complete AND backend has moved on
         if (t >= 1 && (this.backendPathIndex || 0) >= this.pathIndex + 1) {
             this.pathIndex++;
-            this.segmentStartTime = Date.now();
+            
+            if (rawT > 0 && duration > 0) {
+                // Preserve fractional time overage perfectly by subtracting the consumed duration
+                this.simElapsedSec -= duration;
+            } else {
+                this.simElapsedSec = 0;
+            }
         }
     }
 
     /**
      * Interpolate position along a geometry sub-path proportionally by distance.
      * Since speed is constant within the node segment, t (time ratio) == distance ratio.
-     *
-     * Example: A --(2x)--> C --(1x)--> B, total = 3x
-     *   t=0.0 → A, t=0.667 → C, t=1.0 → B
-     *   t=0.5 → 75% of the way from A to C
      *
      * @param {Array<{lat,lon}>} segGeo - Geometry points for the current node segment
      * @param {number} t - Time/distance ratio in [0, 1]
@@ -295,10 +313,12 @@ class DeliveryRobot {
         this.routeTarget = target;
         this.deliveryPhase = phase;
         this.status = (path.length > 0 || geometryPath.length > 0) ? CONFIG.ROBOT.STATUSES.MOVING : CONFIG.ROBOT.STATUSES.IDLE;
+        this.backendDurations = {}; // Reset durations for new path
 
         // Reset time-based interpolation
         this._lastPathIndex = -1;
-        this.segmentStartTime = Date.now();
+        this.simElapsedSec = 0;
+        this.lastUpdateTime = Date.now();
 
         if (startIndex > 0) {
             if (segmentGeometry.length > 0 && startIndex < segmentGeometry.length) {

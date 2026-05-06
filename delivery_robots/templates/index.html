@@ -21,8 +21,7 @@
                     dispatch: false,
                     computing: false,
                     weather: false,
-                    decision: false,
-                    insider: false
+                    decision: false
                 },
                 metrics: {
                     totalCalculations: 0,
@@ -53,10 +52,6 @@
                 computing: {
                     robotId: null,
                     details: 'Click a robot icon to view computing process'
-                },
-                insider: {
-                    comparison: 'Waiting for route metrics...',
-                    astarSteps: 'Waiting for path calculation...'
                 },
                 updateMetrics(d) {
                     this.metrics.totalCalculations = d.pathfinding.totalCalculations;

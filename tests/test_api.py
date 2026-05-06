@@ -105,17 +105,6 @@ class ApiTests(unittest.TestCase):
         self.assertIn("obstaclePenalty", breakdown)
         self.assertIn("estimatedMinutes", breakdown)
 
-    def test_classical_compare_returns_algorithms(self):
-        resp = self.client.get(
-            "/api/classical/compare?fromLat=21.0000&fromLon=105.0000&toLat=21.0020&toLon=105.0020"
-        )
-        self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
-        self.assertIn("algorithms", data)
-        self.assertIn("Dijkstra", data["algorithms"])
-        self.assertIn("A*", data["algorithms"])
-        self.assertIn("bestPathCost", data)
-
     def test_rain_add_validates_radius(self):
         resp = self.client.post(
             "/api/rain/add",
