@@ -207,7 +207,8 @@ const CONFIG = {
         TRAFFIC_REFRESH_INTERVAL_MS: 3500,
         WEATHER_MODES: {
             RAIN: 'rain',
-            TRAFFIC: 'traffic'
+            TRAFFIC: 'traffic',
+            OBSTACLE: 'obstacle'
         },
         INITIAL_WEATHER: 'rain',
         LOG_LEVELS: {

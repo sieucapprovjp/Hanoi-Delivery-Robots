@@ -10,6 +10,7 @@ class HanoiMap {
         this.trafficRefreshHandle = null;
         this.rainZones = [];
         this.rainLayers = [];
+        this.rainOverlayEnabled = false;
         this.deliveryMarkers = new Map();
         this.hubLayers = [];
 
@@ -127,6 +128,8 @@ class HanoiMap {
     }
 
     enableRainOverlay() {
+        if (this.rainOverlayEnabled) return;
+
         const style = document.createElement('style');
         style.textContent = `
             @keyframes rain { 0% { background-position: 0% 0%; } 100% { background-position: 20% 100%; } }
@@ -137,6 +140,7 @@ class HanoiMap {
             }
         `;
         document.head.appendChild(style);
+        this.rainOverlayEnabled = true;
     }
 
     async loadWeather() {
