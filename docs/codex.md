@@ -236,7 +236,17 @@
 ## Documentation Inventory
 - `README.md`: high-level project overview, setup, metric formula, roadmap, and folder structure.
 - `docs/backend_documentation.md`: backend architecture, core modules, algorithms, APIs, and utilities.
+- `docs/ai_instructions.md`: AI-agent coding constraints, testing rules, thread-safety guidance, and performance notes.
+- `docs/api_docs.md`: REST API and planned WebSocket contract reference.
+- `docs/architecture.md`: high-level architecture, data flow, component layout, and dynamic weighting math.
+- `docs/convention.md`: backend/frontend coding standards, naming conventions, lock usage, and styling conventions.
+- `docs/database_schema.md`: in-memory app state, robot/task/environment models, and lock map.
+- `docs/error_handling.md`: validation, HTTP error response patterns, and logging strategy.
 - `docs/kmeans_plan.md`: implemented K-means hub optimization notes, API contracts, demo walkthrough, and improvement ideas.
+- `docs/prd.md`: product requirements, user stories, functional requirements, and edge cases.
+- `docs/project_map.md`: intended module map and file-purpose overview. Some listed paths describe a target/older structure and may differ from the current repo.
+- `docs/tech_stack.md`: documented backend/frontend stack and development tooling.
+- `docs/testing_strategy.md`: unittest strategy, graph mocking rules, and endpoint test expectations.
 - `docs/vrp_research.md`: research notes for TSP, VRP, PDP, Simulated Annealing, precedence constraints, and how they map onto this project.
 - `docs/vrp_implementation_plan.md`: detailed implementation plan for future VRP/TSP with Simulated Annealing.
 - `docs/codex.md`: current concise memory file for Codex sessions.
@@ -255,4 +265,3 @@
 - Show XAI timeline: explain why a robot was rejected, pruned, scored, or selected.
 - Run Optimize Hubs after enough deliveries: explain K-means clustering on delivery demand points.
 - Use efficiency score to compare algorithms or before/after behavior.
-
