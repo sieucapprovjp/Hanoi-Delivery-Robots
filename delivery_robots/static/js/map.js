@@ -62,12 +62,9 @@ class HanoiMap {
     async setupChargingStations() {
         let locations = CONFIG.DATA.CHARGING_STATIONS;
         try {
-            const res = await fetch(CONFIG.API.CHARGING_STATIONS);
-            if (res.ok) {
-                const data = await res.json();
-                if (Array.isArray(data.stations) && data.stations.length > 0) {
-                    locations = data.stations;
-                }
+            const data = await getJson(CONFIG.API.CHARGING_STATIONS, null, 'Charging stations request failed');
+            if (Array.isArray(data.stations) && data.stations.length > 0) {
+                locations = data.stations;
             }
         } catch (error) {
             console.warn('Failed to load charging stations from API, fallback to static config.', error);
@@ -100,14 +97,7 @@ class HanoiMap {
 
                 if (!station.id) return;
                 try {
-                    const response = await fetch(`${CONFIG.API.CHARGING_STATIONS}/${station.id}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ lat: nextLat, lon: nextLon })
-                    });
-                    if (!response.ok) {
-                        throw new Error(`Failed to save charging station #${station.id}`);
-                    }
+                    await putJson(`${CONFIG.API.CHARGING_STATIONS}/${station.id}`, { lat: nextLat, lon: nextLon }, `Failed to save charging station #${station.id}`);
                 } catch (error) {
                     console.error(error);
                 }

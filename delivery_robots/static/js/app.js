@@ -42,7 +42,7 @@ function startPolling() {
 
 async function fetchMetrics() {
     try {
-        const d = await (await fetch(CONFIG.API.METRICS)).json();
+        const d = await getJson(CONFIG.API.METRICS, null, 'Metrics request failed');
         Alpine.store('sim').updateMetrics(d);
     } catch (e) {
         console.error('Metrics:', e);
@@ -62,7 +62,7 @@ function refreshComputingPanel() {
 
 async function updateClock() {
     try {
-        const d = await (await fetch(CONFIG.API.CLOCK)).json();
+        const d = await getJson(CONFIG.API.CLOCK, null, 'Clock request failed');
         const store = Alpine.store('sim');
         store.clock = d.time.display;
         store.rushHour.active = d.rushHour.isActive;

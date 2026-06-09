@@ -62,7 +62,12 @@ async function showAStarProcess(robotId) {
     store.insider.astarSteps = '<div class="p-10 text-center">⏳ Computing A*...</div>';
 
     try {
-        const d = await (await fetch(`${CONFIG.API.ASTEP}?fromLat=${robot.lat}&fromLon=${robot.lon}&toLat=${robot.routeTarget.lat}&toLon=${robot.routeTarget.lon}`)).json();
+        const d = await getJson(CONFIG.API.ASTEP, {
+            fromLat: robot.lat,
+            fromLon: robot.lon,
+            toLat: robot.routeTarget.lat,
+            toLon: robot.routeTarget.lon
+        }, 'A* process request failed');
 
         if (!d.steps || d.steps.length === 0) {
             store.insider.astarSteps = '<div class="p-10 text-center color-error">No steps recorded</div>';
@@ -142,7 +147,12 @@ async function runInsiderComparison() {
     try {
         const from = CONFIG.DATA.LOCATIONS[0];
         const to = CONFIG.DATA.LOCATIONS[1];
-        const d = await (await fetch(`${CONFIG.API.INSIDER}?fromLat=${from.lat}&fromLon=${from.lon}&toLat=${to.lat}&toLon=${to.lon}`)).json();
+        const d = await getJson(CONFIG.API.INSIDER, {
+            fromLat: from.lat,
+            fromLon: from.lon,
+            toLat: to.lat,
+            toLon: to.lon
+        }, 'Insider comparison request failed');
 
         const algos = d.algorithms;
         const best = d.best_path_length;
@@ -216,7 +226,12 @@ async function runAStarVisualization() {
     try {
         const from = CONFIG.DATA.LOCATIONS[0];
         const to = CONFIG.DATA.LOCATIONS[1];
-        const d = await (await fetch(`${CONFIG.API.ASTEP}?fromLat=${from.lat}&fromLon=${from.lon}&toLat=${to.lat}&toLon=${to.lon}`)).json();
+        const d = await getJson(CONFIG.API.ASTEP, {
+            fromLat: from.lat,
+            fromLon: from.lon,
+            toLat: to.lat,
+            toLon: to.lon
+        }, 'A* visualization request failed');
 
         if (!d.steps || d.steps.length === 0) {
             store.insider.astarSteps = '<div class="p-10 text-center color-error">No steps to visualize</div>';

@@ -89,20 +89,17 @@ function handleTrafficClick(lat, lon) {
 }
 
 async function addTrafficRoute(start, end, severity) {
-    const res = await fetch(CONFIG.API.TRAFFIC_ADD, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+    let d;
+    try {
+        d = await postJson(CONFIG.API.TRAFFIC_ADD, {
             startLat: start.lat,
             startLon: start.lon,
             endLat: end.lat,
             endLon: end.lon,
             severity
-        })
-    });
-    const d = await res.json();
-    if (!res.ok) {
-        logEvent('❌ Traffic: ' + (d.error || res.status));
+        }, 'Traffic add failed');
+    } catch (error) {
+        logEvent('❌ Traffic: ' + error.message);
         return;
     }
 
@@ -124,16 +121,13 @@ async function addTrafficRoute(start, end, severity) {
 }
 
 async function addRainZone(lat, lon, radius) {
-    const res = await fetch(CONFIG.API.RAIN_ADD, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat, lon, radius })
-    });
-    const d = await res.json();
-    if (res.ok) {
+    try {
+        const d = await postJson(CONFIG.API.RAIN_ADD, { lat, lon, radius }, 'Rain add failed');
         updateRainList();
         refreshMapWeather().catch(() => { });
         logEvent('🌧️ ' + d.rainZone.name);
+    } catch (error) {
+        logEvent('❌ Rain: ' + error.message);
     }
 }
 
@@ -150,7 +144,7 @@ function displayRainZone(z) {
 }
 
 async function updateRainList() {
-    const d = await (await fetch(CONFIG.API.RAIN_LIST)).json();
+    const d = await getJson(CONFIG.API.RAIN_LIST, null, 'Rain list request failed');
     const html = d.rainZones.length
         ? d.rainZones.map((z, i) => `<div class="py-4 border-bottom-standard"><strong>${i + 1}. ${z.name}</strong><br>${z.center.lat.toFixed(4)}, ${z.center.lon.toFixed(4)} | ${Math.round(z.radius)}m</div>`).join('')
         : 'No rain zones';
@@ -159,14 +153,10 @@ async function updateRainList() {
 }
 
 async function randomizeRain() {
-    await fetch(CONFIG.API.RAIN_RANDOMIZE, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            count: CONFIG.SIMULATION.RANDOM_RAIN_COUNT,
-            minRadius: CONFIG.SIMULATION.RANDOM_RAIN_MIN_RADIUS,
-            maxRadius: CONFIG.SIMULATION.RANDOM_RAIN_MAX_RADIUS
-        })
+    await postJson(CONFIG.API.RAIN_RANDOMIZE, {
+        count: CONFIG.SIMULATION.RANDOM_RAIN_COUNT,
+        minRadius: CONFIG.SIMULATION.RANDOM_RAIN_MIN_RADIUS,
+        maxRadius: CONFIG.SIMULATION.RANDOM_RAIN_MAX_RADIUS
     });
     rainCircles = clearMapLayers(rainCircles);
     updateRainList();
@@ -175,7 +165,7 @@ async function randomizeRain() {
 }
 
 async function clearRain() {
-    await fetch(CONFIG.API.RAIN_CLEAR, { method: 'POST' });
+    await postJson(CONFIG.API.RAIN_CLEAR);
     rainCircles = clearMapLayers(rainCircles);
     updateRainList();
     refreshMapWeather().catch(() => { });
@@ -183,11 +173,9 @@ async function clearRain() {
 }
 
 async function randomizeTraffic() {
-    const d = await (await fetch(CONFIG.API.TRAFFIC_RANDOMIZE, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: CONFIG.SIMULATION.RANDOM_TRAFFIC_COUNT })
-    })).json();
+    const d = await postJson(CONFIG.API.TRAFFIC_RANDOMIZE, {
+        count: CONFIG.SIMULATION.RANDOM_TRAFFIC_COUNT
+    }, 'Traffic randomize failed');
     trafficPolylines = clearMapLayers(trafficPolylines);
     d.routes.forEach(r => {
         trafficPolylines.push(
@@ -204,7 +192,7 @@ async function randomizeTraffic() {
 }
 
 async function clearTraffic() {
-    await fetch(CONFIG.API.TRAFFIC_CLEAR, { method: 'POST' });
+    await postJson(CONFIG.API.TRAFFIC_CLEAR);
     trafficPolylines = clearMapLayers(trafficPolylines);
     updateTrafficList();
     refreshMapTraffic().catch(() => { });
@@ -212,7 +200,7 @@ async function clearTraffic() {
 }
 
 async function updateTrafficList() {
-    const d = await (await fetch(CONFIG.API.TRAFFIC_LIST)).json();
+    const d = await getJson(CONFIG.API.TRAFFIC_LIST, null, 'Traffic list request failed');
     const html = d.routes.length
         ? d.routes.map((r, i) => `<div class="py-4 border-bottom-standard"><strong>${i + 1}. ${r.name}</strong><br>Severity: ${r.severity.toFixed(2)}</div>`).join('')
         : 'No traffic routes';
@@ -221,22 +209,19 @@ async function updateTrafficList() {
 }
 
 async function addObstacle(lat, lon, radius, severity) {
-    const res = await fetch(CONFIG.API.OBSTACLE_ADD, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+    try {
+        const d = await postJson(CONFIG.API.OBSTACLE_ADD, {
             lat,
             lon,
             radius,
             severity,
             type: CONFIG.SIMULATION.DEFAULT_OBSTACLE_TYPE
-        })
-    });
-    const d = await res.json();
-    if (res.ok) {
+        }, 'Obstacle add failed');
         displayObstacle(d.obstacle);
         updateObstacleList();
         logEvent('🚧 ' + d.obstacle.name);
+    } catch (error) {
+        logEvent('❌ Obstacle: ' + error.message);
     }
 }
 
@@ -254,7 +239,7 @@ function displayObstacle(o) {
 }
 
 async function updateObstacleList() {
-    const d = await (await fetch(CONFIG.API.OBSTACLE_LIST)).json();
+    const d = await getJson(CONFIG.API.OBSTACLE_LIST, null, 'Obstacle list request failed');
     const html = d.obstacles.length
         ? d.obstacles.map((o, i) => `<div class="py-4 border-bottom-standard"><strong>${i + 1}. ${o.name}</strong><br>${Math.round(o.radius)}m | Sev: ${o.severity.toFixed(1)}</div>`).join('')
         : 'No obstacles';
@@ -263,11 +248,9 @@ async function updateObstacleList() {
 }
 
 async function randomizeObstacles() {
-    const d = await (await fetch(CONFIG.API.OBSTACLE_RANDOMIZE, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: CONFIG.SIMULATION.RANDOM_OBSTACLE_COUNT })
-    })).json();
+    const d = await postJson(CONFIG.API.OBSTACLE_RANDOMIZE, {
+        count: CONFIG.SIMULATION.RANDOM_OBSTACLE_COUNT
+    }, 'Obstacle randomize failed');
     obstacleCircles = clearMapLayers(obstacleCircles);
     d.obstacles.forEach(o => displayObstacle(o));
     updateObstacleList();
@@ -275,7 +258,7 @@ async function randomizeObstacles() {
 }
 
 async function clearObstacles() {
-    await fetch(CONFIG.API.OBSTACLE_CLEAR, { method: 'POST' });
+    await postJson(CONFIG.API.OBSTACLE_CLEAR);
     obstacleCircles = clearMapLayers(obstacleCircles);
     updateObstacleList();
     logEvent('🗑️ Obstacles');

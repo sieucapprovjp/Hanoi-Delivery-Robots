@@ -1,13 +1,9 @@
 function postLogEntry(message, level, source) {
-    fetch(CONFIG.API.LOGS, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            message,
-            level,
-            source,
-            ts: Date.now()
-        })
+    postJson(CONFIG.API.LOGS, {
+        message,
+        level,
+        source,
+        ts: Date.now()
     }).catch(() => { });
 }
 

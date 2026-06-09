@@ -169,15 +169,11 @@ class Simulation {
 
     async logDeliveryData(delivery) {
         try {
-            await fetch(CONFIG.API.LOG_DELIVERY, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    pickupLat: delivery.pickup.lat,
-                    pickupLon: delivery.pickup.lon,
-                    dropoffLat: delivery.destination.lat,
-                    dropoffLon: delivery.destination.lon
-                })
+            await postJson(CONFIG.API.LOG_DELIVERY, {
+                pickupLat: delivery.pickup.lat,
+                pickupLon: delivery.pickup.lon,
+                dropoffLat: delivery.destination.lat,
+                dropoffLon: delivery.destination.lon
             });
         } catch (e) {
             console.error('Failed to log delivery data', e);
@@ -192,29 +188,22 @@ class Simulation {
 
         this.isAssigning = true;
         try {
-            const response = await fetch(CONFIG.API.DISPATCH_ASSIGN, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    robots: this.robots.map(r => ({
-                        id: r.id,
-                        name: r.name,
-                        lat: r.lat,
-                        lon: r.lon,
-                        battery: r.battery,
-                        status: r.status,
-                        currentLoad: r.currentLoad,
-                        capacity: r.capacity,
-                        roadMemory: r.roadMemory,
-                        routeAlgorithm: r.routeAlgorithm
-                    })),
-                    deliveries: this.pendingDeliveries,
-                    currentTime: Date.now()
-                })
+            const data = await postJson(CONFIG.API.DISPATCH_ASSIGN, {
+                robots: this.robots.map(r => ({
+                    id: r.id,
+                    name: r.name,
+                    lat: r.lat,
+                    lon: r.lon,
+                    battery: r.battery,
+                    status: r.status,
+                    currentLoad: r.currentLoad,
+                    capacity: r.capacity,
+                    roadMemory: r.roadMemory,
+                    routeAlgorithm: r.routeAlgorithm
+                })),
+                deliveries: this.pendingDeliveries,
+                currentTime: Date.now()
             });
-
-            if (!response.ok) throw new Error('Assignment failed');
-            const data = await response.json();
             const assignments = data.assignments || [];
             this.updateDispatchTimeline(data.explanations || []);
 
@@ -365,10 +354,7 @@ class Simulation {
         addDispatchInsight('Running k-means clustering on delivery hotspots to reposition fleet...', CONFIG.UI.LOG_LEVELS.NEUTRAL);
 
         try {
-            const res = await fetch(CONFIG.API.OPTIMIZE_HUBS, { method: 'POST' });
-            const data = await res.json();
-
-            if (!res.ok) throw new Error(data.error || 'Optimization failed');
+            const data = await postJson(CONFIG.API.OPTIMIZE_HUBS, undefined, 'Optimization failed');
 
             const hubs = data.hubs;
 
