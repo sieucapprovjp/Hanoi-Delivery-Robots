@@ -117,64 +117,15 @@ class Simulation {
 
     generateDelivery() {
         const locations = this.snappedLocations || CONFIG.DATA.LOCATIONS;
-        const pickupGroups = CONFIG.SIMULATION.PICKUP_WEIGHTS;
-        const dropoffGroups = CONFIG.SIMULATION.DROPOFF_WEIGHTS;
-
-        const weightedPick = (weights) => {
-            const entries = Object.entries(weights);
-            const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
-            let target = Math.random() * total;
-
-            for (const [category, weight] of entries) {
-                target -= weight;
-                if (target <= 0) return category;
-            }
-
-            return entries[entries.length - 1][0];
-        };
-
-        const randomLocationForCategory = (category, excludeName = null) => {
-            const matches = locations.filter(location => location.category === category && location.name !== excludeName);
-            const pool = matches.length > 0 ? matches : locations.filter(location => location.name !== excludeName);
-            return pool[Math.floor(Math.random() * pool.length)];
-        };
-
-        const pickupCategory = weightedPick(pickupGroups);
-        const pickup = randomLocationForCategory(pickupCategory);
-        let dropoffCategory = weightedPick(dropoffGroups);
-        let dest = randomLocationForCategory(dropoffCategory, pickup.name);
-
-        if (dest.name === pickup.name) {
-            dropoffCategory = CONFIG.SIMULATION.CATEGORIES.RESIDENTIAL;
-            dest = randomLocationForCategory(dropoffCategory, pickup.name);
-        }
-
-        const delivery = {
-            id: this.totalDeliveries + this.pendingDeliveries.length + 1,
-            pickup: pickup,
-            destination: dest,
-            status: CONFIG.SIMULATION.DELIVERY_STATUSES.PENDING,
-            createdAt: Date.now(),
-            theme: {
-                pickupCategory,
-                dropoffCategory,
-                pickupIcon: pickup.icon,
-                dropoffIcon: dest.icon
-            },
-        };
-
+        const deliveryId = this.totalDeliveries + this.pendingDeliveries.length + 1;
+        const delivery = createDelivery(locations, deliveryId);
         this.pendingDeliveries.push(delivery);
         this.logDeliveryData(delivery);
     }
 
     async logDeliveryData(delivery) {
         try {
-            await postJson(CONFIG.API.LOG_DELIVERY, {
-                pickupLat: delivery.pickup.lat,
-                pickupLon: delivery.pickup.lon,
-                dropoffLat: delivery.destination.lat,
-                dropoffLon: delivery.destination.lon
-            });
+            await postJson(CONFIG.API.LOG_DELIVERY, buildDeliveryLogPayload(delivery));
         } catch (e) {
             console.error('Failed to log delivery data', e);
         }
@@ -188,24 +139,8 @@ class Simulation {
 
         this.isAssigning = true;
         try {
-            const data = await postJson(CONFIG.API.DISPATCH_ASSIGN, {
-                robots: this.robots.map(r => ({
-                    id: r.id,
-                    name: r.name,
-                    lat: r.lat,
-                    lon: r.lon,
-                    battery: r.battery,
-                    status: r.status,
-                    currentLoad: r.currentLoad,
-                    capacity: r.capacity,
-                    roadMemory: r.roadMemory,
-                    routeAlgorithm: r.routeAlgorithm
-                })),
-                deliveries: this.pendingDeliveries,
-                currentTime: Date.now()
-            });
-            const assignments = data.assignments || [];
-            this.updateDispatchTimeline(data.explanations || []);
+            const { assignments, explanations } = await requestDispatchAssignments(this.robots, this.pendingDeliveries);
+            this.updateDispatchTimeline(explanations);
 
             for (const best of assignments) {
                 const deliveryIndex = this.pendingDeliveries.findIndex(d => d.id === best.deliveryId);
@@ -217,17 +152,7 @@ class Simulation {
 
                 delivery.priorityScore = best.priorityScore;
                 this.lastDecisionCost = best.totalScore;
-                this.latestDecision = {
-                    robotName: best.robotName,
-                    deliveryId: delivery.id,
-                    priorityScore: best.priorityScore,
-                    batteryRisk: best.batteryRisk,
-                    totalScore: best.totalScore,
-                    breakdown: best.breakdown,
-                    pickupName: delivery.pickup.name,
-                    destinationName: delivery.destination.name,
-                    explanation: best.explanation || null
-                };
+                this.latestDecision = buildLatestDecision(best, delivery);
 
                 addDispatchInsight(
                     `${robot.name} assigned to order #${delivery.id} with priority ${best.priorityScore.toFixed(1)}.`,
