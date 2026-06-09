@@ -105,6 +105,13 @@ class ApiTests(unittest.TestCase):
         self.assertIn("obstaclePenalty", breakdown)
         self.assertIn("estimatedMinutes", breakdown)
 
+    def test_route_accepts_greedy_alias_as_gbfs(self):
+        resp = self.client.get(
+            "/api/route?fromLat=21.0000&fromLon=105.0000&toLat=21.0020&toLon=105.0020&algo=greedy"
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["algo"], "gbfs")
+
     def test_classical_compare_returns_algorithms(self):
         resp = self.client.get(
             "/api/classical/compare?fromLat=21.0000&fromLon=105.0000&toLat=21.0020&toLon=105.0020"

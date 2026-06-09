@@ -58,6 +58,9 @@
                     comparison: 'Waiting for route metrics...',
                     astarSteps: 'Waiting for path calculation...'
                 },
+                decision: {
+                    dispatchTimeline: 'Waiting for dispatch decisions...'
+                },
                 updateMetrics(d) {
                     this.metrics.totalCalculations = d.pathfinding.totalCalculations;
                     this.metrics.avgTime = d.pathfinding.avgCalculationTime + 'ms';
@@ -140,8 +143,7 @@
                     <select id="fleet-algo-select" class="algo-select">
                         <option value="astar">Advanced A* (Optimized)</option>
                         <option value="dijkstra">Dijkstra's Algorithm</option>
-                        <option value="greedy">Greedy Best-First</option>
-                        <option value="bfs">Breadth-First Search</option>
+                        <option value="gbfs">Greedy Best-First Search</option>
                     </select>
                     <button id="apply-fleet-algo-btn" class="btn-apply">Apply</button>
                 </div>
@@ -337,6 +339,13 @@
                     <div class="mt-8 pt-8 border-top-standard">
                         Heuristic h(n) uses Haversine distance to goal.
                     </div>
+                </div>
+            </div>
+
+            <div class="mb-15">
+                <h3 class="fs-13 color-secondary-text mb-10">🧩 Dispatch CSP / XAI Timeline</h3>
+                <div id="dispatch-xai-timeline" x-html="$store.sim.decision.dispatchTimeline">
+                    Waiting for dispatch decisions...
                 </div>
             </div>
         </div>

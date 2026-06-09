@@ -34,9 +34,9 @@ class RouteAnalysisTests(unittest.TestCase):
 
         self.assertEqual(payload["costBreakdown"]["baseDistance"], 100.0)
         self.assertEqual(payload["costBreakdown"]["trafficPenalty"], 50.0)
-        self.assertEqual(payload["costBreakdown"]["rainPenalty"], 100.0)
-        self.assertEqual(payload["costBreakdown"]["obstaclePenalty"], 20.0)
-        self.assertEqual(payload["costBreakdown"]["totalCost"], 270.0)
+        self.assertEqual(payload["costBreakdown"]["rainPenalty"], 150.0)
+        self.assertEqual(payload["costBreakdown"]["obstaclePenalty"], 60.0)
+        self.assertEqual(payload["costBreakdown"]["totalCost"], 360.0)
 
 
 if __name__ == "__main__":

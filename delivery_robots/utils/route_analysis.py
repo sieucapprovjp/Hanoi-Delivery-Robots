@@ -62,6 +62,7 @@ def build_route_response(
     traffic_cost = 0.0
     rain_cost = 0.0
     obstacle_cost = 0.0
+    total_weighted_cost = 0.0
     for idx in range(len(route_nodes) - 1):
         from_node = route_nodes[idx]
         to_node = route_nodes[idx + 1]
@@ -88,8 +89,16 @@ def build_route_response(
             rain_penalty = rain_penalty_for_point(midpoint_lat, midpoint_lon)
             obstacle_penalty = obstacle_penalty_for_point(midpoint_lat, midpoint_lon)
             traffic_cost += edge_length * max(0, traffic_penalty - 1)
-            rain_cost += edge_length * max(0, rain_penalty - 1)
-            obstacle_cost += edge_length * max(0, obstacle_penalty - 1)
+            rain_cost += edge_length * traffic_penalty * max(0, rain_penalty - 1)
+            obstacle_cost += (
+                edge_length
+                * traffic_penalty
+                * rain_penalty
+                * max(0, obstacle_penalty - 1)
+            )
+            total_weighted_cost += (
+                edge_length * traffic_penalty * rain_penalty * obstacle_penalty
+            )
 
     response = {
         "path": route_path,
@@ -97,15 +106,14 @@ def build_route_response(
     }
 
     if include_cost_breakdown:
-        total_cost = route_distance + traffic_cost + rain_cost + obstacle_cost
         response["costBreakdown"] = {
             "baseDistance": round(route_distance, 1),
             "trafficPenalty": round(traffic_cost, 1),
             "rainPenalty": round(rain_cost, 1),
             "obstaclePenalty": round(obstacle_cost, 1),
-            "totalCost": round(total_cost, 1),
+            "totalCost": round(total_weighted_cost, 1),
             "estimatedMinutes": round(
-                total_cost / ESTIMATED_SPEED_METERS_PER_MINUTE, 1
+                total_weighted_cost / ESTIMATED_SPEED_METERS_PER_MINUTE, 1
             ),
         }
     return response

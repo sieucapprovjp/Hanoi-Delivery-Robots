@@ -48,17 +48,20 @@ def get_rush_hour_multiplier(state):
     return DEFAULT_RUSH_HOUR_MULTIPLIER, DEFAULT_RUSH_HOUR_LABEL
 
 
-def traffic_penalty_for_point(state, lat, lon):
-    penalty = DEFAULT_TRAFFIC_PENALTY
-    now = time.time()
-    if state["traffic_routes"] is None and not state["dynamic_traffic_routes"]:
-        return penalty
-
+def _current_traffic_routes(state):
     traffic_routes = list(state["traffic_routes"] or [])
     with state["dynamic_traffic_lock"]:
         traffic_routes.extend(state["dynamic_traffic_routes"])
+    return traffic_routes
 
-    rush_multiplier, _ = get_rush_hour_multiplier(state)
+
+def _traffic_penalty_for_routes(
+    traffic_routes, rush_multiplier, now, traffic_period_seconds, lat, lon
+):
+    penalty = DEFAULT_TRAFFIC_PENALTY
+    if not traffic_routes:
+        return penalty
+
     penalty *= rush_multiplier
 
     for road in traffic_routes:
@@ -84,9 +87,21 @@ def traffic_penalty_for_point(state, lat, lon):
     return penalty
 
 
-def rain_penalty_for_point(state, lat, lon):
+def traffic_penalty_for_point(state, lat, lon):
+    rush_multiplier, _ = get_rush_hour_multiplier(state)
+    return _traffic_penalty_for_routes(
+        _current_traffic_routes(state),
+        rush_multiplier,
+        time.time(),
+        state["traffic_period_seconds"],
+        lat,
+        lon,
+    )
+
+
+def _rain_penalty_for_zones(rain_zones, lat, lon):
     penalty = DEFAULT_RAIN_PENALTY
-    for zone in state["rain_zones"]:
+    for zone in rain_zones:
         center_lat, center_lon = zone["center"]
         distance = haversine_distance(lat, lon, center_lat, center_lon)
         if distance <= zone["radius"]:
@@ -94,12 +109,12 @@ def rain_penalty_for_point(state, lat, lon):
     return penalty
 
 
-def obstacle_penalty_for_point(state, lat, lon):
+def rain_penalty_for_point(state, lat, lon):
+    return _rain_penalty_for_zones(state["rain_zones"], lat, lon)
+
+
+def _obstacle_penalty_for_obstacles(obstacles, lat, lon):
     penalty = DEFAULT_OBSTACLE_PENALTY
-
-    with state["obstacles_lock"]:
-        obstacles = list(state["obstacles"])
-
     for obstacle in obstacles:
         center_lat, center_lon = obstacle["center"]
         distance = haversine_distance(lat, lon, center_lat, center_lon)
@@ -113,6 +128,48 @@ def obstacle_penalty_for_point(state, lat, lon):
     return penalty
 
 
+def obstacle_penalty_for_point(state, lat, lon):
+    with state["obstacles_lock"]:
+        obstacles = list(state["obstacles"])
+    return _obstacle_penalty_for_obstacles(obstacles, lat, lon)
+
+
+def build_environment_snapshot(state):
+    rush_multiplier, rush_name = get_rush_hour_multiplier(state)
+    with state["obstacles_lock"]:
+        obstacles = list(state["obstacles"])
+
+    return {
+        "road_graph": state["road_graph"],
+        "traffic_routes": _current_traffic_routes(state),
+        "traffic_period_seconds": state["traffic_period_seconds"],
+        "rain_zones": list(state["rain_zones"]),
+        "obstacles": obstacles,
+        "rush_multiplier": rush_multiplier,
+        "rush_name": rush_name,
+        "now": time.time(),
+    }
+
+
+def traffic_penalty_for_snapshot(snapshot, lat, lon):
+    return _traffic_penalty_for_routes(
+        snapshot["traffic_routes"],
+        snapshot["rush_multiplier"],
+        snapshot["now"],
+        snapshot["traffic_period_seconds"],
+        lat,
+        lon,
+    )
+
+
+def rain_penalty_for_snapshot(snapshot, lat, lon):
+    return _rain_penalty_for_zones(snapshot["rain_zones"], lat, lon)
+
+
+def obstacle_penalty_for_snapshot(snapshot, lat, lon):
+    return _obstacle_penalty_for_obstacles(snapshot["obstacles"], lat, lon)
+
+
 def edge_weight_with_traffic(state, from_node, to_node, edge_data):
     from_data = state["road_graph"].nodes[from_node]
     to_data = state["road_graph"].nodes[to_node]
@@ -122,6 +179,24 @@ def edge_weight_with_traffic(state, from_node, to_node, edge_data):
     penalty = traffic_penalty_for_point(state, midpoint_lat, midpoint_lon)
     penalty *= rain_penalty_for_point(state, midpoint_lat, midpoint_lon)
     penalty *= obstacle_penalty_for_point(state, midpoint_lat, midpoint_lon)
+
+    if "length" in edge_data:
+        return edge_data.get("length", DEFAULT_EDGE_LENGTH) * penalty
+
+    best_length = min(data.get("length", float("inf")) for data in edge_data.values())
+    return best_length * penalty
+
+
+def edge_weight_for_snapshot(snapshot, from_node, to_node, edge_data):
+    graph = snapshot["road_graph"]
+    from_data = graph.nodes[from_node]
+    to_data = graph.nodes[to_node]
+    midpoint_lat = (from_data["y"] + to_data["y"]) / 2
+    midpoint_lon = (from_data["x"] + to_data["x"]) / 2
+
+    penalty = traffic_penalty_for_snapshot(snapshot, midpoint_lat, midpoint_lon)
+    penalty *= rain_penalty_for_snapshot(snapshot, midpoint_lat, midpoint_lon)
+    penalty *= obstacle_penalty_for_snapshot(snapshot, midpoint_lat, midpoint_lon)
 
     if "length" in edge_data:
         return edge_data.get("length", DEFAULT_EDGE_LENGTH) * penalty

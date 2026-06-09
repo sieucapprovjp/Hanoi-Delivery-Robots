@@ -70,16 +70,26 @@ def register_environment_routes(app, ctx):
     rush_hours = ctx["rush_hours"]
     simulation_speed = ctx["simulation_speed"]
 
-    rain_zones = ctx["rain_zones"]
-    dynamic_traffic_lock = ctx["dynamic_traffic_lock"]
-    dynamic_traffic_routes = ctx["dynamic_traffic_routes"]
-    obstacles_lock = ctx["obstacles_lock"]
-    obstacles = ctx["obstacles"]
     metrics = ctx["metrics"]
     api_logs = ctx["api_logs"]
     api_logs_lock = ctx["api_logs_lock"]
     get_ox = ctx["get_ox"]
     app_state = ctx["app_state"]
+
+    def get_rain_zones():
+        return app_state["rain_zones"]
+
+    def get_dynamic_traffic_routes():
+        return app_state["dynamic_traffic_routes"]
+
+    def get_obstacles():
+        return app_state["obstacles"]
+
+    def get_dynamic_traffic_lock():
+        return app_state["dynamic_traffic_lock"]
+
+    def get_obstacles_lock():
+        return app_state["obstacles_lock"]
 
     @app.route("/api/logs", methods=["GET", "POST"])
     def api_logs_endpoint():
@@ -160,8 +170,8 @@ def register_environment_routes(app, ctx):
 
         _, _, traffic_routes = get_road_graph()
         all_routes = list(traffic_routes or [])
-        with dynamic_traffic_lock:
-            all_routes.extend(dynamic_traffic_routes)
+        with get_dynamic_traffic_lock():
+            all_routes.extend(get_dynamic_traffic_routes())
 
         for road in all_routes:
             if len(road["path"]) < 2:
@@ -202,7 +212,7 @@ def register_environment_routes(app, ctx):
                         "radius": zone["radius"],
                         "multiplier": round(1 + zone.get("severity", DEFAULT_WEATHER_RAIN_SEVERITY), 2),
                     }
-                    for zone in rain_zones
+                    for zone in get_rain_zones()
                 ]
             }
         )
@@ -240,9 +250,9 @@ def register_environment_routes(app, ctx):
             build_metrics_payload(
                 metrics,
                 graph,
-                len(rain_zones),
-                len(dynamic_traffic_routes),
-                len(obstacles),
+                len(get_rain_zones()),
+                len(get_dynamic_traffic_routes()),
+                len(get_obstacles()),
             )
         )
 
@@ -256,7 +266,7 @@ def register_environment_routes(app, ctx):
                         "center": {"lat": z["center"][0], "lon": z["center"][1]},
                         "radius": z["radius"],
                     }
-                    for z in rain_zones
+                    for z in get_rain_zones()
                 ]
             }
         )
@@ -272,6 +282,7 @@ def register_environment_routes(app, ctx):
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
+        rain_zones = get_rain_zones()
         rain_zones.append(
             {
                 "name": f"{RAIN_ZONE_NAME_PREFIX}{len(rain_zones) + 1}",
@@ -306,6 +317,7 @@ def register_environment_routes(app, ctx):
         if min_radius > max_radius:
             return jsonify({"error": "minRadius must be less than or equal to maxRadius"}), 400
 
+        rain_zones = get_rain_zones()
         rain_zones.clear()
         rain_zones.extend(
             [
@@ -337,13 +349,13 @@ def register_environment_routes(app, ctx):
 
     @app.route("/api/rain/clear", methods=["POST"])
     def clear_rain():
-        rain_zones.clear()
+        get_rain_zones().clear()
         return jsonify({"message": "Cleared"})
 
     @app.route("/api/traffic/list")
     def list_traffic_routes():
-        with dynamic_traffic_lock:
-            return jsonify({"routes": list(dynamic_traffic_routes)})
+        with get_dynamic_traffic_lock():
+            return jsonify({"routes": list(get_dynamic_traffic_routes())})
 
     @app.route("/api/traffic/add", methods=["POST"])
     def add_traffic_route():
@@ -379,7 +391,8 @@ def register_environment_routes(app, ctx):
             include_cost_breakdown=False,
         )
 
-        with dynamic_traffic_lock:
+        with get_dynamic_traffic_lock():
+            dynamic_traffic_routes = get_dynamic_traffic_routes()
             route_name = d.get("name") or f"{TRAFFIC_ROUTE_NAME_PREFIX}{len(dynamic_traffic_routes) + 1}"
             route = {"name": route_name, "severity": severity, "path": route_payload["path"]}
             dynamic_traffic_routes.append(route)
@@ -411,20 +424,21 @@ def register_environment_routes(app, ctx):
                     ],
                 }
             )
-        with dynamic_traffic_lock:
+        with get_dynamic_traffic_lock():
+            dynamic_traffic_routes = get_dynamic_traffic_routes()
             dynamic_traffic_routes.clear()
             dynamic_traffic_routes.extend(routes)
         return jsonify({"message": f"Added {count}", "routes": routes})
 
     @app.route("/api/traffic/clear", methods=["POST"])
     def clear_traffic():
-        with dynamic_traffic_lock:
-            dynamic_traffic_routes.clear()
+        with get_dynamic_traffic_lock():
+            get_dynamic_traffic_routes().clear()
         return jsonify({"message": "Cleared"})
 
     @app.route("/api/obstacle/list")
     def list_obstacles():
-        with obstacles_lock:
+        with get_obstacles_lock():
             return jsonify(
                 {
                     "obstacles": [
@@ -435,7 +449,7 @@ def register_environment_routes(app, ctx):
                             "severity": o["severity"],
                             "type": o["type"],
                         }
-                        for o in obstacles
+                        for o in get_obstacles()
                     ]
                 }
             )
@@ -453,14 +467,14 @@ def register_environment_routes(app, ctx):
             return jsonify({"error": str(exc)}), 400
 
         obstacle = {
-            "name": f"{OBSTACLE_NAME_PREFIX}{len(obstacles) + 1}",
+            "name": f"{OBSTACLE_NAME_PREFIX}{len(get_obstacles()) + 1}",
             "center": (lat, lon),
             "radius": radius,
             "severity": severity,
             "type": d.get("type", DEFAULT_OBSTACLE_TYPE),
         }
-        with obstacles_lock:
-            obstacles.append(obstacle)
+        with get_obstacles_lock():
+            get_obstacles().append(obstacle)
         return jsonify(
             {
                 "message": "Added",
@@ -484,7 +498,8 @@ def register_environment_routes(app, ctx):
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
-        with obstacles_lock:
+        with get_obstacles_lock():
+            obstacles = get_obstacles()
             obstacles.clear()
             obstacles.extend(
                 [
@@ -519,6 +534,6 @@ def register_environment_routes(app, ctx):
 
     @app.route("/api/obstacle/clear", methods=["POST"])
     def clear_obstacles():
-        with obstacles_lock:
-            obstacles.clear()
+        with get_obstacles_lock():
+            get_obstacles().clear()
         return jsonify({"message": "Cleared"})

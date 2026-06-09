@@ -11,6 +11,12 @@ from ..algorithms import (
     run_weighted_route_search,
 )
 from ..algorithms.dispatch.allocation import assign_deliveries
+from ..core.environment import (
+    edge_weight_for_snapshot,
+    obstacle_penalty_for_snapshot,
+    rain_penalty_for_snapshot,
+    traffic_penalty_for_snapshot,
+)
 from ..core.hubs import append_delivery_points, compute_optimized_hubs
 from ..utils.geo import haversine_distance
 from ..config import (
@@ -24,6 +30,7 @@ from ..config import (
     DEFAULT_ROUTING_ALGORITHM,
     INVALID_ALGORITHM_ERROR,
     INVALID_COORDS_ERROR,
+    ROUTING_ALGORITHM_ALIASES,
     TIMESTAMP_MS_MULTIPLIER,
     VALID_ROUTING_ALGORITHMS,
 )
@@ -35,13 +42,21 @@ def register_main_routes(app, ctx):
     validate_lat_lon = ctx["validate_lat_lon"]
     nearest_node_id = ctx["nearest_node_id"]
     build_route_response = ctx["build_route_response"]
-    edge_weight_with_traffic = ctx["edge_weight_with_traffic"]
-    traffic_penalty_for_point = ctx["traffic_penalty_for_point"]
-    rain_penalty_for_point = ctx["rain_penalty_for_point"]
-    obstacle_penalty_for_point = ctx["obstacle_penalty_for_point"]
     record_route_metrics = ctx["record_route_metrics"]
     metrics = ctx["metrics"]
     app_state = ctx["app_state"]
+    get_environment_snapshot = ctx["get_environment_snapshot"]
+
+    def snapshot_environment_functions():
+        snapshot = get_environment_snapshot()
+        return (
+            lambda lat, lon: traffic_penalty_for_snapshot(snapshot, lat, lon),
+            lambda lat, lon: rain_penalty_for_snapshot(snapshot, lat, lon),
+            lambda lat, lon: obstacle_penalty_for_snapshot(snapshot, lat, lon),
+            lambda from_node, to_node, edge_data: edge_weight_for_snapshot(
+                snapshot, from_node, to_node, edge_data
+            ),
+        )
 
     @app.route("/")
     def index():
@@ -71,6 +86,7 @@ def register_main_routes(app, ctx):
             road_memory = {}
 
         algo = (request.args.get("algo") or DEFAULT_ROUTING_ALGORITHM).strip().lower()
+        algo = ROUTING_ALGORITHM_ALIASES.get(algo, algo)
         if algo not in VALID_ROUTING_ALGORITHMS:
             return jsonify({"error": INVALID_ALGORITHM_ERROR}), 400
 
@@ -78,9 +94,15 @@ def register_main_routes(app, ctx):
             graph, _, _ = get_road_graph()
             start_node = nearest_node_id(graph, from_lat, from_lon, app_state["ox"])
             end_node = nearest_node_id(graph, to_lat, to_lon, app_state["ox"])
+            (
+                traffic_penalty,
+                rain_penalty,
+                obstacle_penalty,
+                edge_weight,
+            ) = snapshot_environment_functions()
 
             def edge_weight_with_memory(from_node, to_node, edge_data):
-                base = edge_weight_with_traffic(from_node, to_node, edge_data)
+                base = edge_weight(from_node, to_node, edge_data)
                 from_data = graph.nodes[from_node]
                 to_data = graph.nodes[to_node]
                 key = (
@@ -91,7 +113,7 @@ def register_main_routes(app, ctx):
                 return base * memory_penalty
 
             weight_fn = (
-                edge_weight_with_memory if road_memory else edge_weight_with_traffic
+                edge_weight_with_memory if road_memory else edge_weight
             )
             route_nodes, nodes_explored = run_weighted_route_search(
                 graph,
@@ -105,9 +127,9 @@ def register_main_routes(app, ctx):
             payload = build_route_response(
                 graph,
                 route_nodes,
-                traffic_penalty_for_point,
-                rain_penalty_for_point,
-                obstacle_penalty_for_point,
+                traffic_penalty,
+                rain_penalty,
+                obstacle_penalty,
             )
             payload["start"] = {
                 "lat": graph.nodes[start_node]["y"],
@@ -184,6 +206,12 @@ def register_main_routes(app, ctx):
             )
 
             graph, _, _ = get_road_graph()
+            (
+                traffic_penalty,
+                rain_penalty,
+                obstacle_penalty,
+                edge_weight,
+            ) = snapshot_environment_functions()
             assignments = assign_deliveries(
                 app_state,
                 graph,
@@ -191,14 +219,15 @@ def register_main_routes(app, ctx):
                 deliveries,
                 current_time_ms,
                 nearest_node_id,
-                edge_weight_with_traffic,
-                traffic_penalty_for_point,
-                rain_penalty_for_point,
-                obstacle_penalty_for_point,
+                edge_weight,
+                traffic_penalty,
+                rain_penalty,
+                obstacle_penalty,
                 record_route_metrics,
                 metrics,
+                return_explanations=True,
             )
-            return jsonify({"assignments": assignments}), 200
+            return jsonify(assignments), 200
         except Exception as exc:
             import traceback
 
@@ -253,15 +282,16 @@ def register_main_routes(app, ctx):
         graph, _, _ = get_road_graph()
         start_node = nearest_node_id(graph, from_lat, from_lon, app_state["ox"])
         end_node = nearest_node_id(graph, to_lat, to_lon, app_state["ox"])
+        traffic_penalty, rain_penalty, obstacle_penalty, _ = snapshot_environment_functions()
         payload = run_astep_demo(
             graph,
             start_node,
             end_node,
             to_lat,
             to_lon,
-            traffic_penalty_for_point,
-            rain_penalty_for_point,
-            obstacle_penalty_for_point,
+            traffic_penalty,
+            rain_penalty,
+            obstacle_penalty,
         )
         return jsonify(payload)
 
@@ -288,15 +318,16 @@ def register_main_routes(app, ctx):
         graph, _, _ = get_road_graph()
         start_node = nearest_node_id(graph, from_lat, from_lon, app_state["ox"])
         end_node = nearest_node_id(graph, to_lat, to_lon, app_state["ox"])
+        traffic_penalty, rain_penalty, obstacle_penalty, _ = snapshot_environment_functions()
         payload = run_insider_comparison(
             graph,
             start_node,
             end_node,
             to_lat,
             to_lon,
-            traffic_penalty_for_point,
-            rain_penalty_for_point,
-            obstacle_penalty_for_point,
+            traffic_penalty,
+            rain_penalty,
+            obstacle_penalty,
         )
         payload["from"] = {"lat": from_lat, "lon": from_lon}
         payload["to"] = {"lat": to_lat, "lon": to_lon}

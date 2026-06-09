@@ -187,8 +187,8 @@ class Simulation {
     async assignDeliveries() {
         if (this.isAssigning) return;
 
-        const candidateRobots = this.robots.filter(r => r.status === CONFIG.ROBOT.STATUSES.IDLE && r.currentLoad < r.capacity && !r.isRouting);
-        if (candidateRobots.length === 0 || this.pendingDeliveries.length === 0) return;
+        const hasAvailableRobot = this.robots.some(r => r.status === CONFIG.ROBOT.STATUSES.IDLE && r.currentLoad < r.capacity && !r.isRouting);
+        if (!hasAvailableRobot || this.pendingDeliveries.length === 0) return;
 
         this.isAssigning = true;
         try {
@@ -196,12 +196,15 @@ class Simulation {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    robots: candidateRobots.map(r => ({
+                    robots: this.robots.map(r => ({
                         id: r.id,
                         name: r.name,
                         lat: r.lat,
                         lon: r.lon,
                         battery: r.battery,
+                        status: r.status,
+                        currentLoad: r.currentLoad,
+                        capacity: r.capacity,
                         roadMemory: r.roadMemory,
                         routeAlgorithm: r.routeAlgorithm
                     })),
@@ -213,6 +216,7 @@ class Simulation {
             if (!response.ok) throw new Error('Assignment failed');
             const data = await response.json();
             const assignments = data.assignments || [];
+            this.updateDispatchTimeline(data.explanations || []);
 
             for (const best of assignments) {
                 const deliveryIndex = this.pendingDeliveries.findIndex(d => d.id === best.deliveryId);
@@ -232,7 +236,8 @@ class Simulation {
                     totalScore: best.totalScore,
                     breakdown: best.breakdown,
                     pickupName: delivery.pickup.name,
-                    destinationName: delivery.destination.name
+                    destinationName: delivery.destination.name,
+                    explanation: best.explanation || null
                 };
 
                 addDispatchInsight(
@@ -250,6 +255,80 @@ class Simulation {
         } finally {
             this.isAssigning = false;
         }
+    }
+
+    escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, char => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[char]));
+    }
+
+    formatCandidateReason(candidate) {
+        const reasons = candidate.reasons || [];
+        if (reasons.length === 0) return '';
+        return reasons.map(reason => this.escapeHtml(reason.code)).join(', ');
+    }
+
+    updateDispatchTimeline(explanations) {
+        const store = Alpine.store('sim');
+        if (!store) return;
+
+        if (!explanations || explanations.length === 0) {
+            store.decision.dispatchTimeline = '<div class="xai-empty">No dispatch decision yet.</div>';
+            return;
+        }
+
+        const latest = explanations.slice(-3).reverse();
+        store.decision.dispatchTimeline = latest.map(explanation => {
+            const candidates = (explanation.candidates || []).map(candidate => {
+                const score = candidate.totalScore !== undefined
+                    ? `<span>score <strong>${candidate.totalScore.toFixed ? candidate.totalScore.toFixed(1) : candidate.totalScore}</strong></span>`
+                    : `<span>pre-score <strong>${candidate.approximateScore}</strong></span>`;
+                const routeCost = candidate.routeCost !== undefined
+                    ? `<span>${candidate.routeCost}m</span>`
+                    : `<span>${candidate.pickupDistance}m pickup</span>`;
+                const reason = this.formatCandidateReason(candidate);
+                return `
+                    <div class="xai-candidate xai-${this.escapeHtml(candidate.status)}">
+                        <div class="xai-candidate-head">
+                            <strong>${this.escapeHtml(candidate.robotName || candidate.robotId)}</strong>
+                            <span>${this.escapeHtml(candidate.status)}</span>
+                        </div>
+                        <div class="xai-candidate-meta">
+                            <span>Battery ${this.escapeHtml(candidate.battery)}%</span>
+                            ${routeCost}
+                            ${score}
+                        </div>
+                        ${candidate.formula ? `<div class="xai-formula">${this.escapeHtml(candidate.formula)}</div>` : ''}
+                        ${reason ? `<div class="xai-reason">${reason}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            const timeline = (explanation.timeline || []).map(step => `
+                <div class="xai-step xai-${this.escapeHtml(step.status)}">
+                    <div class="xai-step-stage">${this.escapeHtml(step.stage)}</div>
+                    <div class="xai-step-message">${this.escapeHtml(step.message)}</div>
+                </div>
+            `).join('');
+
+            return `
+                <div class="xai-decision">
+                    <div class="xai-title">
+                        Order #${this.escapeHtml(explanation.deliveryId)}
+                        <span>priority ${this.escapeHtml(explanation.priorityScore)}</span>
+                    </div>
+                    <div class="xai-route">${this.escapeHtml(explanation.pickupName)} -> ${this.escapeHtml(explanation.destinationName)}</div>
+                    <div class="xai-objective">${this.escapeHtml(explanation.objective)}</div>
+                    <div class="xai-grid">${candidates}</div>
+                    <div class="xai-timeline">${timeline}</div>
+                </div>
+            `;
+        }).join('');
     }
 
     update() {

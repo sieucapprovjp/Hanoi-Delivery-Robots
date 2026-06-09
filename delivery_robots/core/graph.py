@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import networkx as nx
 import numpy as np
 from sklearn.neighbors import BallTree
@@ -37,6 +39,37 @@ def _build_traffic_routes(
     return routes
 
 
+def _graph_cache_path(state):
+    return Path(state["graph_cache_dir"]) / state["graph_cache_filename"]
+
+
+def _load_or_fetch_graph(state):
+    cache_enabled = state.get("graph_cache_enabled", True)
+    cache_path = _graph_cache_path(state)
+
+    if cache_enabled and cache_path.exists():
+        try:
+            return state["ox"].load_graphml(cache_path)
+        except Exception:
+            pass
+
+    graph = state["ox"].graph_from_point(
+        state["graph_center"],
+        dist=state["graph_dist_meters"],
+        network_type=state["graph_network_type"],
+        simplify=True,
+    )
+
+    if cache_enabled:
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            state["ox"].save_graphml(graph, cache_path)
+        except Exception:
+            pass
+
+    return graph
+
+
 def get_road_graph(
     state,
     nearest_node_id,
@@ -59,12 +92,7 @@ def get_road_graph(
             state["ox"] = ox
 
         if state["road_graph"] is None:
-            state["road_graph"] = state["ox"].graph_from_point(
-                state["graph_center"],
-                dist=state["graph_dist_meters"],
-                network_type=state["graph_network_type"],
-                simplify=True,
-            )
+            state["road_graph"] = _load_or_fetch_graph(state)
             state["projected_road_graph"] = state["ox"].project_graph(state["road_graph"])
             state["traffic_routes"] = _build_traffic_routes(
                 state["road_graph"],
