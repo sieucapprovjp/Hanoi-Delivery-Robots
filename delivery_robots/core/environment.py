@@ -68,7 +68,7 @@ def _traffic_penalty_for_routes(
         if len(road["path"]) < 2:
             continue
 
-        progress = (now / state["traffic_period_seconds"] + road["severity"]) % 1
+        progress = (now / traffic_period_seconds + road["severity"]) % 1
         active_segment = progress * (len(road["path"]) - 1)
 
         for idx in range(len(road["path"]) - 1):
