@@ -49,6 +49,63 @@ def edge_geometry_coordinates(graph, from_node, to_node, edge_data):
     return [{"lat": lat, "lon": lon} for lon, lat in geometry.coords]
 
 
+def road_memory_key(graph, from_node, to_node):
+    from_data = graph.nodes[from_node]
+    to_data = graph.nodes[to_node]
+    return (
+        f"{from_data['y']:.4f},{from_data['x']:.4f}->"
+        f"{to_data['y']:.4f},{to_data['x']:.4f}"
+    )
+
+
+def build_memory_weight_fn(
+    graph,
+    base_weight_fn,
+    road_memory,
+    default_penalty,
+    memory_key_cache=None,
+):
+    if not road_memory:
+        return base_weight_fn
+
+    key_cache = memory_key_cache if memory_key_cache is not None else {}
+
+    def edge_weight_with_memory(from_node, to_node, edge_data):
+        base_weight = base_weight_fn(from_node, to_node, edge_data)
+        edge_key = (from_node, to_node)
+        if edge_key not in key_cache:
+            key_cache[edge_key] = road_memory_key(graph, from_node, to_node)
+        return base_weight * road_memory.get(key_cache[edge_key], default_penalty)
+
+    return edge_weight_with_memory
+
+
+def attach_route_metadata(
+    payload,
+    graph,
+    start_node,
+    end_node,
+    algorithm,
+    calc_time_ms,
+    nodes_explored,
+):
+    payload["start"] = {
+        "lat": graph.nodes[start_node]["y"],
+        "lon": graph.nodes[start_node]["x"],
+    }
+    payload["end"] = {
+        "lat": graph.nodes[end_node]["y"],
+        "lon": graph.nodes[end_node]["x"],
+    }
+    payload["algo"] = algorithm
+    payload["timeMs"] = round(calc_time_ms, 2)
+    payload["nodesExplored"] = nodes_explored
+    payload["pathCost"] = payload.get("costBreakdown", {}).get(
+        "totalCost", round(payload.get("distance", 0.0), 1)
+    )
+    return payload
+
+
 def build_route_response(
     graph,
     route_nodes,

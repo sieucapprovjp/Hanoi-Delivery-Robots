@@ -18,7 +18,11 @@ from ...config import (
     VALID_ROUTING_ALGORITHMS,
 )
 from ...utils.geo import haversine_distance
-from ...utils.route_analysis import build_route_response
+from ...utils.route_analysis import (
+    attach_route_metadata,
+    build_memory_weight_fn,
+    build_route_response,
+)
 
 
 def calculate_priority_score(delivery, current_time_ms):
@@ -47,15 +51,6 @@ def _normalize_route_algorithm(algorithm):
     if normalized not in VALID_ROUTING_ALGORITHMS:
         return DEFAULT_ROUTING_ALGORITHM
     return normalized
-
-
-def _road_memory_key(graph, from_node, to_node):
-    from_data = graph.nodes[from_node]
-    to_data = graph.nodes[to_node]
-    return (
-        f"{from_data['y']:.4f},{from_data['x']:.4f}->"
-        f"{to_data['y']:.4f},{to_data['x']:.4f}"
-    )
 
 
 def _constraint_rejections(robot, pickup_distance_meters):
@@ -119,6 +114,96 @@ def _candidate_record(robot, pickup_distance_meters, approximate_score):
     }
 
 
+def _approximate_robot_score(robot, distance):
+    projected_drain = (distance / 1000.0) * DISPATCH_BATTERY_DRAIN_PER_KM
+    battery_risk = max(
+        0,
+        projected_drain
+        - robot.get('battery', 0) * DISPATCH_BATTERY_SAFETY_MARGIN,
+    )
+    return distance + battery_risk * DISPATCH_BATTERY_RISK_WEIGHT
+
+
+def _candidate_limit(delivery, ranked_count):
+    extra_candidates = (
+        DISPATCH_HIGH_PRIORITY_EXTRA_CANDIDATES
+        if delivery['priorityScore'] >= DISPATCH_HIGH_PRIORITY_SCORE_THRESHOLD
+        else 0
+    )
+    return max(
+        1,
+        min(
+            ranked_count,
+            DISPATCH_MAX_ROUTE_CANDIDATES_PER_DELIVERY + extra_candidates,
+        ),
+    )
+
+
+def _build_dispatch_explanation(delivery):
+    return {
+        "deliveryId": delivery['id'],
+        "pickupName": delivery['pickup'].get('name', ''),
+        "destinationName": delivery['destination'].get('name', ''),
+        "priorityScore": round(delivery['priorityScore'], 2),
+        "objective": (
+            "minimize routeCost + batteryRisk*wBattery - priority*wPriority"
+        ),
+        "constraints": {
+            "requiredStatus": DISPATCH_REQUIRED_ROBOT_STATUS,
+            "minBatteryPercent": DISPATCH_MIN_BATTERY_PERCENT,
+            "maxPickupDistanceMeters": DISPATCH_MAX_PICKUP_DISTANCE_METERS,
+            "capacityRule": "currentLoad < capacity",
+        },
+        "timeline": [
+            {
+                "stage": "priority",
+                "status": "info",
+                "message": (
+                    f"Order #{delivery['id']} priority = "
+                    f"{delivery['priorityScore']:.1f}."
+                ),
+            }
+        ],
+        "candidates": [],
+        "selectedRobotId": None,
+    }
+
+
+def _rank_feasible_candidates(delivery, available_robots, explanation):
+    pickup_lat = delivery['pickup']['lat']
+    pickup_lon = delivery['pickup']['lon']
+    feasible_candidates = []
+
+    for robot in available_robots:
+        pickup_distance = haversine_distance(
+            robot['lat'], robot['lon'], pickup_lat, pickup_lon
+        )
+        approx_score = _approximate_robot_score(robot, pickup_distance)
+        candidate = _candidate_record(robot, pickup_distance, approx_score)
+        rejections = _constraint_rejections(robot, pickup_distance)
+        if rejections:
+            candidate["status"] = "rejected"
+            candidate["reasons"] = rejections
+            explanation["candidates"].append(candidate)
+            explanation["timeline"].append(
+                {
+                    "stage": "csp",
+                    "status": "rejected",
+                    "robotId": robot.get('id'),
+                    "message": (
+                        f"{robot.get('name', robot.get('id'))} rejected by "
+                        f"CSP: {', '.join(item['code'] for item in rejections)}."
+                    ),
+                }
+            )
+            continue
+
+        explanation["candidates"].append(candidate)
+        feasible_candidates.append((robot, candidate))
+
+    return sorted(feasible_candidates, key=lambda item: item[1]["approximateScore"])
+
+
 def assign_deliveries(
     app_state, graph, robots, deliveries, current_time_ms,
     nearest_node_id_fn, edge_weight_with_traffic_fn, 
@@ -155,30 +240,6 @@ def assign_deliveries(
             )
         return pickup_node_cache[key]
 
-    def approximate_robot_score(robot, distance):
-        projected_drain = (distance / 1000.0) * DISPATCH_BATTERY_DRAIN_PER_KM
-        battery_risk = max(
-            0,
-            projected_drain
-            - robot.get('battery', 0) * DISPATCH_BATTERY_SAFETY_MARGIN,
-        )
-        return distance + battery_risk * DISPATCH_BATTERY_RISK_WEIGHT
-
-    def candidate_limit(delivery, ranked_count):
-        extra_candidates = (
-            DISPATCH_HIGH_PRIORITY_EXTRA_CANDIDATES
-            if delivery['priorityScore'] >= DISPATCH_HIGH_PRIORITY_SCORE_THRESHOLD
-            else 0
-        )
-        limit = max(
-            1,
-            min(
-                ranked_count,
-                DISPATCH_MAX_ROUTE_CANDIDATES_PER_DELIVERY + extra_candidates,
-            ),
-        )
-        return limit
-
     for d in deliveries:
         d['priorityScore'] = calculate_priority_score(d, current_time_ms)
         
@@ -196,66 +257,11 @@ def assign_deliveries(
         pickup_lat = delivery['pickup']['lat']
         pickup_lon = delivery['pickup']['lon']
         end_node = cached_pickup_node(delivery)
-        explanation = {
-            "deliveryId": delivery['id'],
-            "pickupName": delivery['pickup'].get('name', ''),
-            "destinationName": delivery['destination'].get('name', ''),
-            "priorityScore": round(delivery['priorityScore'], 2),
-            "objective": (
-                "minimize routeCost + batteryRisk*wBattery - priority*wPriority"
-            ),
-            "constraints": {
-                "requiredStatus": DISPATCH_REQUIRED_ROBOT_STATUS,
-                "minBatteryPercent": DISPATCH_MIN_BATTERY_PERCENT,
-                "maxPickupDistanceMeters": DISPATCH_MAX_PICKUP_DISTANCE_METERS,
-                "capacityRule": "currentLoad < capacity",
-            },
-            "timeline": [
-                {
-                    "stage": "priority",
-                    "status": "info",
-                    "message": (
-                        f"Order #{delivery['id']} priority = "
-                        f"{delivery['priorityScore']:.1f}."
-                    ),
-                }
-            ],
-            "candidates": [],
-            "selectedRobotId": None,
-        }
-        feasible_candidates = []
-
-        for robot in available_robots:
-            pickup_distance = haversine_distance(
-                robot['lat'], robot['lon'], pickup_lat, pickup_lon
-            )
-            approx_score = approximate_robot_score(robot, pickup_distance)
-            candidate = _candidate_record(robot, pickup_distance, approx_score)
-            rejections = _constraint_rejections(robot, pickup_distance)
-            if rejections:
-                candidate["status"] = "rejected"
-                candidate["reasons"] = rejections
-                explanation["candidates"].append(candidate)
-                explanation["timeline"].append(
-                    {
-                        "stage": "csp",
-                        "status": "rejected",
-                        "robotId": robot.get('id'),
-                        "message": (
-                            f"{robot.get('name', robot.get('id'))} rejected by "
-                            f"CSP: {', '.join(item['code'] for item in rejections)}."
-                        ),
-                    }
-                )
-                continue
-
-            explanation["candidates"].append(candidate)
-            feasible_candidates.append((robot, candidate))
-
-        ranked_candidates = sorted(
-            feasible_candidates, key=lambda item: item[1]["approximateScore"]
+        explanation = _build_dispatch_explanation(delivery)
+        ranked_candidates = _rank_feasible_candidates(
+            delivery, available_robots, explanation
         )
-        limit = candidate_limit(delivery, len(ranked_candidates))
+        limit = _candidate_limit(delivery, len(ranked_candidates))
         routed_candidates = ranked_candidates[:limit]
         routed_robot_ids = {robot.get('id') for robot, _ in routed_candidates}
 
@@ -287,20 +293,13 @@ def assign_deliveries(
                 start_node = cached_robot_node(robot)
                 road_memory = robot.get('roadMemory', {})
                 algo = _normalize_route_algorithm(robot.get('routeAlgorithm'))
-                
-                def edge_weight_with_memory(from_node, to_node, edge_data):
-                    base = cached_base_weight(from_node, to_node, edge_data)
-                    edge_key = (from_node, to_node)
-                    if edge_key not in memory_key_cache:
-                        memory_key_cache[edge_key] = _road_memory_key(
-                            graph, from_node, to_node
-                        )
-                    memory_penalty = road_memory.get(
-                        memory_key_cache[edge_key], DEFAULT_ROAD_MEMORY_PENALTY
-                    )
-                    return base * memory_penalty
-                    
-                weight_fn = edge_weight_with_memory if road_memory else cached_base_weight
+                weight_fn = build_memory_weight_fn(
+                    graph,
+                    cached_base_weight,
+                    road_memory,
+                    DEFAULT_ROAD_MEMORY_PENALTY,
+                    memory_key_cache,
+                )
                 
                 start_t = time.time()
                 route_nodes, nodes_explored = run_weighted_route_search(
@@ -308,18 +307,20 @@ def assign_deliveries(
                 )
                 calc_time = (time.time() - start_t) * 1000
                 
-                # Assemble payload similar to /api/route so frontend doesn't need to fetch it again
                 route_payload = build_route_response(
                     graph, route_nodes, traffic_penalty_fn, rain_penalty_fn, obstacle_penalty_fn
                 )
-                route_payload["start"] = {"lat": graph.nodes[start_node]["y"], "lon": graph.nodes[start_node]["x"]}
-                route_payload["end"] = {"lat": graph.nodes[end_node]["y"], "lon": graph.nodes[end_node]["x"]}
-                route_payload["algo"] = algo
-                route_payload["timeMs"] = round(calc_time, 2)
-                route_payload["nodesExplored"] = nodes_explored
+                attach_route_metadata(
+                    route_payload,
+                    graph,
+                    start_node,
+                    end_node,
+                    algo,
+                    calc_time,
+                    nodes_explored,
+                )
                 breakdown = route_payload.get("costBreakdown", {})
                 total_cost = breakdown.get("totalCost", route_payload.get("distance", 0.0))
-                route_payload["pathCost"] = total_cost
                 
                 record_route_metrics_fn(metrics, calc_time, nodes_explored, len(route_nodes))
                 

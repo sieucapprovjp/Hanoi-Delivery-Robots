@@ -19,6 +19,7 @@ from ..core.environment import (
 )
 from ..core.hubs import append_delivery_points, compute_optimized_hubs
 from ..utils.geo import haversine_distance
+from ..utils.route_analysis import attach_route_metadata, build_memory_weight_fn
 from ..config import (
     CLASSICAL_COMPARE_NOTE,
     DEFAULT_DEMO_FROM_LAT,
@@ -58,6 +59,38 @@ def register_main_routes(app, ctx):
             ),
         )
 
+    def parse_route_coordinates(defaults=None):
+        defaults = defaults or {}
+        from_lat = validate_coordinate(
+            request.args.get("fromLat", defaults.get("fromLat")), "fromLat"
+        )
+        from_lon = validate_coordinate(
+            request.args.get("fromLon", defaults.get("fromLon")), "fromLon"
+        )
+        to_lat = validate_coordinate(
+            request.args.get("toLat", defaults.get("toLat")), "toLat"
+        )
+        to_lon = validate_coordinate(
+            request.args.get("toLon", defaults.get("toLon")), "toLon"
+        )
+        validate_lat_lon(from_lat, from_lon)
+        validate_lat_lon(to_lat, to_lon)
+        return from_lat, from_lon, to_lat, to_lon
+
+    def demo_route_defaults():
+        return {
+            "fromLat": DEFAULT_DEMO_FROM_LAT,
+            "fromLon": DEFAULT_DEMO_FROM_LON,
+            "toLat": DEFAULT_DEMO_TO_LAT,
+            "toLon": DEFAULT_DEMO_TO_LON,
+        }
+
+    def route_graph_context(from_lat, from_lon, to_lat, to_lon):
+        graph, _, _ = get_road_graph()
+        start_node = nearest_node_id(graph, from_lat, from_lon, app_state["ox"])
+        end_node = nearest_node_id(graph, to_lat, to_lon, app_state["ox"])
+        return graph, start_node, end_node
+
     @app.route("/")
     def index():
         return render_template("index.html")
@@ -66,12 +99,7 @@ def register_main_routes(app, ctx):
     def route():
         start_t = time.time()
         try:
-            from_lat = validate_coordinate(request.args.get("fromLat"), "fromLat")
-            from_lon = validate_coordinate(request.args.get("fromLon"), "fromLon")
-            to_lat = validate_coordinate(request.args.get("toLat"), "toLat")
-            to_lon = validate_coordinate(request.args.get("toLon"), "toLon")
-            validate_lat_lon(from_lat, from_lon)
-            validate_lat_lon(to_lat, to_lon)
+            from_lat, from_lon, to_lat, to_lon = parse_route_coordinates()
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
@@ -91,29 +119,17 @@ def register_main_routes(app, ctx):
             return jsonify({"error": INVALID_ALGORITHM_ERROR}), 400
 
         try:
-            graph, _, _ = get_road_graph()
-            start_node = nearest_node_id(graph, from_lat, from_lon, app_state["ox"])
-            end_node = nearest_node_id(graph, to_lat, to_lon, app_state["ox"])
+            graph, start_node, end_node = route_graph_context(
+                from_lat, from_lon, to_lat, to_lon
+            )
             (
                 traffic_penalty,
                 rain_penalty,
                 obstacle_penalty,
                 edge_weight,
             ) = snapshot_environment_functions()
-
-            def edge_weight_with_memory(from_node, to_node, edge_data):
-                base = edge_weight(from_node, to_node, edge_data)
-                from_data = graph.nodes[from_node]
-                to_data = graph.nodes[to_node]
-                key = (
-                    f"{from_data['y']:.4f},{from_data['x']:.4f}->"
-                    f"{to_data['y']:.4f},{to_data['x']:.4f}"
-                )
-                memory_penalty = road_memory.get(key, DEFAULT_ROAD_MEMORY_PENALTY)
-                return base * memory_penalty
-
-            weight_fn = (
-                edge_weight_with_memory if road_memory else edge_weight
+            weight_fn = build_memory_weight_fn(
+                graph, edge_weight, road_memory, DEFAULT_ROAD_MEMORY_PENALTY
             )
             route_nodes, nodes_explored = run_weighted_route_search(
                 graph,
@@ -131,22 +147,17 @@ def register_main_routes(app, ctx):
                 rain_penalty,
                 obstacle_penalty,
             )
-            payload["start"] = {
-                "lat": graph.nodes[start_node]["y"],
-                "lon": graph.nodes[start_node]["x"],
-            }
-            payload["end"] = {
-                "lat": graph.nodes[end_node]["y"],
-                "lon": graph.nodes[end_node]["x"],
-            }
-            payload["algo"] = algo
 
             calc_time = (time.time() - start_t) * TIMESTAMP_MS_MULTIPLIER
             record_route_metrics(metrics, calc_time, nodes_explored, len(route_nodes))
-            payload["timeMs"] = round(calc_time, 2)
-            payload["nodesExplored"] = nodes_explored
-            payload["pathCost"] = payload.get("costBreakdown", {}).get(
-                "totalCost", round(payload.get("distance", 0.0), 1)
+            attach_route_metadata(
+                payload,
+                graph,
+                start_node,
+                end_node,
+                algo,
+                calc_time,
+                nodes_explored,
             )
             return jsonify(payload)
         except nx.NetworkXNoPath:
@@ -262,26 +273,15 @@ def register_main_routes(app, ctx):
     @app.route("/api/astep")
     def astep_demo():
         try:
-            from_lat = validate_coordinate(
-                request.args.get("fromLat", DEFAULT_DEMO_FROM_LAT), "fromLat"
+            from_lat, from_lon, to_lat, to_lon = parse_route_coordinates(
+                demo_route_defaults()
             )
-            from_lon = validate_coordinate(
-                request.args.get("fromLon", DEFAULT_DEMO_FROM_LON), "fromLon"
-            )
-            to_lat = validate_coordinate(
-                request.args.get("toLat", DEFAULT_DEMO_TO_LAT), "toLat"
-            )
-            to_lon = validate_coordinate(
-                request.args.get("toLon", DEFAULT_DEMO_TO_LON), "toLon"
-            )
-            validate_lat_lon(from_lat, from_lon)
-            validate_lat_lon(to_lat, to_lon)
         except ValueError:
             return jsonify({"error": INVALID_COORDS_ERROR}), 400
 
-        graph, _, _ = get_road_graph()
-        start_node = nearest_node_id(graph, from_lat, from_lon, app_state["ox"])
-        end_node = nearest_node_id(graph, to_lat, to_lon, app_state["ox"])
+        graph, start_node, end_node = route_graph_context(
+            from_lat, from_lon, to_lat, to_lon
+        )
         traffic_penalty, rain_penalty, obstacle_penalty, _ = snapshot_environment_functions()
         payload = run_astep_demo(
             graph,
@@ -298,26 +298,15 @@ def register_main_routes(app, ctx):
     @app.route("/api/insider")
     def insider_comparison():
         try:
-            from_lat = validate_coordinate(
-                request.args.get("fromLat", DEFAULT_DEMO_FROM_LAT), "fromLat"
+            from_lat, from_lon, to_lat, to_lon = parse_route_coordinates(
+                demo_route_defaults()
             )
-            from_lon = validate_coordinate(
-                request.args.get("fromLon", DEFAULT_DEMO_FROM_LON), "fromLon"
-            )
-            to_lat = validate_coordinate(
-                request.args.get("toLat", DEFAULT_DEMO_TO_LAT), "toLat"
-            )
-            to_lon = validate_coordinate(
-                request.args.get("toLon", DEFAULT_DEMO_TO_LON), "toLon"
-            )
-            validate_lat_lon(from_lat, from_lon)
-            validate_lat_lon(to_lat, to_lon)
         except ValueError:
             return jsonify({"error": INVALID_COORDS_ERROR}), 400
 
-        graph, _, _ = get_road_graph()
-        start_node = nearest_node_id(graph, from_lat, from_lon, app_state["ox"])
-        end_node = nearest_node_id(graph, to_lat, to_lon, app_state["ox"])
+        graph, start_node, end_node = route_graph_context(
+            from_lat, from_lon, to_lat, to_lon
+        )
         traffic_penalty, rain_penalty, obstacle_penalty, _ = snapshot_environment_functions()
         payload = run_insider_comparison(
             graph,
@@ -336,26 +325,15 @@ def register_main_routes(app, ctx):
     @app.route("/api/classical/compare")
     def classical_compare():
         try:
-            from_lat = validate_coordinate(
-                request.args.get("fromLat", DEFAULT_DEMO_FROM_LAT), "fromLat"
+            from_lat, from_lon, to_lat, to_lon = parse_route_coordinates(
+                demo_route_defaults()
             )
-            from_lon = validate_coordinate(
-                request.args.get("fromLon", DEFAULT_DEMO_FROM_LON), "fromLon"
-            )
-            to_lat = validate_coordinate(
-                request.args.get("toLat", DEFAULT_DEMO_TO_LAT), "toLat"
-            )
-            to_lon = validate_coordinate(
-                request.args.get("toLon", DEFAULT_DEMO_TO_LON), "toLon"
-            )
-            validate_lat_lon(from_lat, from_lon)
-            validate_lat_lon(to_lat, to_lon)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
-        graph, _, _ = get_road_graph()
-        start_node = nearest_node_id(graph, from_lat, from_lon, app_state["ox"])
-        end_node = nearest_node_id(graph, to_lat, to_lon, app_state["ox"])
+        graph, start_node, end_node = route_graph_context(
+            from_lat, from_lon, to_lat, to_lon
+        )
         payload = compare_classical_algorithms(
             graph, start_node, end_node, to_lat, to_lon
         )
