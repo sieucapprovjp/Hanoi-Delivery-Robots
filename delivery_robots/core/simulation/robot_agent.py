@@ -96,6 +96,16 @@ class RobotAgent:
         # 4. Drop off item
         yield self.env.timeout(30)
 
+        history_lock = self.app_state.get("history_lock")
+        delivery_history = self.app_state.get("delivery_history")
+        if delivery_history is not None and "dropoff" in task:
+            dropoff_coords = [task["dropoff"]["lat"], task["dropoff"]["lon"]]
+            if history_lock is not None:
+                with history_lock:
+                    delivery_history.append(dropoff_coords)
+            else:
+                delivery_history.append(dropoff_coords)
+
         self.current_path = []
         self.geometry_path = []
         self.segment_geometry = []

@@ -1,6 +1,7 @@
 from .dijkstra import dijkstra_search
 from .gbfs import gbfs_search
 from .astar import astar_search
+from ..utils import profile_time
 
 ALGORITHMS = {
     "dijkstra": dijkstra_search,
@@ -8,6 +9,7 @@ ALGORITHMS = {
     "astar": astar_search,
 }
 
+@profile_time(label="run_weighted_route_search")
 def run_weighted_route_search(
     graph,
     start_node,

@@ -5,6 +5,7 @@ from .robot_agent import RobotAgent
 from ..data import LOCATIONS, INITIAL_ROBOTS
 from ..environment import get_simulation_time, get_rush_hour_multiplier
 from ...config import RUSH_HOUR_INACTIVE_LABEL
+from ...utils import Profiler, profile_time, profile_block
 
 
 class SimulatorManager:
@@ -232,22 +233,26 @@ class SimulatorManager:
                 # Prevent tight loop spam if there is a persistent error
                 yield self.env.timeout(10)
 
+    @profile_time(label="simulator_run_loop")
     def _run_loop(self):
+        p = Profiler()
         ticks_per_real_second = 10.0
         real_time_step = 1.0 / ticks_per_real_second
         tick_counter = 0
 
         while not self._stop_event.is_set():
-            speed = self.app_state.get("simulation_speed", 60)
-            sim_time_step = speed / ticks_per_real_second
+            with profile_block("simulator_tick"):
+                speed = self.app_state.get("simulation_speed", 60)
+                sim_time_step = speed / ticks_per_real_second
 
-            self.env.run(until=self.env.now + sim_time_step)
-            self.app_state["sim_now"] = self.env.now
+                self.env.run(until=self.env.now + sim_time_step)
+                self.app_state["sim_now"] = self.env.now
 
-            tick_counter += 1
-            if tick_counter >= ticks_per_real_second:
-                tick_counter = 0
-                self.emit_clock_update()
+                tick_counter += 1
+                if tick_counter >= ticks_per_real_second:
+                    tick_counter = 0
+                    self.emit_clock_update()
+                    p.save_to_log()
 
             # Standard threading sleep using socketio
             self.socketio.sleep(real_time_step)

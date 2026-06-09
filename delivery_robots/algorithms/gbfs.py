@@ -2,7 +2,9 @@ import heapq
 import networkx as nx
 from .base import reconstruct_node_path
 from ..utils.geo import haversine_distance
+from ..utils import profile_time
 
+@profile_time(label="gbfs_search")
 def gbfs_search(graph, start_node, end_node, goal_lat, goal_lon, weight_fn, **kwargs):
     g_score = {start_node: 0.0}
     came_from = {}

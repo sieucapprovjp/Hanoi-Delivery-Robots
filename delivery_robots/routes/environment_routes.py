@@ -65,6 +65,7 @@ def register_environment_routes(app, ctx):
     traffic_penalty_for_point = ctx["traffic_penalty_for_point"]
     rain_penalty_for_point = ctx["rain_penalty_for_point"]
     obstacle_penalty_for_point = ctx["obstacle_penalty_for_point"]
+    edge_weight_with_traffic = ctx["edge_weight_with_traffic"]
 
     traffic_period_seconds = ctx["traffic_period_seconds"]
     rush_hours = ctx["rush_hours"]
@@ -500,3 +501,35 @@ def register_environment_routes(app, ctx):
         with obstacles_lock:
             obstacles.clear()
         return jsonify({"message": "Cleared"})
+
+    @app.route("/api/route", methods=["GET"])
+    def get_route_breakdown():
+        try:
+            from_lat = validate_coordinate(request.args.get("fromLat"), "fromLat")
+            from_lon = validate_coordinate(request.args.get("fromLon"), "fromLon")
+            to_lat = validate_coordinate(request.args.get("toLat"), "toLat")
+            to_lon = validate_coordinate(request.args.get("toLon"), "toLon")
+            validate_lat_lon(from_lat, from_lon)
+            validate_lat_lon(to_lat, to_lon)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        graph, _, _ = get_road_graph()
+        ox = get_ox()
+        try:
+            start_node = nearest_node_id(graph, from_lat, from_lon, ox)
+            end_node = nearest_node_id(graph, to_lat, to_lon, ox)
+            route_nodes = nx.shortest_path(graph, start_node, end_node, weight=edge_weight_with_traffic)
+            route_payload = build_route_response(
+                graph,
+                route_nodes,
+                traffic_penalty_for_point,
+                rain_penalty_for_point,
+                obstacle_penalty_for_point,
+                include_cost_breakdown=True,
+            )
+            return jsonify(route_payload), 200
+        except nx.NetworkXNoPath:
+            return jsonify({"error": "No path found between the specified coordinates"}), 404
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500

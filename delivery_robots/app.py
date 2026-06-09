@@ -141,7 +141,7 @@ def get_road_graph():
     result = core_get_road_graph(
         _app_state,
         lambda g, lat, lon, ox=_app_state["ox"]: nearest_node_id(
-            g, lat, lon, _app_state
+            g, lat, lon, {**_app_state, "ox": ox}
         ),
         build_route_response,
         traffic_penalty_for_point,
@@ -185,7 +185,7 @@ def edge_weight_with_traffic(from_node, to_node, edge_data):
 def _build_routes_context():
     return {
         "app_state": _app_state,
-        "get_road_graph": get_road_graph,
+        "get_road_graph": lambda: get_road_graph(),
         "road_graph_getter": lambda: _road_graph,
         "get_simulation_time": get_simulation_time,
         "get_rush_hour_multiplier": get_rush_hour_multiplier,
@@ -193,7 +193,7 @@ def _build_routes_context():
         "record_route_metrics": record_route_metrics,
         "build_route_response": build_route_response,
         "nearest_node_id": lambda g, lat, lon, ox=_app_state["ox"]: nearest_node_id(
-            g, lat, lon, _app_state
+            g, lat, lon, {**_app_state, "ox": ox}
         ),
         "validate_coordinate": validate_coordinate,
         "validate_lat_lon": validate_lat_lon,

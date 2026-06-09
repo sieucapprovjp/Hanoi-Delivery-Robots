@@ -1,7 +1,9 @@
 import heapq
 import networkx as nx
 from .base import reconstruct_node_path
+from ..utils import profile_time
 
+@profile_time(label="dijkstra_search")
 def dijkstra_search(graph, start_node, end_node, weight_fn, **kwargs):
     g_score = {start_node: 0.0}
     came_from = {}

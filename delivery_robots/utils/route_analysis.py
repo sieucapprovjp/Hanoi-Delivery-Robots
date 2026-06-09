@@ -6,8 +6,10 @@ from ..config import (
     SPEED_METERS_PER_SECOND,
 )
 from .geo import haversine_distance
+from .profiler import profile_time
 
 
+@profile_time(label="nearest_node_id")
 def nearest_node_id(graph, lat, lon, state):
     """
     Find the nearest node in the graph to the given coordinates.
