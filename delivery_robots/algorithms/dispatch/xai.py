@@ -1,10 +1,8 @@
 from ...config import (
     DISPATCH_BATTERY_RISK_WEIGHT,
-    DISPATCH_MAX_PICKUP_DISTANCE_METERS,
-    DISPATCH_MIN_BATTERY_PERCENT,
     DISPATCH_PRIORITY_WEIGHT,
-    DISPATCH_REQUIRED_ROBOT_STATUS,
 )
+from .constraints import build_constraints_summary, evaluate_pre_route_constraints
 
 
 def _round(value, digits=1):
@@ -13,74 +11,16 @@ def _round(value, digits=1):
     return round(value, digits)
 
 
-def build_constraints_summary():
-    return {
-        "requiredStatus": DISPATCH_REQUIRED_ROBOT_STATUS,
-        "minBatteryPercent": DISPATCH_MIN_BATTERY_PERCENT,
-        "maxPickupDistanceMeters": DISPATCH_MAX_PICKUP_DISTANCE_METERS,
-        "capacityRule": "currentLoad < capacity",
-    }
-
-
 def build_candidate_constraints(robot, pickup_distance_meters):
-    status = robot.get("status")
-    capacity = robot.get("capacity")
-    current_load = robot.get("currentLoad", 0)
-    battery = robot.get("battery", 0)
-
+    result = evaluate_pre_route_constraints(robot, pickup_distance_meters)
     return {
-        "idle": status is None or status == DISPATCH_REQUIRED_ROBOT_STATUS,
-        "batteryOk": battery >= DISPATCH_MIN_BATTERY_PERCENT,
-        "capacityOk": capacity is None or current_load < capacity,
-        "pickupDistanceOk": pickup_distance_meters <= DISPATCH_MAX_PICKUP_DISTANCE_METERS,
+        key: check["passed"]
+        for key, check in result["checks"].items()
     }
 
 
 def constraint_rejections(robot, pickup_distance_meters):
-    rejections = []
-    status = robot.get("status")
-    if status is not None and status != DISPATCH_REQUIRED_ROBOT_STATUS:
-        rejections.append(
-            {
-                "code": "not_idle",
-                "message": f"Robot status is {status}; expected idle.",
-            }
-        )
-
-    capacity = robot.get("capacity")
-    current_load = robot.get("currentLoad", 0)
-    if capacity is not None and current_load >= capacity:
-        rejections.append(
-            {
-                "code": "capacity_full",
-                "message": f"Load {current_load}/{capacity} leaves no free capacity.",
-            }
-        )
-
-    battery = robot.get("battery", 0)
-    if battery < DISPATCH_MIN_BATTERY_PERCENT:
-        rejections.append(
-            {
-                "code": "low_battery",
-                "message": (
-                    f"Battery {battery:.1f}% is below "
-                    f"{DISPATCH_MIN_BATTERY_PERCENT}% minimum."
-                ),
-            }
-        )
-
-    if pickup_distance_meters > DISPATCH_MAX_PICKUP_DISTANCE_METERS:
-        rejections.append(
-            {
-                "code": "pickup_too_far",
-                "message": (
-                    f"Pickup distance {pickup_distance_meters:.0f}m exceeds "
-                    f"{DISPATCH_MAX_PICKUP_DISTANCE_METERS}m limit."
-                ),
-            }
-        )
-
-    return rejections
+    return evaluate_pre_route_constraints(robot, pickup_distance_meters)["rejections"]
 
 
 def build_candidate_record(robot, pickup_distance_meters, approximate_score):
