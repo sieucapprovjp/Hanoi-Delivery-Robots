@@ -307,6 +307,65 @@ class DispatchAllocationTests(unittest.TestCase):
         self.assertFalse(busy_candidate["constraints"]["idle"])
         self.assertEqual(busy_candidate["rejectReasons"][0]["code"], "not_idle")
 
+    def test_assign_deliveries_rejects_low_projected_battery_after_route(self):
+        graph = build_dispatch_graph()
+        for edge_data in graph[2][1].values():
+            edge_data["length"] = 3000.0
+
+        robots = [
+            {
+                "id": "low-reserve",
+                "name": "Low Reserve",
+                "lat": 21.0005,
+                "lon": 105.0000,
+                "battery": 20,
+                "status": "idle",
+                "routeAlgorithm": "astar",
+            },
+            {
+                "id": "healthy",
+                "name": "Healthy",
+                "lat": 21.0010,
+                "lon": 105.0000,
+                "battery": 100,
+                "status": "idle",
+                "routeAlgorithm": "astar",
+            },
+        ]
+
+        result = allocation.assign_deliveries(
+            {"ox": None},
+            graph,
+            robots,
+            [build_delivery()],
+            0,
+            nearest_node_id,
+            lambda from_node, to_node, edge_data: edge_weight(
+                graph, from_node, to_node, edge_data
+            ),
+            flat_penalty,
+            flat_penalty,
+            flat_penalty,
+            noop_record_metrics,
+            {},
+            return_explanations=True,
+        )
+
+        self.assertEqual(result["assignments"][0]["robotId"], "healthy")
+        low_reserve_candidate = next(
+            item
+            for item in result["explanations"][0]["candidates"]
+            if item["robotId"] == "low-reserve"
+        )
+        self.assertEqual(low_reserve_candidate["status"], "rejected")
+        self.assertFalse(low_reserve_candidate["accepted"])
+        self.assertFalse(low_reserve_candidate["constraints"]["batteryReserveOk"])
+        self.assertEqual(
+            low_reserve_candidate["rejectReasons"][0]["code"],
+            "battery_reserve_too_low",
+        )
+        self.assertEqual(low_reserve_candidate["route"]["distance"], 3000.0)
+
 
 if __name__ == "__main__":
     unittest.main()

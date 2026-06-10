@@ -2,11 +2,13 @@ import unittest
 
 from delivery_robots.algorithms.dispatch.constraints import (
     build_constraints_summary,
+    evaluate_post_route_constraints,
     evaluate_pre_route_constraints,
 )
 from delivery_robots.config import (
     DISPATCH_MAX_PICKUP_DISTANCE_METERS,
     DISPATCH_MIN_BATTERY_PERCENT,
+    DISPATCH_MIN_PROJECTED_BATTERY_PERCENT,
     DISPATCH_REQUIRED_ROBOT_STATUS,
 )
 
@@ -61,6 +63,20 @@ class DispatchConstraintTests(unittest.TestCase):
         self.assertFalse(result["checks"]["capacityOk"]["passed"])
         self.assertFalse(result["checks"]["pickupDistanceOk"]["passed"])
         self.assertIn("details", result["rejections"][0])
+
+    def test_evaluate_post_route_constraints_rejects_low_projected_battery(self):
+        result = evaluate_post_route_constraints(
+            {"battery": DISPATCH_MIN_PROJECTED_BATTERY_PERCENT},
+            1000,
+        )
+
+        self.assertFalse(result["passed"])
+        self.assertFalse(result["checks"]["batteryReserveOk"]["passed"])
+        self.assertEqual(result["rejections"][0]["code"], "battery_reserve_too_low")
+        self.assertLess(
+            result["rejections"][0]["details"]["projectedBattery"],
+            DISPATCH_MIN_PROJECTED_BATTERY_PERCENT,
+        )
 
 
 if __name__ == "__main__":

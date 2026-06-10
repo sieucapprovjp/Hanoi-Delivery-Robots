@@ -17,16 +17,19 @@ from ...config import (
 from ...algorithms.dispatch.xai import (
     add_candidate_pruning_step,
     add_scoring_step,
+    apply_constraint_result,
     build_candidate_record,
     build_dispatch_explanation,
     constraint_rejections,
     mark_candidate_pruned,
     mark_candidate_scored,
     mark_no_selection,
+    mark_post_route_constraint_failure,
     mark_route_failure,
     mark_selection,
     reject_candidate,
 )
+from .constraints import evaluate_post_route_constraints
 from ...utils.geo import haversine_distance
 from ...utils.route_analysis import (
     attach_route_metadata,
@@ -226,6 +229,9 @@ def assign_deliveries(
                     + battery_risk * DISPATCH_BATTERY_RISK_WEIGHT
                     - delivery['priorityScore'] * DISPATCH_PRIORITY_WEIGHT
                 )
+                post_route_constraints = evaluate_post_route_constraints(
+                    robot, total_cost
+                )
                 mark_candidate_scored(
                     candidate,
                     total_cost,
@@ -235,6 +241,16 @@ def assign_deliveries(
                     delivery['priorityScore'],
                     route_payload,
                 )
+                apply_constraint_result(candidate, post_route_constraints)
+                if not post_route_constraints["passed"]:
+                    mark_post_route_constraint_failure(
+                        explanation,
+                        candidate,
+                        robot,
+                        post_route_constraints["rejections"],
+                    )
+                    continue
+
                 add_scoring_step(
                     explanation, robot, total_score, algo, total_cost
                 )

@@ -13,6 +13,10 @@ def _round(value, digits=1):
 
 def build_candidate_constraints(robot, pickup_distance_meters):
     result = evaluate_pre_route_constraints(robot, pickup_distance_meters)
+    return constraint_flags(result)
+
+
+def constraint_flags(result):
     return {
         key: check["passed"]
         for key, check in result["checks"].items()
@@ -99,6 +103,10 @@ def reject_candidate(explanation, candidate, robot, rejections, stage="csp"):
         ),
         robot.get("id"),
     )
+
+
+def apply_constraint_result(candidate, result):
+    candidate["constraints"].update(constraint_flags(result))
 
 
 def mark_candidate_pruned(candidate, limit):
@@ -190,6 +198,23 @@ def mark_route_failure(explanation, candidate, robot):
         "routing",
         "rejected",
         f"{robot.get('name', robot.get('id'))} rejected: route search failed.",
+        robot.get("id"),
+    )
+
+
+def mark_post_route_constraint_failure(explanation, candidate, robot, rejections):
+    candidate["status"] = "rejected"
+    candidate["accepted"] = False
+    candidate["reasons"] = rejections
+    candidate["rejectReasons"] = rejections
+    add_timeline_step(
+        explanation,
+        "route_constraints",
+        "rejected",
+        (
+            f"{robot.get('name', robot.get('id'))} rejected after route check: "
+            f"{', '.join(item['code'] for item in rejections)}."
+        ),
         robot.get("id"),
     )
 

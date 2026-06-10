@@ -1,6 +1,8 @@
 from ...config import (
+    DISPATCH_BATTERY_DRAIN_PER_KM,
     DISPATCH_MAX_PICKUP_DISTANCE_METERS,
     DISPATCH_MIN_BATTERY_PERCENT,
+    DISPATCH_MIN_PROJECTED_BATTERY_PERCENT,
     DISPATCH_REQUIRED_ROBOT_STATUS,
 )
 
@@ -9,8 +11,10 @@ def build_constraints_summary():
     return {
         "requiredStatus": DISPATCH_REQUIRED_ROBOT_STATUS,
         "minBatteryPercent": DISPATCH_MIN_BATTERY_PERCENT,
+        "minProjectedBatteryPercent": DISPATCH_MIN_PROJECTED_BATTERY_PERCENT,
         "maxPickupDistanceMeters": DISPATCH_MAX_PICKUP_DISTANCE_METERS,
         "capacityRule": "currentLoad < capacity",
+        "batteryReserveRule": "battery - projectedRouteDrain >= minProjectedBatteryPercent",
     }
 
 
@@ -63,6 +67,49 @@ def evaluate_pre_route_constraints(robot, pickup_distance_meters):
                 "maxPickupDistanceMeters": DISPATCH_MAX_PICKUP_DISTANCE_METERS,
             },
         },
+    }
+
+    return {
+        "passed": all(check["passed"] for check in checks.values()),
+        "checks": checks,
+        "rejections": [
+            {
+                "code": check["code"],
+                "message": check["message"],
+                "details": check["details"],
+            }
+            for check in checks.values()
+            if not check["passed"]
+        ],
+    }
+
+
+def calculate_projected_battery(robot, route_cost_meters):
+    projected_drain = (route_cost_meters / 1000.0) * DISPATCH_BATTERY_DRAIN_PER_KM
+    projected_battery = robot.get("battery", 0) - projected_drain
+    return projected_battery, projected_drain
+
+
+def evaluate_post_route_constraints(robot, route_cost_meters):
+    projected_battery, projected_drain = calculate_projected_battery(
+        robot, route_cost_meters
+    )
+    checks = {
+        "batteryReserveOk": {
+            "passed": projected_battery >= DISPATCH_MIN_PROJECTED_BATTERY_PERCENT,
+            "code": "battery_reserve_too_low",
+            "message": (
+                f"Projected battery {projected_battery:.1f}% after route is below "
+                f"{DISPATCH_MIN_PROJECTED_BATTERY_PERCENT}% reserve."
+            ),
+            "details": {
+                "battery": robot.get("battery", 0),
+                "projectedBattery": projected_battery,
+                "projectedDrain": projected_drain,
+                "routeCostMeters": route_cost_meters,
+                "minProjectedBatteryPercent": DISPATCH_MIN_PROJECTED_BATTERY_PERCENT,
+            },
+        }
     }
 
     return {
