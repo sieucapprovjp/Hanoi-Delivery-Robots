@@ -340,6 +340,67 @@ class DeliveryRobot {
         return Math.max(0, projectedDrain - this.battery * CONFIG.ROBOT.BATTERY_SAFETY_MARGIN);
     }
 
+    estimateWeightedPathCost(path) {
+        if (!path || path.length < 2) return Infinity;
+
+        let cost = 0;
+        for (let i = 0; i < path.length - 1; i++) {
+            const from = path[i];
+            const to = path[i + 1];
+            const distance = mapManager.distance(from.lat, from.lon, to.lat, to.lon);
+            const midpoint = {
+                lat: (from.lat + to.lat) / 2,
+                lon: (from.lon + to.lon) / 2
+            };
+            const trafficPenalty = 1 + mapManager.getTrafficAt(midpoint.lat, midpoint.lon) * CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER;
+            const rainPenalty = mapManager.getRainPenaltyAt(midpoint.lat, midpoint.lon);
+            cost += distance * trafficPenalty * rainPenalty;
+        }
+        return cost;
+    }
+
+    estimateRemainingRouteCost() {
+        if (!this.currentPath || this.currentPath.length <= this.pathIndex + 1) return Infinity;
+
+        return this.estimateWeightedPathCost([
+            { lat: this.lat, lon: this.lon },
+            ...this.currentPath.slice(this.pathIndex + 1)
+        ]);
+    }
+
+    isBacktrackingRoute(path) {
+        if (!path || path.length < 2 || this.pathIndex <= 0) return false;
+
+        const previousPoint = this.currentPath[this.pathIndex - 1];
+        if (!previousPoint) return false;
+
+        const nextPoint = path[1];
+        return mapManager.distance(
+            nextPoint.lat,
+            nextPoint.lon,
+            previousPoint.lat,
+            previousPoint.lon
+        ) <= CONFIG.ROBOT.REROUTE_BACKTRACK_DISTANCE_METERS;
+    }
+
+    evaluateRerouteCandidate(route, breakdown) {
+        const currentCost = this.estimateRemainingRouteCost();
+        const candidateCost = breakdown.totalCost || this.estimateWeightedPathCost(route.path);
+
+        if (!Number.isFinite(currentCost) || !Number.isFinite(candidateCost)) {
+            return { accepted: true, currentCost, candidateCost, improvementRatio: 1 };
+        }
+
+        const improvementRatio = (currentCost - candidateCost) / currentCost;
+        const isBacktracking = this.isBacktrackingRoute(route.path);
+        const accepted = (
+            improvementRatio >= CONFIG.ROBOT.REROUTE_MIN_IMPROVEMENT_RATIO
+            && !isBacktracking
+        );
+
+        return { accepted, currentCost, candidateCost, improvementRatio, isBacktracking };
+    }
+
     async maybeReroute(traffic, rainPenalty) {
         if (this.isRouting || this.status !== CONFIG.ROBOT.STATUSES.MOVING || !this.routeTarget) return;
         if (this.pathIndex >= this.currentPath.length - 2) return;
@@ -351,7 +412,27 @@ class DeliveryRobot {
         this.lastRerouteAt = Date.now();
 
         try {
-            const rebuilt = await this.buildRouteToTarget(this.routeTarget.lat, this.routeTarget.lon);
+            const startTime = performance.now();
+            const route = await pathfindingManager.getRoute(
+                this.lat,
+                this.lon,
+                this.routeTarget.lat,
+                this.routeTarget.lon,
+                this.roadMemory,
+                this.routeAlgorithm
+            );
+            const breakdown = pathfindingManager.estimateRouteCost(route);
+            const decision = this.evaluateRerouteCandidate(route, breakdown);
+
+            if (!decision.accepted) {
+                addDispatchInsight(
+                    `${this.name} kept current route: alternative was ${decision.isBacktracking ? 'a backtrack' : 'not cheaper enough'} (${decision.candidateCost.toFixed(0)} vs ${decision.currentCost.toFixed(0)} cost).`,
+                    CONFIG.UI.LOG_LEVELS.NEUTRAL
+                );
+                return;
+            }
+
+            const rebuilt = this.applyRoute(route, breakdown, performance.now() - startTime);
 
             if (rebuilt) {
                 if (typeof simulation !== 'undefined' && simulation) {
@@ -384,11 +465,16 @@ class DeliveryRobot {
             this.routeAlgorithm
         );
         const calcTime = performance.now() - startTime;
+        const breakdown = precalculatedBreakdown || pathfindingManager.estimateRouteCost(route);
 
+        return this.applyRoute(route, breakdown, calcTime);
+    }
+
+    applyRoute(route, breakdown, calcTime) {
         if (!route.path || route.path.length <= 1) return false;
 
         this.currentPath = route.path;
-        this.lastRouteBreakdown = precalculatedBreakdown || pathfindingManager.estimateRouteCost(route);
+        this.lastRouteBreakdown = breakdown;
         this.lastRouteEtaMinutes = this.lastRouteBreakdown.estimatedMinutes || 0;
         this.pathIndex = 0;
         this.status = CONFIG.ROBOT.STATUSES.MOVING;
