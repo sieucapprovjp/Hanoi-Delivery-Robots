@@ -7,6 +7,7 @@ from delivery_robots.algorithms.dispatch.constraints import (
 )
 from delivery_robots.config import (
     DISPATCH_MAX_PICKUP_DISTANCE_METERS,
+    DISPATCH_MAX_ROUTE_ETA_MINUTES,
     DISPATCH_MIN_BATTERY_PERCENT,
     DISPATCH_MIN_PROJECTED_BATTERY_PERCENT,
     DISPATCH_REQUIRED_ROBOT_STATUS,
@@ -22,6 +23,10 @@ class DispatchConstraintTests(unittest.TestCase):
         self.assertEqual(
             summary["maxPickupDistanceMeters"],
             DISPATCH_MAX_PICKUP_DISTANCE_METERS,
+        )
+        self.assertEqual(
+            summary["maxRouteEtaMinutes"],
+            DISPATCH_MAX_ROUTE_ETA_MINUTES,
         )
 
     def test_evaluate_pre_route_constraints_accepts_feasible_robot(self):
@@ -76,6 +81,21 @@ class DispatchConstraintTests(unittest.TestCase):
         self.assertLess(
             result["rejections"][0]["details"]["projectedBattery"],
             DISPATCH_MIN_PROJECTED_BATTERY_PERCENT,
+        )
+
+    def test_evaluate_post_route_constraints_rejects_slow_route(self):
+        result = evaluate_post_route_constraints(
+            {"battery": 100},
+            100,
+            DISPATCH_MAX_ROUTE_ETA_MINUTES + 0.1,
+        )
+
+        self.assertFalse(result["passed"])
+        self.assertFalse(result["checks"]["routeEtaOk"]["passed"])
+        self.assertEqual(result["rejections"][0]["code"], "route_eta_too_high")
+        self.assertGreater(
+            result["rejections"][0]["details"]["routeEtaMinutes"],
+            DISPATCH_MAX_ROUTE_ETA_MINUTES,
         )
 
 

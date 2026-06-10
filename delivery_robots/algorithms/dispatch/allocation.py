@@ -230,7 +230,7 @@ def assign_deliveries(
                     - delivery['priorityScore'] * DISPATCH_PRIORITY_WEIGHT
                 )
                 post_route_constraints = evaluate_post_route_constraints(
-                    robot, total_cost
+                    robot, total_cost, breakdown.get("estimatedMinutes")
                 )
                 mark_candidate_scored(
                     candidate,

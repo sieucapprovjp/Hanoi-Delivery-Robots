@@ -29,6 +29,7 @@ function renderXaiConstraintBadges(constraints = {}) {
         ['capacityOk', 'Capacity'],
         ['pickupDistanceOk', 'Pickup'],
         ['batteryReserveOk', 'Reserve'],
+        ['routeEtaOk', 'ETA'],
     ].filter(([key]) => Object.prototype.hasOwnProperty.call(constraints, key));
 
     return `

@@ -4,6 +4,7 @@ from unittest.mock import patch
 import networkx as nx
 
 from delivery_robots.algorithms.dispatch import allocation
+from delivery_robots.config import DISPATCH_MAX_ROUTE_ETA_MINUTES
 
 
 def build_dispatch_graph():
@@ -365,6 +366,67 @@ class DispatchAllocationTests(unittest.TestCase):
             "battery_reserve_too_low",
         )
         self.assertEqual(low_reserve_candidate["route"]["distance"], 3000.0)
+
+    def test_assign_deliveries_rejects_slow_route_after_route(self):
+        graph = build_dispatch_graph()
+        for edge_data in graph[2][1].values():
+            edge_data["length"] = 3000.0
+
+        robots = [
+            {
+                "id": "slow-route",
+                "name": "Slow Route",
+                "lat": 21.0005,
+                "lon": 105.0000,
+                "battery": 100,
+                "status": "idle",
+                "routeAlgorithm": "astar",
+            },
+            {
+                "id": "fast-route",
+                "name": "Fast Route",
+                "lat": 21.0010,
+                "lon": 105.0000,
+                "battery": 100,
+                "status": "idle",
+                "routeAlgorithm": "astar",
+            },
+        ]
+
+        result = allocation.assign_deliveries(
+            {"ox": None},
+            graph,
+            robots,
+            [build_delivery()],
+            0,
+            nearest_node_id,
+            lambda from_node, to_node, edge_data: edge_weight(
+                graph, from_node, to_node, edge_data
+            ),
+            flat_penalty,
+            flat_penalty,
+            flat_penalty,
+            noop_record_metrics,
+            {},
+            return_explanations=True,
+        )
+
+        self.assertEqual(result["assignments"][0]["robotId"], "fast-route")
+        slow_candidate = next(
+            item
+            for item in result["explanations"][0]["candidates"]
+            if item["robotId"] == "slow-route"
+        )
+        self.assertEqual(slow_candidate["status"], "rejected")
+        self.assertFalse(slow_candidate["constraints"]["routeEtaOk"])
+        self.assertEqual(
+            slow_candidate["rejectReasons"][0]["code"],
+            "route_eta_too_high",
+        )
+        self.assertGreater(
+            slow_candidate["route"]["etaMinutes"],
+            DISPATCH_MAX_ROUTE_ETA_MINUTES,
+        )
 
 
 if __name__ == "__main__":

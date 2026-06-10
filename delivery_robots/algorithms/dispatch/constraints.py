@@ -1,10 +1,27 @@
 from ...config import (
     DISPATCH_BATTERY_DRAIN_PER_KM,
     DISPATCH_MAX_PICKUP_DISTANCE_METERS,
+    DISPATCH_MAX_ROUTE_ETA_MINUTES,
     DISPATCH_MIN_BATTERY_PERCENT,
     DISPATCH_MIN_PROJECTED_BATTERY_PERCENT,
     DISPATCH_REQUIRED_ROBOT_STATUS,
 )
+
+
+def build_constraint_result(checks):
+    return {
+        "passed": all(check["passed"] for check in checks.values()),
+        "checks": checks,
+        "rejections": [
+            {
+                "code": check["code"],
+                "message": check["message"],
+                "details": check["details"],
+            }
+            for check in checks.values()
+            if not check["passed"]
+        ],
+    }
 
 
 def build_constraints_summary():
@@ -12,9 +29,11 @@ def build_constraints_summary():
         "requiredStatus": DISPATCH_REQUIRED_ROBOT_STATUS,
         "minBatteryPercent": DISPATCH_MIN_BATTERY_PERCENT,
         "minProjectedBatteryPercent": DISPATCH_MIN_PROJECTED_BATTERY_PERCENT,
+        "maxRouteEtaMinutes": DISPATCH_MAX_ROUTE_ETA_MINUTES,
         "maxPickupDistanceMeters": DISPATCH_MAX_PICKUP_DISTANCE_METERS,
         "capacityRule": "currentLoad < capacity",
         "batteryReserveRule": "battery - projectedRouteDrain >= minProjectedBatteryPercent",
+        "etaRule": "estimatedRouteMinutes <= maxRouteEtaMinutes",
     }
 
 
@@ -69,19 +88,7 @@ def evaluate_pre_route_constraints(robot, pickup_distance_meters):
         },
     }
 
-    return {
-        "passed": all(check["passed"] for check in checks.values()),
-        "checks": checks,
-        "rejections": [
-            {
-                "code": check["code"],
-                "message": check["message"],
-                "details": check["details"],
-            }
-            for check in checks.values()
-            if not check["passed"]
-        ],
-    }
+    return build_constraint_result(checks)
 
 
 def calculate_projected_battery(robot, route_cost_meters):
@@ -90,7 +97,7 @@ def calculate_projected_battery(robot, route_cost_meters):
     return projected_battery, projected_drain
 
 
-def evaluate_post_route_constraints(robot, route_cost_meters):
+def evaluate_post_route_constraints(robot, route_cost_meters, route_eta_minutes=None):
     projected_battery, projected_drain = calculate_projected_battery(
         robot, route_cost_meters
     )
@@ -109,19 +116,24 @@ def evaluate_post_route_constraints(robot, route_cost_meters):
                 "routeCostMeters": route_cost_meters,
                 "minProjectedBatteryPercent": DISPATCH_MIN_PROJECTED_BATTERY_PERCENT,
             },
-        }
+        },
+        "routeEtaOk": {
+            "passed": (
+                route_eta_minutes is None
+                or route_eta_minutes <= DISPATCH_MAX_ROUTE_ETA_MINUTES
+            ),
+            "code": "route_eta_too_high",
+            "message": (
+                f"Route ETA {route_eta_minutes:.1f}m exceeds "
+                f"{DISPATCH_MAX_ROUTE_ETA_MINUTES}m limit."
+                if route_eta_minutes is not None
+                else "Route ETA is unavailable."
+            ),
+            "details": {
+                "routeEtaMinutes": route_eta_minutes,
+                "maxRouteEtaMinutes": DISPATCH_MAX_ROUTE_ETA_MINUTES,
+            },
+        },
     }
 
-    return {
-        "passed": all(check["passed"] for check in checks.values()),
-        "checks": checks,
-        "rejections": [
-            {
-                "code": check["code"],
-                "message": check["message"],
-                "details": check["details"],
-            }
-            for check in checks.values()
-            if not check["passed"]
-        ],
-    }
+    return build_constraint_result(checks)
