@@ -2,7 +2,15 @@ import heapq
 import time
 from collections import deque
 
+import numpy as np
+
 from ..utils.geo import haversine_distance
+
+
+def json_safe_node_id(node_id):
+    if isinstance(node_id, np.integer):
+        return int(node_id)
+    return node_id
 
 
 def run_astep_demo(
@@ -54,8 +62,8 @@ def run_astep_demo(
                 ],
                 "totalSteps": step_count,
                 "calcTime": round((time.time() - start_t) * 1000, 2),
-                "startNode": start_node,
-                "endNode": end_node,
+                "startNode": json_safe_node_id(start_node),
+                "endNode": json_safe_node_id(end_node),
                 "openSetSize": len(open_set),
                 "closedSetSize": len(closed_set),
             }
@@ -71,7 +79,7 @@ def run_astep_demo(
         steps.append(
             {
                 "step": step_count,
-                "currentNode": current,
+                "currentNode": json_safe_node_id(current),
                 "currentCoords": {"lat": round(current_lat, 5), "lon": round(current_lon, 5)},
                 "g": round(g_score.get(current, 0), 1),
                 "h": round(h_current, 1),
