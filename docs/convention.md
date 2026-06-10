@@ -32,7 +32,7 @@ This document defines the coding standards, naming conventions, formatting rules
 *   **Standard**: ECMAScript 6 (ES6+) syntax.
 *   **Formatter**: Formatted with Prettier or equivalent style rules.
 *   **Classes & Methods**: Classes in PascalCase (e.g., `DisplayEngine`, `RainManager`, `BackendAPI`). Methods and properties in camelCase (e.g., `initialize`, `getTraffic`, `logEvent`).
-*   **Globals & Constants**: Centralized config object named `CONFIG` in `static/js/config.js` in UPPER_SNAKE_CASE keys (e.g., `CONFIG.API.LOGS`).
+*   **Globals & Constants**: Centralized config object named `CONFIG` in `static/js/core/config.js` in UPPER_SNAKE_CASE keys (e.g., `CONFIG.API.LOGS`).
 
 ### HTML & Alpine.js
 *   Use semantic HTML5 elements where possible (e.g., `<header>`, `<nav>`, `<button>`).

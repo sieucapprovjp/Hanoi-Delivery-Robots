@@ -55,7 +55,7 @@
   ```
 - JavaScript syntax check:
   ```bash
-  node --check delivery_robots/static/js/simulation.js
+  Get-ChildItem delivery_robots/static/js -Recurse -Filter *.js | ForEach-Object { node --check $_.FullName }
   ```
 
 ## Completed Features
@@ -126,7 +126,8 @@
 - Related files:
   - `delivery_robots/algorithms/insider.py`
   - `delivery_robots/routes/main_routes.py`
-  - `delivery_robots/static/js/app.js`
+  - `delivery_robots/static/js/core/app.js`
+  - `delivery_robots/static/js/insider/insider_panel.js`
   - `delivery_robots/templates/index.html`
 
 ### Dispatch CSP And XAI
@@ -145,7 +146,8 @@
 - Related files:
   - `delivery_robots/algorithms/dispatch/allocation.py`
   - `delivery_robots/routes/main_routes.py`
-  - `delivery_robots/static/js/simulation.js`
+  - `delivery_robots/static/js/simulation/simulation.js`
+  - `delivery_robots/static/js/simulation/dispatch_client.js`
   - `delivery_robots/templates/index.html`
   - `delivery_robots/static/css/style.css`
   - `tests/test_dispatch_allocation.py`
@@ -158,8 +160,9 @@
 - Related files:
   - `delivery_robots/core/hubs.py`
   - `delivery_robots/routes/main_routes.py`
-  - `delivery_robots/static/js/simulation.js`
-  - `delivery_robots/static/js/map.js`
+  - `delivery_robots/static/js/simulation/simulation.js`
+  - `delivery_robots/static/js/map/map.js`
+  - `delivery_robots/static/js/map/delivery_layer.js`
   - `docs/kmeans_plan.md`
 
 ### Robot Simulation
@@ -169,11 +172,12 @@
 - Robot road memory stores experienced bad segments and sends memory penalties to route requests.
 - Fleet algorithm can be switched between A*, Dijkstra, and GBFS for comparative simulation.
 - Related files:
-  - `delivery_robots/static/js/simulation.js`
-  - `delivery_robots/static/js/robot.js`
-  - `delivery_robots/static/js/pathfinding.js`
-  - `delivery_robots/static/js/map.js`
-  - `delivery_robots/static/js/config.js`
+  - `delivery_robots/static/js/simulation/simulation.js`
+  - `delivery_robots/static/js/simulation/delivery_factory.js`
+  - `delivery_robots/static/js/robot/robot.js`
+  - `delivery_robots/static/js/core/pathfinding.js`
+  - `delivery_robots/static/js/map/map.js`
+  - `delivery_robots/static/js/core/config.js`
   - `delivery_robots/templates/index.html`
 
 ### Metrics And Logs
@@ -187,8 +191,8 @@
 - Related files:
   - `delivery_robots/utils/metrics.py`
   - `delivery_robots/routes/environment_routes.py`
-  - `delivery_robots/static/js/simulation.js`
-  - `delivery_robots/static/js/app.js`
+  - `delivery_robots/static/js/simulation/simulation.js`
+  - `delivery_robots/static/js/core/app.js`
 
 ### API Surface
 - Main API endpoints:
