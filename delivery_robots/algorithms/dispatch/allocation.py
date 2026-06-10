@@ -7,15 +7,25 @@ from ...config import (
     DISPATCH_BATTERY_SAFETY_MARGIN,
     DISPATCH_HIGH_PRIORITY_EXTRA_CANDIDATES,
     DISPATCH_HIGH_PRIORITY_SCORE_THRESHOLD,
-    DISPATCH_MAX_PICKUP_DISTANCE_METERS,
     DEFAULT_ROAD_MEMORY_PENALTY,
     DEFAULT_ROUTING_ALGORITHM,
     DISPATCH_MAX_ROUTE_CANDIDATES_PER_DELIVERY,
-    DISPATCH_MIN_BATTERY_PERCENT,
     DISPATCH_PRIORITY_WEIGHT,
-    DISPATCH_REQUIRED_ROBOT_STATUS,
     ROUTING_ALGORITHM_ALIASES,
     VALID_ROUTING_ALGORITHMS,
+)
+from ...algorithms.dispatch.xai import (
+    add_candidate_pruning_step,
+    add_scoring_step,
+    build_candidate_record,
+    build_dispatch_explanation,
+    constraint_rejections,
+    mark_candidate_pruned,
+    mark_candidate_scored,
+    mark_no_selection,
+    mark_route_failure,
+    mark_selection,
+    reject_candidate,
 )
 from ...utils.geo import haversine_distance
 from ...utils.route_analysis import (
@@ -53,67 +63,6 @@ def _normalize_route_algorithm(algorithm):
     return normalized
 
 
-def _constraint_rejections(robot, pickup_distance_meters):
-    rejections = []
-    status = robot.get('status')
-    if status is not None and status != DISPATCH_REQUIRED_ROBOT_STATUS:
-        rejections.append(
-            {
-                "code": "not_idle",
-                "message": f"Robot status is {status}; expected idle.",
-            }
-        )
-
-    capacity = robot.get('capacity')
-    current_load = robot.get('currentLoad', 0)
-    if capacity is not None and current_load >= capacity:
-        rejections.append(
-            {
-                "code": "capacity_full",
-                "message": f"Load {current_load}/{capacity} leaves no free capacity.",
-            }
-        )
-
-    battery = robot.get('battery', 0)
-    if battery < DISPATCH_MIN_BATTERY_PERCENT:
-        rejections.append(
-            {
-                "code": "low_battery",
-                "message": (
-                    f"Battery {battery:.1f}% is below "
-                    f"{DISPATCH_MIN_BATTERY_PERCENT}% minimum."
-                ),
-            }
-        )
-
-    if pickup_distance_meters > DISPATCH_MAX_PICKUP_DISTANCE_METERS:
-        rejections.append(
-            {
-                "code": "pickup_too_far",
-                "message": (
-                    f"Pickup distance {pickup_distance_meters:.0f}m exceeds "
-                    f"{DISPATCH_MAX_PICKUP_DISTANCE_METERS}m limit."
-                ),
-            }
-        )
-
-    return rejections
-
-
-def _candidate_record(robot, pickup_distance_meters, approximate_score):
-    return {
-        "robotId": robot.get('id'),
-        "robotName": robot.get('name', ''),
-        "status": "candidate",
-        "battery": round(robot.get('battery', 0), 1),
-        "currentLoad": robot.get('currentLoad', 0),
-        "capacity": robot.get('capacity'),
-        "pickupDistance": round(pickup_distance_meters, 1),
-        "approximateScore": round(approximate_score, 1),
-        "reasons": [],
-    }
-
-
 def _approximate_robot_score(robot, distance):
     projected_drain = (distance / 1000.0) * DISPATCH_BATTERY_DRAIN_PER_KM
     battery_risk = max(
@@ -139,36 +88,6 @@ def _candidate_limit(delivery, ranked_count):
     )
 
 
-def _build_dispatch_explanation(delivery):
-    return {
-        "deliveryId": delivery['id'],
-        "pickupName": delivery['pickup'].get('name', ''),
-        "destinationName": delivery['destination'].get('name', ''),
-        "priorityScore": round(delivery['priorityScore'], 2),
-        "objective": (
-            "minimize routeCost + batteryRisk*wBattery - priority*wPriority"
-        ),
-        "constraints": {
-            "requiredStatus": DISPATCH_REQUIRED_ROBOT_STATUS,
-            "minBatteryPercent": DISPATCH_MIN_BATTERY_PERCENT,
-            "maxPickupDistanceMeters": DISPATCH_MAX_PICKUP_DISTANCE_METERS,
-            "capacityRule": "currentLoad < capacity",
-        },
-        "timeline": [
-            {
-                "stage": "priority",
-                "status": "info",
-                "message": (
-                    f"Order #{delivery['id']} priority = "
-                    f"{delivery['priorityScore']:.1f}."
-                ),
-            }
-        ],
-        "candidates": [],
-        "selectedRobotId": None,
-    }
-
-
 def _rank_feasible_candidates(delivery, available_robots, explanation):
     pickup_lat = delivery['pickup']['lat']
     pickup_lon = delivery['pickup']['lon']
@@ -179,23 +98,10 @@ def _rank_feasible_candidates(delivery, available_robots, explanation):
             robot['lat'], robot['lon'], pickup_lat, pickup_lon
         )
         approx_score = _approximate_robot_score(robot, pickup_distance)
-        candidate = _candidate_record(robot, pickup_distance, approx_score)
-        rejections = _constraint_rejections(robot, pickup_distance)
+        candidate = build_candidate_record(robot, pickup_distance, approx_score)
+        rejections = constraint_rejections(robot, pickup_distance)
         if rejections:
-            candidate["status"] = "rejected"
-            candidate["reasons"] = rejections
-            explanation["candidates"].append(candidate)
-            explanation["timeline"].append(
-                {
-                    "stage": "csp",
-                    "status": "rejected",
-                    "robotId": robot.get('id'),
-                    "message": (
-                        f"{robot.get('name', robot.get('id'))} rejected by "
-                        f"CSP: {', '.join(item['code'] for item in rejections)}."
-                    ),
-                }
-            )
+            reject_candidate(explanation, candidate, robot, rejections)
             continue
 
         explanation["candidates"].append(candidate)
@@ -257,7 +163,7 @@ def assign_deliveries(
         pickup_lat = delivery['pickup']['lat']
         pickup_lon = delivery['pickup']['lon']
         end_node = cached_pickup_node(delivery)
-        explanation = _build_dispatch_explanation(delivery)
+        explanation = build_dispatch_explanation(delivery, current_time_ms)
         ranked_candidates = _rank_feasible_candidates(
             delivery, available_robots, explanation
         )
@@ -266,26 +172,10 @@ def assign_deliveries(
         routed_robot_ids = {robot.get('id') for robot, _ in routed_candidates}
 
         for robot, candidate in ranked_candidates[limit:]:
-            candidate["status"] = "pruned"
-            candidate["reasons"] = [
-                {
-                    "code": "outside_top_k_prescore",
-                    "message": (
-                        f"Not routed because only top {limit} feasible robots "
-                        "are expanded."
-                    ),
-                }
-            ]
+            mark_candidate_pruned(candidate, limit)
 
-        explanation["timeline"].append(
-            {
-                "stage": "candidate_pruning",
-                "status": "info",
-                "message": (
-                    f"{len(ranked_candidates)} feasible robot(s); routing "
-                    f"{len(routed_candidates)} after heuristic pre-score."
-                ),
-            }
+        add_candidate_pruning_step(
+            explanation, len(ranked_candidates), len(routed_candidates)
         )
         
         for robot, candidate in routed_candidates:
@@ -336,27 +226,17 @@ def assign_deliveries(
                     + battery_risk * DISPATCH_BATTERY_RISK_WEIGHT
                     - delivery['priorityScore'] * DISPATCH_PRIORITY_WEIGHT
                 )
-                candidate["status"] = "scored"
-                candidate["routeCost"] = round(total_cost, 1)
-                candidate["batteryRisk"] = round(battery_risk, 2)
-                candidate["totalScore"] = round(total_score, 2)
-                candidate["algo"] = algo
-                candidate["formula"] = (
-                    f"{total_cost:.1f} + {battery_risk:.2f}*"
-                    f"{DISPATCH_BATTERY_RISK_WEIGHT} - "
-                    f"{delivery['priorityScore']:.1f}*{DISPATCH_PRIORITY_WEIGHT}"
+                mark_candidate_scored(
+                    candidate,
+                    total_cost,
+                    battery_risk,
+                    total_score,
+                    algo,
+                    delivery['priorityScore'],
+                    route_payload,
                 )
-                explanation["timeline"].append(
-                    {
-                        "stage": "scoring",
-                        "status": "info",
-                        "robotId": robot.get('id'),
-                        "message": (
-                            f"{robot.get('name', robot.get('id'))}: score "
-                            f"{total_score:.1f} using {algo.upper()} route cost "
-                            f"{total_cost:.1f}m."
-                        ),
-                    }
+                add_scoring_step(
+                    explanation, robot, total_score, algo, total_cost
                 )
                 
                 if best is None or total_score < best['totalScore']:
@@ -373,70 +253,15 @@ def assign_deliveries(
                         "route": route_payload,
                     }
             except Exception:
-                candidate["status"] = "rejected"
-                candidate["reasons"] = [
-                    {
-                        "code": "route_failed",
-                        "message": "No viable route found for this robot.",
-                    }
-                ]
-                explanation["timeline"].append(
-                    {
-                        "stage": "routing",
-                        "status": "rejected",
-                        "robotId": robot.get('id'),
-                        "message": (
-                            f"{robot.get('name', robot.get('id'))} rejected: "
-                            "route search failed."
-                        ),
-                    }
-                )
+                mark_route_failure(explanation, candidate, robot)
                 
         if best:
-            explanation["selectedRobotId"] = best["robotId"]
-            for candidate in explanation["candidates"]:
-                if candidate["robotId"] == best["robotId"]:
-                    candidate["status"] = "selected"
-                    candidate["reasons"] = [
-                        {
-                            "code": "lowest_total_score",
-                            "message": "Selected because it has the lowest final score.",
-                        }
-                    ]
-                elif (
-                    candidate["robotId"] in routed_robot_ids
-                    and candidate["status"] == "scored"
-                ):
-                    candidate["status"] = "not_selected"
-                    candidate["reasons"] = [
-                        {
-                            "code": "higher_total_score",
-                            "message": "Feasible, but score is higher than selected robot.",
-                        }
-                    ]
-
-            explanation["timeline"].append(
-                {
-                    "stage": "selection",
-                    "status": "selected",
-                    "robotId": best["robotId"],
-                    "message": (
-                        f"Selected {best['robotName']} for order #{delivery['id']} "
-                        f"with score {best['totalScore']:.1f}."
-                    ),
-                }
-            )
+            mark_selection(explanation, best, delivery, routed_robot_ids)
             best["explanation"] = explanation
             assignments.append(best)
             available_robots = [r for r in available_robots if r['id'] != best['robotId']]
         else:
-            explanation["timeline"].append(
-                {
-                    "stage": "selection",
-                    "status": "rejected",
-                    "message": f"No feasible robot for order #{delivery['id']}.",
-                }
-            )
+            mark_no_selection(explanation, delivery)
 
         explanations.append(explanation)
             

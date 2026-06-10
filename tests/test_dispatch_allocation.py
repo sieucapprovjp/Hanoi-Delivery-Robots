@@ -91,21 +91,32 @@ class DispatchAllocationTests(unittest.TestCase):
 
         self.assertEqual(assignments[0]["robotId"], "far-healthy-battery")
         self.assertEqual(assignments[0]["route"]["distance"], 100.0)
+        self.assertTrue(explanation["cycleId"].startswith("dispatch-0-delivery-1"))
+        self.assertEqual(explanation["orderId"], "delivery-1")
         self.assertEqual(explanation["selectedRobotId"], "far-healthy-battery")
+        self.assertEqual(explanation["selectedRobotName"], "Far Healthy Battery")
+        self.assertIn("lowest total score", explanation["finalExplanation"])
         near_candidate = next(
             item
             for item in explanation["candidates"]
             if item["robotId"] == "near-low-battery"
         )
         self.assertEqual(near_candidate["status"], "rejected")
+        self.assertFalse(near_candidate["accepted"])
+        self.assertFalse(near_candidate["constraints"]["batteryOk"])
         self.assertEqual(near_candidate["reasons"][0]["code"], "low_battery")
+        self.assertEqual(near_candidate["rejectReasons"][0]["code"], "low_battery")
         selected_candidate = next(
             item
             for item in explanation["candidates"]
             if item["robotId"] == "far-healthy-battery"
         )
         self.assertEqual(selected_candidate["status"], "selected")
+        self.assertTrue(selected_candidate["accepted"])
         self.assertEqual(selected_candidate["reasons"][0]["code"], "lowest_total_score")
+        self.assertEqual(selected_candidate["scores"]["routeCost"], 100.0)
+        self.assertEqual(selected_candidate["route"]["algorithm"], "astar")
+        self.assertEqual(selected_candidate["route"]["distance"], 100.0)
 
     def test_assign_deliveries_normalizes_greedy_alias(self):
         graph = build_dispatch_graph()
@@ -241,6 +252,60 @@ class DispatchAllocationTests(unittest.TestCase):
         )
         self.assertEqual(full_candidate["status"], "rejected")
         self.assertEqual(full_candidate["reasons"][0]["code"], "capacity_full")
+        self.assertFalse(full_candidate["constraints"]["capacityOk"])
+        self.assertEqual(full_candidate["rejectReasons"][0]["code"], "capacity_full")
+
+    def test_assign_deliveries_rejects_busy_robot_with_xai_reason(self):
+        graph = build_dispatch_graph()
+        robots = [
+            {
+                "id": "busy",
+                "name": "Busy",
+                "lat": 21.0005,
+                "lon": 105.0000,
+                "battery": 100,
+                "status": "moving",
+                "routeAlgorithm": "astar",
+            },
+            {
+                "id": "idle",
+                "name": "Idle",
+                "lat": 21.0010,
+                "lon": 105.0000,
+                "battery": 100,
+                "status": "idle",
+                "routeAlgorithm": "astar",
+            },
+        ]
+
+        result = allocation.assign_deliveries(
+            {"ox": None},
+            graph,
+            robots,
+            [build_delivery()],
+            0,
+            nearest_node_id,
+            lambda from_node, to_node, edge_data: edge_weight(
+                graph, from_node, to_node, edge_data
+            ),
+            flat_penalty,
+            flat_penalty,
+            flat_penalty,
+            noop_record_metrics,
+            {},
+            return_explanations=True,
+        )
+
+        self.assertEqual(result["assignments"][0]["robotId"], "idle")
+        busy_candidate = next(
+            item
+            for item in result["explanations"][0]["candidates"]
+            if item["robotId"] == "busy"
+        )
+        self.assertEqual(busy_candidate["status"], "rejected")
+        self.assertFalse(busy_candidate["accepted"])
+        self.assertFalse(busy_candidate["constraints"]["idle"])
+        self.assertEqual(busy_candidate["rejectReasons"][0]["code"], "not_idle")
 
 
 if __name__ == "__main__":
