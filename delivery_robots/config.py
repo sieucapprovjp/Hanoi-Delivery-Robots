@@ -105,6 +105,26 @@ ESTIMATED_SPEED_METERS_PER_MINUTE = 180
 DISPATCH_MAX_ROUTE_CANDIDATES_PER_DELIVERY = 4
 DISPATCH_HIGH_PRIORITY_SCORE_THRESHOLD = 20
 DISPATCH_HIGH_PRIORITY_EXTRA_CANDIDATES = 1
+DISPATCH_PICKUP_CATEGORY_WEIGHTS = {
+    "restaurant": 9,
+    "market": 7,
+    "retail": 6,
+    "office": 5,
+    "hotel": 5,
+    "landmark": 3,
+    "residential": 4,
+}
+DISPATCH_DROPOFF_CATEGORY_WEIGHTS = {
+    "residential": 8,
+    "hotel": 6,
+    "office": 5,
+    "retail": 4,
+    "restaurant": 4,
+    "landmark": 2,
+    "market": 3,
+}
+DISPATCH_DEFAULT_CATEGORY_WEIGHT = 4
+DISPATCH_WAIT_MINUTES_WEIGHT = 2.8
 DISPATCH_BATTERY_DRAIN_PER_KM = 4.5
 DISPATCH_BATTERY_SAFETY_MARGIN = 0.35
 DISPATCH_BATTERY_RISK_WEIGHT = 120
@@ -166,3 +186,10 @@ INVALID_COORDS_ERROR = "Invalid coords"
 CLASSICAL_COMPARE_NOTE = (
     "Classical AI compare uses base edge length only (no rain/traffic/obstacle penalties)."
 )
+
+# ── Insider / XAI Demos ──
+ASTEP_MAX_STEPS = 30
+INSIDER_FALLBACK_EDGE_LENGTH = 10
+INSIDER_COORD_ROUND_DECIMALS = 5
+INSIDER_SCORE_ROUND_DECIMALS = 1
+INSIDER_TIME_ROUND_DECIMALS = 2

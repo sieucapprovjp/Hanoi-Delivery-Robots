@@ -4,6 +4,14 @@ from collections import deque
 
 import numpy as np
 
+from ..config import (
+    ASTEP_MAX_STEPS,
+    INSIDER_COORD_ROUND_DECIMALS,
+    INSIDER_FALLBACK_EDGE_LENGTH,
+    INSIDER_SCORE_ROUND_DECIMALS,
+    INSIDER_TIME_ROUND_DECIMALS,
+    TIMESTAMP_MS_MULTIPLIER,
+)
 from ..utils.geo import haversine_distance
 
 
@@ -22,7 +30,7 @@ def run_astep_demo(
     traffic_penalty_for_point,
     rain_penalty_for_point,
     obstacle_penalty_for_point,
-    max_steps=30,
+    max_steps=ASTEP_MAX_STEPS,
 ):
     start_t = time.time()
     open_set = [(0, start_node)]
@@ -61,7 +69,10 @@ def run_astep_demo(
                     for node in explored_nodes
                 ],
                 "totalSteps": step_count,
-                "calcTime": round((time.time() - start_t) * 1000, 2),
+                "calcTime": round(
+                    (time.time() - start_t) * TIMESTAMP_MS_MULTIPLIER,
+                    INSIDER_TIME_ROUND_DECIMALS,
+                ),
                 "startNode": json_safe_node_id(start_node),
                 "endNode": json_safe_node_id(end_node),
                 "openSetSize": len(open_set),
@@ -80,10 +91,13 @@ def run_astep_demo(
             {
                 "step": step_count,
                 "currentNode": json_safe_node_id(current),
-                "currentCoords": {"lat": round(current_lat, 5), "lon": round(current_lon, 5)},
-                "g": round(g_score.get(current, 0), 1),
-                "h": round(h_current, 1),
-                "f": round(f_score.get(current, 0), 1),
+                "currentCoords": {
+                    "lat": round(current_lat, INSIDER_COORD_ROUND_DECIMALS),
+                    "lon": round(current_lon, INSIDER_COORD_ROUND_DECIMALS),
+                },
+                "g": round(g_score.get(current, 0), INSIDER_SCORE_ROUND_DECIMALS),
+                "h": round(h_current, INSIDER_SCORE_ROUND_DECIMALS),
+                "f": round(f_score.get(current, 0), INSIDER_SCORE_ROUND_DECIMALS),
                 "openSetSize": len(open_set),
                 "closedSetSize": len(closed_set),
                 "formula": (
@@ -98,7 +112,10 @@ def run_astep_demo(
                 continue
 
             edge_data = graph[current][neighbor]
-            edge_length = min(d.get("length", 10) for d in edge_data.values())
+            edge_length = min(
+                d.get("length", INSIDER_FALLBACK_EDGE_LENGTH)
+                for d in edge_data.values()
+            )
             mid_lat = (graph.nodes[current]["y"] + graph.nodes[neighbor]["y"]) / 2
             mid_lon = (graph.nodes[current]["x"] + graph.nodes[neighbor]["x"]) / 2
             traffic_pen = traffic_penalty_for_point(mid_lat, mid_lon)
@@ -128,7 +145,10 @@ def run_astep_demo(
             for node in explored_nodes
         ],
         "totalSteps": step_count,
-        "calcTime": round((time.time() - start_t) * 1000, 2),
+        "calcTime": round(
+            (time.time() - start_t) * TIMESTAMP_MS_MULTIPLIER,
+            INSIDER_TIME_ROUND_DECIMALS,
+        ),
     }
 
 
@@ -168,7 +188,10 @@ def run_insider_comparison(
                 return {
                     "path_length": len(path),
                     "nodes_explored": nodes_explored,
-                    "time_ms": round((time.time() - t0) * 1000, 2),
+                    "time_ms": round(
+                        (time.time() - t0) * TIMESTAMP_MS_MULTIPLIER,
+                        INSIDER_TIME_ROUND_DECIMALS,
+                    ),
                     "optimal": True,
                 }
             if current in closed:
@@ -180,7 +203,10 @@ def run_insider_comparison(
                 if neighbor in closed:
                     continue
                 edge_data = graph[current][neighbor]
-                edge_len = min(d.get("length", 10) for d in edge_data.values())
+                edge_len = min(
+                    d.get("length", INSIDER_FALLBACK_EDGE_LENGTH)
+                    for d in edge_data.values()
+                )
                 mid_lat = (graph.nodes[current]["y"] + graph.nodes[neighbor]["y"]) / 2
                 mid_lon = (graph.nodes[current]["x"] + graph.nodes[neighbor]["x"]) / 2
                 w = (
@@ -203,7 +229,10 @@ def run_insider_comparison(
         return {
             "path_length": 0,
             "nodes_explored": nodes_explored,
-            "time_ms": round((time.time() - t0) * 1000, 2),
+            "time_ms": round(
+                (time.time() - t0) * TIMESTAMP_MS_MULTIPLIER,
+                INSIDER_TIME_ROUND_DECIMALS,
+            ),
             "optimal": False,
         }
 
@@ -227,7 +256,10 @@ def run_insider_comparison(
                 return {
                     "path_length": len(path),
                     "nodes_explored": nodes_explored,
-                    "time_ms": round((time.time() - t0) * 1000, 2),
+                    "time_ms": round(
+                        (time.time() - t0) * TIMESTAMP_MS_MULTIPLIER,
+                        INSIDER_TIME_ROUND_DECIMALS,
+                    ),
                     "optimal": True,
                 }
             if current in visited:
@@ -239,7 +271,10 @@ def run_insider_comparison(
                 if neighbor in visited:
                     continue
                 edge_data = graph[current][neighbor]
-                w = min(val.get("length", 10) for val in edge_data.values())
+                w = min(
+                    val.get("length", INSIDER_FALLBACK_EDGE_LENGTH)
+                    for val in edge_data.values()
+                )
                 nd = dist[current] + w
                 if nd < dist.get(neighbor, float("inf")):
                     dist[neighbor] = nd
@@ -248,7 +283,10 @@ def run_insider_comparison(
         return {
             "path_length": 0,
             "nodes_explored": nodes_explored,
-            "time_ms": round((time.time() - t0) * 1000, 2),
+            "time_ms": round(
+                (time.time() - t0) * TIMESTAMP_MS_MULTIPLIER,
+                INSIDER_TIME_ROUND_DECIMALS,
+            ),
             "optimal": False,
         }
 
@@ -274,7 +312,10 @@ def run_insider_comparison(
                 return {
                     "path_length": len(path),
                     "nodes_explored": nodes_explored,
-                    "time_ms": round((time.time() - t0) * 1000, 2),
+                    "time_ms": round(
+                        (time.time() - t0) * TIMESTAMP_MS_MULTIPLIER,
+                        INSIDER_TIME_ROUND_DECIMALS,
+                    ),
                     "optimal": False,
                 }
             if current in visited:
@@ -296,7 +337,10 @@ def run_insider_comparison(
         return {
             "path_length": 0,
             "nodes_explored": nodes_explored,
-            "time_ms": round((time.time() - t0) * 1000, 2),
+            "time_ms": round(
+                (time.time() - t0) * TIMESTAMP_MS_MULTIPLIER,
+                INSIDER_TIME_ROUND_DECIMALS,
+            ),
             "optimal": False,
         }
 
@@ -318,7 +362,10 @@ def run_insider_comparison(
                 return {
                     "path_length": len(path),
                     "nodes_explored": nodes_explored,
-                    "time_ms": round((time.time() - t0) * 1000, 2),
+                    "time_ms": round(
+                        (time.time() - t0) * TIMESTAMP_MS_MULTIPLIER,
+                        INSIDER_TIME_ROUND_DECIMALS,
+                    ),
                     "optimal": True,
                 }
             nodes_explored += 1
@@ -330,7 +377,10 @@ def run_insider_comparison(
         return {
             "path_length": 0,
             "nodes_explored": nodes_explored,
-            "time_ms": round((time.time() - t0) * 1000, 2),
+            "time_ms": round(
+                (time.time() - t0) * TIMESTAMP_MS_MULTIPLIER,
+                INSIDER_TIME_ROUND_DECIMALS,
+            ),
             "optimal": False,
         }
 
