@@ -247,6 +247,89 @@ class SnapshotIsolationTests(unittest.TestCase):
         # Verify that snapshot1 remains isolated (does not contain the new obstacle)
         self.assertEqual(len(snapshot1.snap_state["obstacles"]), 1)
 
+    def test_algo_result_computation_time(self):
+        # We can use a standard graph search setup
+        g = nx.MultiDiGraph()
+        g.add_node(1, x=105.000, y=21.000)
+        g.add_node(2, x=105.000, y=21.001)
+        g.add_edge(1, 2, length=100.0)
+        
+        weight_fn = lambda u, v, d: d.get("length", 1.0)
+        context = SearchInput(
+            graph=g,
+            start_node=1,
+            end_node=2,
+            weight_fn=weight_fn,
+            goal_lat=21.001,
+            goal_lon=105.000,
+        )
+        for searcher in [
+            AStarSearch(),
+            DijkstraSearch(),
+            GBFSSearch(),
+            DFSSearch(),
+            BFSSearch(),
+        ]:
+            res = searcher.execute(context)
+            self.assertTrue(res.computation_time >= 0.0)
+
+    def test_robot_agent_execution_trace(self):
+        import simpy
+        import threading
+        from delivery_robots.core.simulation.robot_agent import RobotAgent
+        from delivery_robots.algorithms.base import ExecutionTrace
+
+        env = simpy.Environment()
+        g = nx.MultiDiGraph()
+        g.add_node(1, x=105.000, y=21.000)
+        g.add_node(2, x=105.000, y=21.001)
+        g.add_edge(1, 2, length=60.0)
+
+        state = {
+            "road_graph": g,
+            "history_lock": threading.Lock(),
+            "delivery_history": [],
+            "traffic_routes": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "rain_zones": [],
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+            "rush_hours": [],
+        }
+
+        agent = RobotAgent(
+            env=env,
+            robot_id=0,
+            name="TestRobot",
+            color="red",
+            start_lat=21.000,
+            start_lon=105.000,
+            app_state=state,
+            on_state_change=None,
+        )
+
+        task = {
+            "pickup_path": [1, 2],
+            "dropoff_path": [2, 1],
+            "pickup": {"lat": 21.001, "lon": 105.000},
+            "dropoff": {"lat": 21.000, "lon": 105.000},
+        }
+
+        # Run env slightly to allow the agent process to initialize and wait
+        env.run(until=1)
+
+        # Assign task and run to completion
+        agent.assign_task(task)
+        env.run(until=1000)
+
+        self.assertIn("execution_trace", task)
+        trace = task["execution_trace"]
+        self.assertIsInstance(trace, ExecutionTrace)
+        self.assertTrue(len(trace.gps_coords) >= 4)
+        self.assertTrue(trace.energy_consumed > 0.0)
+        self.assertTrue(trace.travel_time > 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,7 @@ class AlgoResult:
     explored_count: int
     planned_cost: float
     planning_time: float
+    computation_time: float = 0.0
 
     def __len__(self) -> int:
         return 2

@@ -1,8 +1,10 @@
+import typing
 from ...config import (
     ROBOT_STATUS_IDLE,
     ROBOT_STATUS_MOVING_TO_PICKUP,
     ROBOT_STATUS_MOVING_TO_DROPOFF,
     SPEED_METERS_PER_SECOND,
+    BATTERY_DRAIN_RATE,
 )
 from ..environment import edge_weight_with_traffic
 
@@ -67,7 +69,12 @@ class RobotAgent:
                 task = self.task_queue.pop(0)
                 yield from self.execute_task(task)
 
-    def execute_task(self, task):
+    def execute_task(self, task: dict) -> typing.Generator:
+        # Initialize execution trace tracking
+        gps_trace: list = [(self.lat, self.lon)]
+        start_battery: float = self.battery
+        start_time: float = self.env.now
+
         # 1. Move to pickup
         self.status = ROBOT_STATUS_MOVING_TO_PICKUP
         self.current_path = task["pickup_path"]
@@ -77,10 +84,11 @@ class RobotAgent:
         self.route_target = "Pickup"
         self.segment_duration = 0
         self._emit_state()
-        yield from self.traverse_path(self.current_path)
+        yield from self.traverse_path(self.current_path, gps_trace)
 
         # 2. Pick up item (simulate a short delay)
         yield self.env.timeout(30)  # 30 sim seconds
+        gps_trace.append((self.lat, self.lon))
 
         # 3. Move to dropoff
         self.status = ROBOT_STATUS_MOVING_TO_DROPOFF
@@ -91,10 +99,21 @@ class RobotAgent:
         self.route_target = "Dropoff"
         self.segment_duration = 0
         self._emit_state()
-        yield from self.traverse_path(self.current_path)
+        yield from self.traverse_path(self.current_path, gps_trace)
 
         # 4. Drop off item
         yield self.env.timeout(30)
+        gps_trace.append((self.lat, self.lon))
+
+        from ...algorithms.base import ExecutionTrace
+        actual_energy_consumed = start_battery - self.battery
+        actual_travel_time = self.env.now - start_time
+
+        task["execution_trace"] = ExecutionTrace(
+            gps_coords=gps_trace,
+            energy_consumed=actual_energy_consumed,
+            travel_time=actual_travel_time,
+        )
 
         history_lock = self.app_state.get("history_lock")
         delivery_history = self.app_state.get("delivery_history")
@@ -113,8 +132,20 @@ class RobotAgent:
         self.segment_duration = 0
         self._emit_state()
 
-    def traverse_path(self, path_nodes):
-        """Move along a sequence of node IDs."""
+    def traverse_path(self, path_nodes: list, gps_trace: list | None = None) -> typing.Generator:
+        """Move along a sequence of node IDs.
+
+        This method simulates physical movement of the robot along a given path,
+        depleting battery based on physical distance (not traffic) and waiting
+        according to traffic-adjusted segment durations.
+
+        Args:
+            path_nodes (list): The list of node IDs defining the routing path.
+            gps_trace (list | None): Optional list to record traversed GPS coordinates.
+
+        Returns:
+            typing.Generator: A generator that yields SimPy timeout events.
+        """
         graph = self.app_state["road_graph"]
         if not graph or len(path_nodes) < 2:
             return
@@ -130,6 +161,8 @@ class RobotAgent:
                 from_node_data = graph.nodes[from_node]
                 self.lat = from_node_data["y"]
                 self.lon = from_node_data["x"]
+                if gps_trace is not None:
+                    gps_trace.append((self.lat, self.lon))
 
                 # Calculate time to traverse
                 weight = edge_weight_with_traffic(
@@ -140,8 +173,17 @@ class RobotAgent:
                 # Emit state BEFORE yielding. Frontend knows we are at `i` and moving to `i+1`
                 self._emit_state()
 
-                # Deplete battery (e.g. 1% per 60 sim seconds of travel)
-                self.battery = max(0.0, self.battery - (self.segment_duration / 60.0))
+                # Calculate battery cost using physical length: BatteryCost(e) = Length(e) / v * r_drain
+                if "length" in edge_data:
+                    edge_length = edge_data.get("length", 0.0)
+                else:
+                    edge_length = min(
+                        (data.get("length", 0.0) for data in edge_data.values()),
+                        default=0.0
+                    )
+
+                battery_cost = (edge_length / SPEED_METERS_PER_SECOND) * BATTERY_DRAIN_RATE
+                self.battery = max(0.0, self.battery - battery_cost)
 
                 yield self.env.timeout(self.segment_duration)
 
@@ -149,9 +191,12 @@ class RobotAgent:
         final_node = path_nodes[-1]
         self.lat = graph.nodes[final_node]["y"]
         self.lon = graph.nodes[final_node]["x"]
+        if gps_trace is not None:
+            gps_trace.append((self.lat, self.lon))
         self.path_index = len(path_nodes) - 1
         self.segment_duration = 0
         self._emit_state()
+        return
 
     def _emit_state(self):
         # Notify the manager/frontend of a state change

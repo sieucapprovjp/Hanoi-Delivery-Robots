@@ -13,6 +13,8 @@ class GBFSSearch(SearchContract[SearchInput, AlgoResult]):
 
     @profile_time(label="gbfs_search")
     def execute(self, context: SearchInput) -> AlgoResult:
+        import time
+        start_time = time.perf_counter()
         """Executes Greedy Best-First Search to find the route.
 
         Args:
@@ -59,11 +61,13 @@ class GBFSSearch(SearchContract[SearchInput, AlgoResult]):
                 for i in range(len(path) - 1):
                     u, v = path[i], path[i + 1]
                     planned_cost += weight_fn(u, v, graph[u][v])
+                comp_time = time.perf_counter() - start_time
                 return AlgoResult(
                     path=path,
                     explored_count=nodes_explored,
                     planned_cost=planned_cost,
                     planning_time=getattr(graph, "planning_time", 0.0),
+                    computation_time=comp_time,
                 )
 
             for neighbor in graph.neighbors(current):
