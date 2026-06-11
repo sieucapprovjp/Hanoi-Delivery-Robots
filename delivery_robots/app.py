@@ -19,6 +19,7 @@ from .config import (
     TRAFFIC_PERIOD_SECONDS,
 )
 
+from .core.data import CHARGING_STATIONS
 from .core.environment import (
     edge_weight_with_traffic as core_edge_weight_with_traffic,
     get_rush_hour_multiplier as core_get_rush_hour_multiplier,
@@ -108,6 +109,7 @@ _app_state = {
     "spatial_tree": _spatial_tree,
     "sim_now": _sim_now,
     "event_bus": _event_bus,
+    "charging_stations": list(CHARGING_STATIONS),
 }
 
 

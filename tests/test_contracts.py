@@ -68,8 +68,8 @@ class SearchAlgorithmTests(unittest.TestCase):
         self.graph.add_edge(3, 4, length=111.0)
         self.graph.add_edge(1, 3, length=1000.0)
 
-        self.weight_fn = (
-            lambda u, v, d: d.get("length", 1.0)
+        self.weight_fn = lambda u, v, d: (
+            d.get("length", 1.0)
             if "length" in d
             else min(edge.get("length", 1.0) for edge in d.values())
         )
@@ -187,6 +187,7 @@ class SnapshotIsolationTests(unittest.TestCase):
 
     def test_graph_snapshot_immutability(self):
         import threading
+
         g = nx.MultiDiGraph()
         g.add_node(1, x=105.0, y=21.0)
         g.add_node(2, x=105.1, y=21.1)
@@ -219,6 +220,7 @@ class SnapshotIsolationTests(unittest.TestCase):
 
     def test_snap_factory_locking_and_isolation(self):
         import threading
+
         g = nx.MultiDiGraph()
         g.add_node(1, x=105.0, y=21.0)
         g.add_node(2, x=105.1, y=21.1)
@@ -242,7 +244,9 @@ class SnapshotIsolationTests(unittest.TestCase):
 
         # Mutate live state
         with state["obstacles_lock"]:
-            state["obstacles"].append({"center": (21.1, 105.1), "radius": 100.0, "severity": 5.0})
+            state["obstacles"].append(
+                {"center": (21.1, 105.1), "radius": 100.0, "severity": 5.0}
+            )
 
         # Verify that snapshot1 remains isolated (does not contain the new obstacle)
         self.assertEqual(len(snapshot1.snap_state["obstacles"]), 1)
@@ -253,7 +257,7 @@ class SnapshotIsolationTests(unittest.TestCase):
         g.add_node(1, x=105.000, y=21.000)
         g.add_node(2, x=105.000, y=21.001)
         g.add_edge(1, 2, length=100.0)
-        
+
         weight_fn = lambda u, v, d: d.get("length", 1.0)
         context = SearchInput(
             graph=g,
@@ -330,7 +334,521 @@ class SnapshotIsolationTests(unittest.TestCase):
         self.assertTrue(trace.energy_consumed > 0.0)
         self.assertTrue(trace.travel_time > 0.0)
 
+    def test_robot_agent_path_feasibility(self):
+        import simpy
+        import threading
+        from delivery_robots.core.simulation.robot_agent import RobotAgent
+
+        env = simpy.Environment()
+        g = nx.MultiDiGraph()
+        g.add_node(1, x=105.000, y=21.000)
+        g.add_node(2, x=105.000, y=21.001)
+        # 1 -> 2 length is 120.0 meters.
+        # Speed: 2 m/s. Battery drain rate: 1/60 per second.
+        # Cost = (120.0 / 2) * (1/60) = 60 * 1/60 = 1.0% battery.
+        g.add_edge(1, 2, length=120.0)
+
+        state = {
+            "road_graph": g,
+            "history_lock": threading.Lock(),
+            "delivery_history": [],
+            "traffic_routes": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "rain_zones": [],
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+            "rush_hours": [],
+        }
+
+        agent = RobotAgent(
+            env=env,
+            robot_id=0,
+            name="TestRobot",
+            color="red",
+            start_lat=21.000,
+            start_lon=105.000,
+            app_state=state,
+            on_state_change=None,
+        )
+
+        # Base battery is 100.0
+        # Check path [1, 2] which costs 1.0 battery
+        self.assertTrue(agent.is_path_feasible([1, 2]))
+
+        # Set battery to 0.5 (insufficient)
+        agent.battery = 0.5
+        self.assertFalse(agent.is_path_feasible([1, 2]))
+
+        # Set battery to 1.0 (exactly sufficient)
+        agent.battery = 1.0
+        self.assertTrue(agent.is_path_feasible([1, 2]))
+
+    def test_robot_agent_charging_decision_policy(self):
+        import simpy
+        import threading
+        from delivery_robots.core.simulation.robot_agent import RobotAgent
+
+        env = simpy.Environment()
+        g = nx.MultiDiGraph()
+        g.add_node(1, x=105.000, y=21.000)
+        g.add_node(2, x=105.000, y=21.001)
+        g.add_node(3, x=105.000, y=21.002)
+        # 1 -> 2 -> 3
+        g.add_edge(1, 2, length=120.0)
+        g.add_edge(2, 3, length=120.0)
+
+        # Set up app state
+        state = {
+            "road_graph": g,
+            "history_lock": threading.Lock(),
+            "delivery_history": [],
+            "traffic_routes": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "rain_zones": [],
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+            "rush_hours": [],
+            "charging_stations": [
+                {"lat": 21.002, "lon": 105.000, "name": "Hub C", "spots": 2}
+            ],
+            "hub_resources": {},
+            "order_queue": [],
+        }
+
+        # Setup Hub C resource
+        state["hub_resources"]["Hub C"] = simpy.Resource(env, capacity=2)
+
+        agent = RobotAgent(
+            env=env,
+            robot_id=0,
+            name="TestRobot",
+            color="red",
+            start_lat=21.000,
+            start_lon=105.000,
+            app_state=state,
+            on_state_change=None,
+        )
+
+        # 1. Test select_optimal_hub
+        hub = agent.select_optimal_hub()
+        self.assertIsNotNone(hub)
+        self.assertEqual(hub["name"], "Hub C")
+
+        # 2. Test get_safety_threshold
+        # With no current task, safety threshold should be B_to_nearest_hub + margin
+        # Distance from agent at node 1 (21.000, 105.000) to Hub C (21.002, 105.000)
+        # Node path is 1 -> 2 -> 3 (Hub C is near node 3).
+        # Cost of 1 -> 2 -> 3 is: (240 / 2) * (1/60) = 2.0%
+        # Margin is 10.0%. Total safety threshold: 2.0 + 10.0 = 12.0%
+        threshold = agent.get_safety_threshold()
+        self.assertAlmostEqual(threshold, 12.0)
+
+
+class ChargingAndHubSelectionTests(unittest.TestCase):
+    def test_simpy_resource_mapping(self):
+        import simpy
+        from delivery_robots.core.simulation.simulator import SimulatorManager
+        from unittest.mock import MagicMock
+
+        app_state = {
+            "road_graph": None,
+            "charging_stations": [
+                {"lat": 21.0285, "lon": 105.8542, "name": "Hoan Kiem Hub", "spots": 3},
+                {"lat": 21.0355, "lon": 105.8516, "name": "Dong Xuan", "spots": 2},
+            ]
+        }
+
+        sim_manager = SimulatorManager(
+            socketio=MagicMock(),
+            app_state=app_state,
+            nearest_node_id=MagicMock(),
+            run_weighted_route_search=MagicMock(),
+            edge_weight_with_traffic=MagicMock(),
+            build_route_geometry=MagicMock(),
+        )
+        sim_manager.initialize_robots()
+
+        resources = app_state["hub_resources"]
+        # Hoan Kiem Hub has capacity 3 (odd) -> PriorityResource
+        self.assertIsInstance(resources["Hoan Kiem Hub"], simpy.PriorityResource)
+        self.assertEqual(resources["Hoan Kiem Hub"].capacity, 3)
+
+        # Dong Xuan has capacity 2 (even) -> Resource
+        self.assertIsInstance(resources["Dong Xuan"], simpy.Resource)
+        self.assertNotIsInstance(resources["Dong Xuan"], simpy.PriorityResource)
+        self.assertEqual(resources["Dong Xuan"].capacity, 2)
+
+    def test_optimal_hub_selection_wait_time(self):
+        import simpy
+        import threading
+        from delivery_robots.core.simulation.robot_agent import RobotAgent
+
+        env = simpy.Environment()
+        g = nx.MultiDiGraph()
+        g.add_node(1, x=105.000, y=21.000)
+        g.add_node(2, x=105.000, y=21.001)
+        g.add_edge(1, 2, length=60.0)
+
+        state = {
+            "road_graph": g,
+            "history_lock": threading.Lock(),
+            "delivery_history": [],
+            "traffic_routes": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "rain_zones": [],
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+            "rush_hours": [],
+            "charging_stations": [
+                {"lat": 21.001, "lon": 105.000, "name": "Hub A", "spots": 1},
+                {"lat": 21.001, "lon": 105.000, "name": "Hub B", "spots": 1},
+            ],
+            "hub_resources": {
+                "Hub A": simpy.Resource(env, capacity=1),
+                "Hub B": simpy.Resource(env, capacity=1),
+            }
+        }
+
+        agent = RobotAgent(
+            env=env,
+            robot_id=0,
+            name="TestRobot",
+            color="red",
+            start_lat=21.000,
+            start_lon=105.000,
+            app_state=state,
+            on_state_change=None,
+        )
+
+        # Let the background run() loop go to sleep first
+        env.run(until=1)
+
+        res_a = state["hub_resources"]["Hub A"]
+        res_b = state["hub_resources"]["Hub B"]
+
+        # Simulate active charging on Hub B
+        req1 = res_b.request()
+        def get_req():
+            yield req1
+        env.run(env.process(get_req()))
+
+        # Simulate a robot waiting in queue on Hub B
+        req2 = res_b.request()
+
+        self.assertEqual(res_b.count, 1)
+        self.assertEqual(len(res_b.queue), 1)
+
+        opt_hub = agent.select_optimal_hub()
+        self.assertEqual(opt_hub["name"], "Hub A")
+
+    def test_robot_charging_formula(self):
+        import simpy
+        import threading
+        from delivery_robots.core.simulation.robot_agent import RobotAgent
+        from delivery_robots.config import CHARGING_RATE_PERCENT_PER_MINUTE
+
+        env = simpy.Environment()
+        g = nx.MultiDiGraph()
+        g.add_node(1, x=105.000, y=21.000)
+
+        state = {
+            "road_graph": g,
+            "history_lock": threading.Lock(),
+            "delivery_history": [],
+            "traffic_routes": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "rain_zones": [],
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+            "rush_hours": [],
+            "charging_stations": [
+                {"lat": 21.000, "lon": 105.000, "name": "Hub C", "spots": 2}
+            ],
+            "hub_resources": {
+                "Hub C": simpy.Resource(env, capacity=2),
+            }
+        }
+
+        agent = RobotAgent(
+            env=env,
+            robot_id=0,
+            name="TestRobot",
+            color="red",
+            start_lat=21.000,
+            start_lon=105.000,
+            app_state=state,
+            on_state_change=None,
+        )
+
+        # Let background run() loop go to sleep first
+        env.run(until=1)
+
+        agent.battery = 30.0
+        station = state["charging_stations"][0]
+        env.process(agent.charge(station))
+
+        # Let the simulation run for 61 seconds of charging (since charging starts at t=1, we run until t=62)
+        env.run(until=62)
+
+        self.assertAlmostEqual(agent.battery, 30.0 + CHARGING_RATE_PERCENT_PER_MINUTE, places=1)
+
+    def test_robot_priority_charging(self):
+        import simpy
+        import threading
+        from delivery_robots.core.simulation.robot_agent import RobotAgent
+
+        env = simpy.Environment()
+        g = nx.MultiDiGraph()
+        g.add_node(1, x=105.000, y=21.000)
+
+        state = {
+            "road_graph": g,
+            "history_lock": threading.Lock(),
+            "delivery_history": [],
+            "traffic_routes": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "rain_zones": [],
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+            "rush_hours": [],
+            "charging_stations": [
+                {"lat": 21.000, "lon": 105.000, "name": "Priority Hub", "spots": 1}
+            ],
+            "hub_resources": {
+                "Priority Hub": simpy.PriorityResource(env, capacity=1),
+            }
+        }
+
+        r1 = RobotAgent(env=env, robot_id=1, name="R1", color="red", start_lat=21.000, start_lon=105.000, app_state=state, on_state_change=None)
+        r2 = RobotAgent(env=env, robot_id=2, name="R2", color="green", start_lat=21.000, start_lon=105.000, app_state=state, on_state_change=None)
+        r3 = RobotAgent(env=env, robot_id=3, name="R3", color="blue", start_lat=21.000, start_lon=105.000, app_state=state, on_state_change=None)
+
+        # Let their background run() processes go to sleep first
+        env.run(until=1)
+
+        r1.battery = 50.0
+        r2.battery = 80.0
+        r3.battery = 10.0
+
+        station = state["charging_stations"][0]
+
+        env.process(r1.charge(station))
+        env.process(r2.charge(station))
+        env.process(r3.charge(station))
+
+        # We run for 1 step to process the requests
+        env.run(until=2)
+
+        resource = state["hub_resources"]["Priority Hub"]
+        self.assertEqual(len(resource.users), 1)
+        self.assertEqual(len(resource.queue), 2)
+        self.assertEqual(resource.queue[0].priority, 10)
+        self.assertEqual(resource.queue[1].priority, 80)
+
+    def test_robot_fsm_successful_transitions(self):
+        import simpy
+        import threading
+        from delivery_robots.core.simulation.robot_agent import RobotAgent
+        from delivery_robots.config import (
+            ROBOT_STATUS_IDLE,
+            ROBOT_STATUS_MOVING_TO_PICKUP,
+            ROBOT_STATUS_MOVING_TO_DROPOFF,
+            ROBOT_STATUS_MOVING_TO_CHARGE,
+            ROBOT_STATUS_CHARGING,
+            ORDER_STATUS_PENDING,
+            ORDER_STATUS_ASSIGNED,
+            ORDER_STATUS_IN_TRANSIT,
+            ORDER_STATUS_DELIVERED,
+        )
+
+        env = simpy.Environment()
+        g = nx.MultiDiGraph()
+        g.add_node(1, x=105.000, y=21.000)
+        g.add_node(2, x=105.000, y=21.001)
+        g.add_edge(1, 2, length=60.0)
+
+        state = {
+            "road_graph": g,
+            "history_lock": threading.Lock(),
+            "delivery_history": [],
+            "traffic_routes": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "rain_zones": [],
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+            "rush_hours": [],
+            "charging_stations": [
+                {"lat": 21.000, "lon": 105.000, "name": "Hub A", "spots": 1}
+            ],
+            "hub_resources": {
+                "Hub A": simpy.Resource(env, capacity=1),
+            },
+            "order_queue": [],
+        }
+
+        task = {
+            "id": "T1",
+            "pickup_path": [1, 2],
+            "dropoff_path": [2, 1],
+            "pickup": {"lat": 21.001, "lon": 105.000},
+            "dropoff": {"lat": 21.000, "lon": 105.000},
+        }
+
+        history = []
+        def on_change(agent_state):
+            current_status = agent_state.get("status")
+            task_status = task.get("status")
+            history.append((current_status, task_status))
+
+        agent = RobotAgent(
+            env=env,
+            robot_id=0,
+            name="TestRobot",
+            color="red",
+            start_lat=21.000,
+            start_lon=105.000,
+            app_state=state,
+            on_state_change=on_change,
+        )
+
+        # Run env slightly to allow the agent process to initialize and wait
+        env.run(until=1)
+        self.assertEqual(agent.status, ROBOT_STATUS_IDLE)
+
+        # Assign task and run to completion
+        agent.assign_task(task)
+        env.run(until=1000)
+
+        # Let's inspect the history of state changes
+        # It should contain (ROBOT_STATUS_MOVING_TO_PICKUP, ORDER_STATUS_ASSIGNED)
+        # and then (ROBOT_STATUS_MOVING_TO_DROPOFF, ORDER_STATUS_IN_TRANSIT)
+        # and then (ROBOT_STATUS_IDLE, ORDER_STATUS_DELIVERED)
+        self.assertTrue(any(status == ROBOT_STATUS_MOVING_TO_PICKUP and t_status == ORDER_STATUS_ASSIGNED for status, t_status in history))
+        self.assertTrue(any(status == ROBOT_STATUS_MOVING_TO_DROPOFF and t_status == ORDER_STATUS_IN_TRANSIT for status, t_status in history))
+        self.assertEqual(agent.status, ROBOT_STATUS_IDLE)
+        self.assertEqual(task.get("status"), ORDER_STATUS_DELIVERED)
+
+        # Now test the case where battery is low at the end of delivery
+        task2 = {
+            "id": "T2",
+            "pickup_path": [1, 2],
+            "dropoff_path": [2, 1],
+            "pickup": {"lat": 21.001, "lon": 105.000},
+            "dropoff": {"lat": 21.000, "lon": 105.000},
+        }
+        
+        agent.battery = 50.0  # above low battery threshold (30%)
+        history.clear()
+        
+        # Reset task status for on_change capture
+        def on_change2(agent_state):
+            current_status = agent_state.get("status")
+            task_status = task2.get("status")
+            history.append((current_status, task_status))
+            # Set battery to 20% (low) during dropoff leg to trigger low-battery charging after delivery
+            if current_status == ROBOT_STATUS_MOVING_TO_DROPOFF:
+                agent.battery = 20.0
+            
+        agent.on_state_change = on_change2
+        agent.assign_task(task2)
+        env.run(until=3000)
+
+        # The robot should have completed delivery and then transitioned to ROBOT_STATUS_MOVING_TO_CHARGE
+        # and ultimately to CHARGING, and then IDLE after battery >= 100%
+        self.assertEqual(task2.get("status"), ORDER_STATUS_DELIVERED)
+        self.assertTrue(any(status == ROBOT_STATUS_MOVING_TO_CHARGE for status, _ in history))
+        self.assertTrue(any(status == ROBOT_STATUS_CHARGING for status, _ in history))
+        self.assertEqual(agent.status, ROBOT_STATUS_IDLE)
+        self.assertEqual(agent.battery, 100.0)
+
+    def test_robot_fsm_safety_threshold_interrupt(self):
+        import simpy
+        import threading
+        from delivery_robots.core.simulation.robot_agent import RobotAgent
+        from delivery_robots.config import (
+            ROBOT_STATUS_MOVING_TO_CHARGE,
+            ORDER_STATUS_PENDING,
+            ORDER_STATUS_ASSIGNED,
+            ROBOT_STATUS_MOVING_TO_PICKUP,
+        )
+
+        env = simpy.Environment()
+        g = nx.MultiDiGraph()
+        g.add_node(1, x=105.000, y=21.000)
+        g.add_node(2, x=105.000, y=21.001)
+        g.add_edge(1, 2, length=60.0)
+
+        state = {
+            "road_graph": g,
+            "history_lock": threading.Lock(),
+            "delivery_history": [],
+            "traffic_routes": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "rain_zones": [],
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+            "rush_hours": [],
+            "charging_stations": [
+                {"lat": 21.000, "lon": 105.000, "name": "Hub A", "spots": 1}
+            ],
+            "hub_resources": {
+                "Hub A": simpy.Resource(env, capacity=1),
+            },
+            "order_queue": [],
+        }
+
+        task = {
+            "id": "T1",
+            "pickup_path": [1, 2],
+            "dropoff_path": [2, 1],
+            "pickup": {"lat": 21.001, "lon": 105.000},
+            "dropoff": {"lat": 21.000, "lon": 105.000},
+        }
+
+        agent = RobotAgent(
+            env=env,
+            robot_id=0,
+            name="TestRobot",
+            color="red",
+            start_lat=21.000,
+            start_lon=105.000,
+            app_state=state,
+            on_state_change=None,
+        )
+
+        # Run env slightly to allow the agent process to initialize and wait
+        env.run(until=1)
+
+        history = []
+        def on_change(agent_state):
+            current_status = agent_state.get("status")
+            task_status = task.get("status")
+            history.append((current_status, task_status))
+            # Set battery to 5% (below safety threshold) during pickup movement to trigger interrupt
+            if current_status == ROBOT_STATUS_MOVING_TO_PICKUP:
+                agent.battery = 5.0
+        agent.on_state_change = on_change
+
+        agent.assign_task(task)
+        env.run(until=2000)
+
+        # Task should have been returned to the order queue in PENDING status
+        self.assertEqual(len(state["order_queue"]), 1)
+        self.assertEqual(state["order_queue"][0]["id"], "T1")
+        self.assertEqual(state["order_queue"][0]["status"], ORDER_STATUS_PENDING)
+
+        # Agent should have transitioned to charging, charged up to 100% and then become IDLE
+        self.assertTrue(any(status == ROBOT_STATUS_MOVING_TO_CHARGE for status, _ in history))
+        self.assertEqual(agent.status, "idle")
+        self.assertEqual(agent.battery, 100.0)
+
 
 if __name__ == "__main__":
     unittest.main()
-

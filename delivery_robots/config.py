@@ -130,6 +130,7 @@ ROBOT_STATUS_MOVING_TO_CHARGE = "moving_to_charge"
 ROBOT_STATUS_CHARGING = "charging"
 
 # ── Battery & Charging ──
+BATTERY_MAX = 100.0  # Maximum battery percentage (b_max)
 BATTERY_LOW = 30.0  # Threshold below which robot goes to charge after completing current order (b_low)
 BATTERY_PROACTIVE = 50.0  # Threshold below which idle robot goes to charge proactively (b_proactive)
 CHARGING_RATE_PERCENT_PER_MINUTE = 5.0  # Rate at which battery charges (r_charge)

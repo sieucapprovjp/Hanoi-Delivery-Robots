@@ -33,6 +33,7 @@ class SimulatorManager:
 
         # Order dispatcher queue
         self.order_queue = []
+        self.app_state["order_queue"] = self.order_queue
 
     def initialize_robots(self):
         self.robots = []
@@ -62,6 +63,23 @@ class SimulatorManager:
             )
             self.robots.append(agent)
 
+        self.app_state["robots"] = self.robots
+
+        # Create SimPy resources for charging stations
+        self.hub_resources = {}
+        hubs = self.app_state.get("charging_stations", [])
+        for hub in hubs:
+            capacity = hub["spots"]
+            if capacity % 2 == 1:
+                self.hub_resources[hub["name"]] = simpy.PriorityResource(
+                    self.env, capacity=capacity
+                )
+            else:
+                self.hub_resources[hub["name"]] = simpy.Resource(
+                    self.env, capacity=capacity
+                )
+        self.app_state["hub_resources"] = self.hub_resources
+
     def emit_robot_state(self, state):
         # We send to a specific websocket event
         self.socketio.emit("robot_state_update", state)
@@ -86,7 +104,6 @@ class SimulatorManager:
                 },
                 "simulationSpeed": self.app_state.get("simulation_speed", 60),
             },
-
         )
 
     def start(self):
@@ -115,6 +132,7 @@ class SimulatorManager:
         self.pause()
         self.env = simpy.Environment()
         self.order_queue = []
+        self.app_state["order_queue"] = self.order_queue
         self.initialize_robots()
 
         # Broadcast initial states
@@ -214,14 +232,14 @@ class SimulatorManager:
                 task["dropoff_path"] = dropoff_path
 
                 # Build geometry for accurate drawing and proportional interpolation
-                pickup_geometry_path, pickup_segment_geometry = self.build_route_geometry(
-                    snap_graph, pickup_path
+                pickup_geometry_path, pickup_segment_geometry = (
+                    self.build_route_geometry(snap_graph, pickup_path)
                 )
                 task["pickup_geometry_path"] = pickup_geometry_path
                 task["pickup_segment_geometry"] = pickup_segment_geometry
 
-                dropoff_geometry_path, dropoff_segment_geometry = self.build_route_geometry(
-                    snap_graph, dropoff_path
+                dropoff_geometry_path, dropoff_segment_geometry = (
+                    self.build_route_geometry(snap_graph, dropoff_path)
                 )
                 task["dropoff_geometry_path"] = dropoff_geometry_path
                 task["dropoff_segment_geometry"] = dropoff_segment_geometry

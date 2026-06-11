@@ -16,7 +16,7 @@ def register_main_routes(app, ctx):
 
     @app.route("/api/data/hubs")
     def get_hubs():
-        return jsonify({"hubs": CHARGING_STATIONS})
+        return jsonify({"hubs": app_state.get("charging_stations", CHARGING_STATIONS)})
 
     @app.route("/api/data/robots")
     def get_robots():
@@ -32,6 +32,7 @@ def register_main_routes(app, ctx):
             hubs = compute_optimized_hubs(
                 app_state, cluster_count=DEFAULT_HUB_CLUSTER_COUNT
             )
+            app_state["charging_stations"] = hubs
             return jsonify({"hubs": hubs}), 200
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
