@@ -3,7 +3,7 @@ import random
 import threading
 from .robot_agent import RobotAgent
 from ..data import LOCATIONS, INITIAL_ROBOTS
-from ..environment import get_simulation_time, get_rush_hour_multiplier
+from ..environment import get_simulation_time, get_rush_hour_multiplier, SnapFactory
 from ...config import RUSH_HOUR_INACTIVE_LABEL
 from ...utils import Profiler, profile_time, profile_block
 
@@ -164,59 +164,64 @@ class SimulatorManager:
             task = self.order_queue.pop(0)
             robot = idle_robots[0]
 
-            # Generate routes
+            # Generate routes using frozen snapshot
             graph = self.app_state.get("road_graph")
             if not graph:
                 self.order_queue.insert(0, task)
                 continue
 
             try:
+                snap_graph = SnapFactory.create_snapshot(self.app_state, self.env.now)
+            except Exception as e:
+                self.emit_system_event(f"Snapshot creation failed: {e}")
+                self.order_queue.insert(0, task)
+                continue
+
+            try:
                 # 1. Route: Robot -> Pickup
-                robot_node = self.nearest_node_id(graph, robot.lat, robot.lon)
+                robot_node = self.nearest_node_id(snap_graph, robot.lat, robot.lon)
                 pickup_node = self.nearest_node_id(
-                    graph, task["pickup"]["lat"], task["pickup"]["lon"]
+                    snap_graph, task["pickup"]["lat"], task["pickup"]["lon"]
                 )
 
-                pickup_path, _ = self.run_weighted_route_search(
-                    graph,
+                pickup_result = self.run_weighted_route_search(
+                    snap_graph,
                     robot_node,
                     pickup_node,
                     task["pickup"]["lat"],
                     task["pickup"]["lon"],
-                    lambda u, v, d: self.edge_weight_with_traffic(
-                        self.app_state, u, v, d
-                    ),
+                    lambda u, v, d: snap_graph.get_edge_weight(u, v, d),
                     "astar",
                 )
+                pickup_path = pickup_result.path
 
                 # 2. Route: Pickup -> Dropoff
                 dropoff_node = self.nearest_node_id(
-                    graph, task["dropoff"]["lat"], task["dropoff"]["lon"]
+                    snap_graph, task["dropoff"]["lat"], task["dropoff"]["lon"]
                 )
-                dropoff_path, _ = self.run_weighted_route_search(
-                    graph,
+                dropoff_result = self.run_weighted_route_search(
+                    snap_graph,
                     pickup_node,
                     dropoff_node,
                     task["dropoff"]["lat"],
                     task["dropoff"]["lon"],
-                    lambda u, v, d: self.edge_weight_with_traffic(
-                        self.app_state, u, v, d
-                    ),
+                    lambda u, v, d: snap_graph.get_edge_weight(u, v, d),
                     "astar",
                 )
+                dropoff_path = dropoff_result.path
 
                 task["pickup_path"] = pickup_path
                 task["dropoff_path"] = dropoff_path
 
                 # Build geometry for accurate drawing and proportional interpolation
                 pickup_geometry_path, pickup_segment_geometry = self.build_route_geometry(
-                    graph, pickup_path
+                    snap_graph, pickup_path
                 )
                 task["pickup_geometry_path"] = pickup_geometry_path
                 task["pickup_segment_geometry"] = pickup_segment_geometry
 
                 dropoff_geometry_path, dropoff_segment_geometry = self.build_route_geometry(
-                    graph, dropoff_path
+                    snap_graph, dropoff_path
                 )
                 task["dropoff_geometry_path"] = dropoff_geometry_path
                 task["dropoff_segment_geometry"] = dropoff_segment_geometry

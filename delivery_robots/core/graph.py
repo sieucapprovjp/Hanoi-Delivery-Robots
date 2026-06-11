@@ -108,3 +108,63 @@ def get_road_graph(
             state["spatial_tree"] = BallTree(coords, metric="haversine")
 
     return state["road_graph"], state["projected_road_graph"], state["traffic_routes"]
+
+
+class GraphSnapshot(nx.MultiDiGraph):
+    """An immutable snapshot of the road network graph at a specific planning time.
+
+    This class subclasses networkx.MultiDiGraph to ensure 100% compatibility with
+    NetworkX algorithms and utility functions. It computes and freezes dynamic edge
+    weights at a specific simulated/real timestamp.
+    """
+
+    def __init__(
+        self,
+        graph: nx.MultiDiGraph,
+        planning_time: float,
+        snap_state: dict,
+    ) -> None:
+        """Initializes the GraphSnapshot.
+
+        Args:
+            graph (nx.MultiDiGraph): The live source road graph to copy structure from.
+            planning_time (float): The timestamp when the planning occurred.
+            snap_state (dict): Copied environmental state elements to calculate static weights.
+        """
+        # Shallow copy of structural data (nodes, edges, graph attributes)
+        super().__init__(graph)
+        self.planning_time: float = planning_time
+        self.snap_state: dict = snap_state
+
+        from .environment import edge_weight_with_traffic
+
+        # Calculate and cache dynamic weight for all edges
+        for u, v, key, data in self.edges(keys=True, data=True):
+            weight = edge_weight_with_traffic(snap_state, u, v, data)
+            data["weight"] = weight
+
+        # Freeze structural mutations (raises error on add_node, add_edge, etc.)
+        nx.freeze(self)
+
+    def get_edge_weight(self, u: int, v: int, edge_data: dict) -> float:
+        """Retrieves the frozen weight for an edge or a dictionary of parallel edges.
+
+        Args:
+            u (int): The source node ID.
+            v (int): The destination node ID.
+            edge_data (dict): The edge attribute dictionary, or dict of parallel edges.
+
+        Returns:
+            float: The cached static edge weight.
+        """
+        from ..config import DEFAULT_EDGE_LENGTH
+
+        if "weight" in edge_data:
+            return edge_data["weight"]
+
+        # If it's a MultiDiGraph parallel edge mapping (key -> edge_attributes_dict)
+        return min(
+            data.get("weight", data.get("length", DEFAULT_EDGE_LENGTH))
+            for data in edge_data.values()
+        )
+

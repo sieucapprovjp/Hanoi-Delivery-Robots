@@ -27,6 +27,7 @@ from .core.environment import (
     rain_penalty_for_point as core_rain_penalty_for_point,
     traffic_penalty_for_point as core_traffic_penalty_for_point,
 )
+from .core.event_bus import EventBus
 from .core.graph import get_road_graph as core_get_road_graph
 from .routes import register_environment_routes, register_main_routes
 from .utils.metrics import build_metrics_payload, create_metrics, record_route_metrics
@@ -78,6 +79,8 @@ _spatial_tree = None
 
 _sim_now = 0
 
+_event_bus = EventBus(recording=True)
+
 _app_state = {
     "graph_center": GRAPH_CENTER,
     "graph_dist_meters": GRAPH_DIST_METERS,
@@ -104,6 +107,7 @@ _app_state = {
     "spatial_node_ids": _spatial_node_ids,
     "spatial_tree": _spatial_tree,
     "sim_now": _sim_now,
+    "event_bus": _event_bus,
 }
 
 
@@ -217,6 +221,7 @@ def _build_routes_context():
         "get_ox": lambda: _ox,
         "spatial_node_ids": _spatial_node_ids,
         "spatial_tree": _spatial_tree,
+        "event_bus": _event_bus,
     }
 
 

@@ -1,5 +1,9 @@
 import math
 import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .graph import GraphSnapshot
 
 from ..utils.geo import haversine_distance, point_to_segment_distance_meters
 from ..config import (
@@ -47,9 +51,9 @@ def get_rush_hour_multiplier(state):
     return DEFAULT_RUSH_HOUR_MULTIPLIER, DEFAULT_RUSH_HOUR_LABEL
 
 
-def traffic_penalty_for_point(state, lat, lon):
+def traffic_penalty_for_point(state: dict, lat: float, lon: float) -> float:
     penalty = DEFAULT_TRAFFIC_PENALTY
-    now = time.time()
+    now = state.get("snapshot_time", time.time())
     if not state["traffic_routes"] and not state["dynamic_traffic_routes"]:
         return penalty
 
@@ -140,3 +144,59 @@ def edge_weight_with_traffic(state, from_node, to_node, edge_data):
 
     best_length = min(data.get("length", float("inf")) for data in edge_data.values())
     return best_length * penalty
+
+
+class SnapFactory:
+    """Factory for creating GraphSnapshot instances from application state."""
+
+    @staticmethod
+    def create_snapshot(state: dict, t: float | None = None) -> "GraphSnapshot":
+        """Creates a thread-safe immutable GraphSnapshot frozen at simulated time t.
+
+        Args:
+            state (dict): The live application state.
+            t (float | None): The simulation timestamp to freeze at. If None,
+                defaults to the current simulation time state["sim_now"].
+
+        Returns:
+            GraphSnapshot: The frozen graph snapshot.
+        """
+        import threading
+        from .graph import GraphSnapshot
+
+        # Determine snapshot planning times
+        sim_time = t if t is not None else state.get("sim_now", 0)
+        real_time_val = time.time()
+
+        # Safely copy dynamic objects under their respective locks
+        with state["graph_lock"]:
+            graph_copy = state["road_graph"].copy()
+
+        with state["obstacles_lock"]:
+            obstacles_copy = [dict(obs) for obs in state["obstacles"]]
+
+        with state["dynamic_traffic_lock"]:
+            dynamic_traffic_copy = [dict(r) for r in state["dynamic_traffic_routes"]]
+
+        # Non-locked configurations/state lists
+        rain_zones_copy = [dict(z) for z in state["rain_zones"]]
+        traffic_routes_copy = [dict(r) for r in state["traffic_routes"]]
+        rush_hours_copy = [dict(rh) for rh in state["rush_hours"]]
+
+        # Construct the frozen snapshot state dict
+        snap_state = {
+            "road_graph": graph_copy,
+            "rain_zones": rain_zones_copy,
+            "obstacles": obstacles_copy,
+            "traffic_routes": traffic_routes_copy,
+            "dynamic_traffic_routes": dynamic_traffic_copy,
+            "rush_hours": rush_hours_copy,
+            "sim_now": sim_time,
+            "traffic_period_seconds": state.get("traffic_period_seconds", 30),
+            "snapshot_time": real_time_val,
+            "obstacles_lock": threading.Lock(),
+            "dynamic_traffic_lock": threading.Lock(),
+        }
+
+        return GraphSnapshot(graph_copy, sim_time, snap_state)
+

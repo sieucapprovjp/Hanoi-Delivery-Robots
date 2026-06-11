@@ -56,3 +56,5 @@ htmlcov/
 ./delivery_robots/test_server.py
 */__pycache__
 logs/
+doc/
+AGENTS.md
