@@ -148,11 +148,30 @@ class RobotAgent:
         self.status = ROBOT_STATUS_MOVING_TO_PICKUP
 
         try:
-            # Check safety threshold before starting pickup movement
-            if self.battery < self.get_safety_threshold():
+            # 0. If this is a 3-leg task, go charge first
+            if task.get("is_3_leg"):
+                self.status = ROBOT_STATUS_MOVING_TO_CHARGE
+                self.current_path = task.get("charge_path", [])
+                self.geometry_path = task.get("charge_geometry_path", [])
+                self.segment_geometry = task.get("charge_segment_geometry", [])
+                self.path_index = 0
+                hub = task.get("charging_station")
+                hub_name = hub["name"] if hub else "Unknown Hub"
+                self.route_target = f"Charging at {hub_name}"
+                self.segment_duration = 0
+                self._emit_state()
+                yield from self.traverse_path(self.current_path, gps_trace)
+
+                # Charge the robot
+                if hub:
+                    yield from self.charge(hub)
+
+            # Check safety threshold before starting pickup movement (skip if 3-leg since we just charged)
+            if not task.get("is_3_leg") and self.battery < self.get_safety_threshold():
                 raise EmergencyChargingException("Safety threshold violated")
 
             # 1. Move to pickup
+            self.status = ROBOT_STATUS_MOVING_TO_PICKUP
             self.current_path = task["pickup_path"]
             self.geometry_path = task.get("pickup_geometry_path", [])
             self.segment_geometry = task.get("pickup_segment_geometry", [])
@@ -244,6 +263,19 @@ class RobotAgent:
             self.current_task = None
             self._emit_state()
             return
+        except simpy.Interrupt as exc:
+            if exc.cause == "reassignment":
+                self.status = ROBOT_STATUS_IDLE
+                self.current_path = []
+                self.geometry_path = []
+                self.segment_geometry = []
+                self.route_target = None
+                self.segment_duration = 0
+                self.current_task = None
+                self._emit_state()
+                return
+            else:
+                raise exc
 
         self.current_path = []
         self.geometry_path = []

@@ -152,6 +152,7 @@ DISPATCH_ALPHA = 1.0  # Weight for travel distance/cost to pickup point (alpha)
 DISPATCH_BETA = 1.0  # Weight for distance/cost from pickup to delivery point (beta)
 DISPATCH_GAMMA = 100.0  # Weight for battery penalty (gamma)
 DISPATCH_LAMBDA = 0.05  # Exponential coefficient in battery penalty function f(B) = e^(-lambda * B) (lambda)
+DEFAULT_DISPATCH_MODEL = "nearest_idle"  # Default dispatch model identifier
 
 # ── Re-dispatching & Re-assignment ──
 REASSIGN_PENALTY = 60.0  # Penalty weight to prevent chattering/oscillating order re-assignments (penalty_reassign)

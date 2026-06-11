@@ -43,6 +43,9 @@ class DisplayEngine {
             this.socket.on('system_event', (data) => {
                 logEvent('🌐 ' + data.message);
                 addDispatchInsight(data.message);
+                if (typeof window.appendDispatchInsight === 'function') {
+                    window.appendDispatchInsight(data.message);
+                }
             });
 
             this.socket.on('clock_update', (data) => {

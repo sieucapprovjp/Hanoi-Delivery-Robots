@@ -58,3 +58,4 @@ htmlcov/
 logs/
 doc/
 AGENTS.md
+.ruff_cache/

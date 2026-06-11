@@ -40,6 +40,7 @@ from ..config import (
 
 
 def register_environment_routes(app, ctx):
+    app_state = ctx["app_state"]
     get_road_graph = ctx["get_road_graph"]
     build_metrics_payload = ctx["build_metrics_payload"]
     build_route_response = ctx["build_route_response"]
@@ -67,6 +68,28 @@ def register_environment_routes(app, ctx):
     api_logs_lock = ctx["api_logs_lock"]
     get_ox = ctx["get_ox"]
     event_bus = ctx["event_bus"]
+
+    @app.route("/api/dispatch/model", methods=["GET"])
+    def get_dispatch_model():
+        model = app_state.get("dispatch_model", "nearest_idle")
+        return jsonify({"model": model}), 200
+
+    @app.route("/api/dispatch/select", methods=["POST"])
+    def set_dispatch_model():
+        payload = request.get_json(silent=True) or {}
+        model = payload.get("model")
+        valid_models = [
+            "nearest_idle",
+            "nearest_feasible",
+            "weighted_cost",
+            "hungarian",
+        ]
+        if not model or model not in valid_models:
+            return jsonify(
+                {"error": f"Invalid model. Must be one of {valid_models}"}
+            ), 400
+        app_state["dispatch_model"] = model
+        return jsonify({"status": "ok", "model": model}), 200
 
     @app.route("/api/logs", methods=["GET", "POST"])
     def api_logs_endpoint():

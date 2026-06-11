@@ -17,6 +17,7 @@ from .config import (
     SIMULATION_SPEED,
     TRAFFIC_ANCHORS,
     TRAFFIC_PERIOD_SECONDS,
+    DEFAULT_DISPATCH_MODEL,
 )
 
 from .core.data import CHARGING_STATIONS
@@ -111,6 +112,7 @@ _app_state = {
     "sim_now": _sim_now,
     "event_bus": _event_bus,
     "charging_stations": list(CHARGING_STATIONS),
+    "dispatch_model": DEFAULT_DISPATCH_MODEL,
 }
 
 register_environment_subscribers(_event_bus, _app_state)

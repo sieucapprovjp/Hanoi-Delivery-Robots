@@ -38,4 +38,20 @@ class BackendAPI {
         return response.json();
     }
 
+    async getDispatchModel() {
+        const response = await fetch('/api/dispatch/model');
+        if (!response.ok) throw new Error(`Dispatch model request failed: ${response.status}`);
+        return response.json();
+    }
+
+    async setDispatchModel(model) {
+        const response = await fetch('/api/dispatch/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model })
+        });
+        if (!response.ok) throw new Error(`Dispatch select request failed: ${response.status}`);
+        return response.json();
+    }
+
 }

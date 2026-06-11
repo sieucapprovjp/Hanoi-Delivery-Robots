@@ -104,6 +104,8 @@
             :class="$store.sim.panels.robot ? 'fab-active' : ''">🤖</button>
         <button class="fab" title="Weather & Traffic" @click="$store.sim.panels.weather = !$store.sim.panels.weather"
             :class="$store.sim.panels.weather ? 'fab-active' : ''">🌦️</button>
+        <button class="fab" title="Dispatch Engine" @click="$store.sim.panels.dispatch = !$store.sim.panels.dispatch"
+            :class="$store.sim.panels.dispatch ? 'fab-active' : ''">📋</button>
     </div>
 
     <!-- Control Panel -->
@@ -223,6 +225,31 @@
                     Obstacles</button>
                 <div id="obstacle-list" class="list-container"
                     x-html="$store.sim.weather.obstaclesHtml || 'No obstacles'"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dispatch Panel -->
+    <div class="dispatch-panel" x-show="$store.sim.panels.dispatch" x-transition x-cloak>
+        <div class="panel-header">
+            <h3>Dispatch Engine</h3>
+            <button class="close-panel" @click="$store.sim.panels.dispatch = false">×</button>
+        </div>
+        <div class="panel-content">
+            <div class="dispatch-settings" style="margin-bottom: 20px;">
+                <label class="fs-12 fw-600 color-primary" style="display: block; margin-bottom: 8px;">Active Model</label>
+                <select id="dispatch-model-select" class="algo-select w-100">
+                    <option value="nearest_idle">Nearest Idle</option>
+                    <option value="nearest_feasible">Nearest Feasible</option>
+                    <option value="weighted_cost">Weighted Cost Assignment</option>
+                    <option value="hungarian">Hungarian Algorithm</option>
+                </select>
+            </div>
+            <div class="dispatch-metrics">
+                <div class="summary-title">Dispatch Insights</div>
+                <div id="dispatch-insights" class="list-container" style="max-height: 250px; overflow-y: auto;">
+                    <p class="info-text fs-12 color-secondary-text">No dispatch logs available yet.</p>
+                </div>
             </div>
         </div>
     </div>

@@ -92,6 +92,76 @@ class SearchContract(ABC, Generic[Input, Output]):
         pass
 
 
+@dataclass
+class AssignmentInput:
+    """Input context for robot-to-order assignment algorithms.
+
+    Attributes:
+        graph (nx.MultiDiGraph): The road network graph snapshot.
+        robots: List of active RobotAgent objects.
+        orders: List of pending order dictionaries.
+        nearest_node_fn: Function to find nearest node ID.
+        weight_fn: Function to calculate edge weight.
+        run_route_search_fn: Function to run path search algorithm.
+        alpha (float): Travel cost weight to pickup point.
+        beta (float): Travel cost weight from pickup to delivery.
+        gamma (float): Battery penalty weight.
+        val_lambda (float): Exponential coefficient in battery penalty function.
+    """
+
+    graph: nx.MultiDiGraph
+    robots: List[Any]
+    orders: List[Dict[str, Any]]
+    nearest_node_fn: Callable[[nx.MultiDiGraph, float, float], int]
+    weight_fn: Callable[[int, int, dict], float]
+    run_route_search_fn: Callable[
+        [
+            nx.MultiDiGraph,
+            int,
+            int,
+            float,
+            float,
+            Callable[[int, int, dict], float],
+            str,
+        ],
+        Any,
+    ]
+    alpha: float = 1.0
+    beta: float = 1.0
+    gamma: float = 100.0
+    val_lambda: float = 0.05
+
+
+@dataclass(frozen=True)
+class AssignmentPair:
+    """Represents a matched robot and order with pre-computed paths.
+
+    Attributes:
+        robot (Any): The RobotAgent object.
+        order (Dict[str, Any]): The order dictionary.
+        pickup_path (List[int]): Pre-computed route path from robot's position to pickup.
+        dropoff_path (List[int]): Pre-computed route path from pickup to delivery.
+        cost (float): Calculated dispatch cost of this assignment.
+    """
+
+    robot: Any
+    order: Dict[str, Any]
+    pickup_path: List[int]
+    dropoff_path: List[int]
+    cost: float
+
+
+@dataclass(frozen=True)
+class AssignmentResult:
+    """Result containing all assignments made by the dispatcher model.
+
+    Attributes:
+        assignments (List[AssignmentPair]): List of assigned pairs.
+    """
+
+    assignments: List[AssignmentPair]
+
+
 class AssignmentContract(ABC, Generic[Input, Output]):
     """Unified interface contract for robot-to-order assignment models."""
 

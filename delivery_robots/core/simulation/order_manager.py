@@ -62,6 +62,8 @@ class OrderManager:
         """
         task["created_time"] = self.env.now
         task["status"] = ORDER_STATUS_PENDING
+        task["reassign_count"] = 0
+        task["last_reassign_time"] = None
         self.order_queue.append(task)
 
     def pop_next_pending(self) -> dict | None:
