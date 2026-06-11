@@ -18,7 +18,9 @@ def compute_optimized_hubs(state, cluster_count=DEFAULT_HUB_CLUSTER_COUNT):
             raise ValueError(MIN_DELIVERY_HISTORY_ERROR_MSG)
         data = np.array(state["delivery_history"])
 
-    kmeans = KMeans(n_clusters=cluster_count, n_init=KMEANS_N_INIT, random_state=KMEANS_RANDOM_STATE)
+    kmeans = KMeans(
+        n_clusters=cluster_count, n_init=KMEANS_N_INIT, random_state=KMEANS_RANDOM_STATE
+    )
     kmeans.fit(data)
     hubs = []
     for idx, center in enumerate(kmeans.cluster_centers_):

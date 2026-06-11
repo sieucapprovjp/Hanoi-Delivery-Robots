@@ -3,10 +3,9 @@
 Implements publish/subscribe pattern to decouple environment mutations
 (rain, traffic, obstacles) from Simulation Core. Supports event
 recording for deterministic scenario replay in benchmarks.
-
-Architecture reference: coding_requirement.md — Nguyên lý 4.
 """
 
+import json
 import threading
 import time
 from collections import defaultdict
@@ -187,3 +186,38 @@ class EventBus:
             self._global_subscribers.clear()
             self._recorded_events.clear()
             self._recording = False
+
+
+class ScenarioConfig:
+    """Configuration loader for pre-defined scenarios.
+
+    Handles loading and saving scenario event sequences from/to JSON files.
+    """
+
+    def __init__(self, events: list[Event] | None = None) -> None:
+        """Initialize the ScenarioConfig.
+
+        Args:
+            events (list[Event] | None): Initial list of events.
+        """
+        self.events: list[Event] = events or []
+
+    def load_from_file(self, filepath: str) -> None:
+        """Load scenario events from a JSON file.
+
+        Args:
+            filepath (str): Path to the JSON file.
+        """
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            event_list = data.get("events", data) if isinstance(data, dict) else data
+            self.events = [Event.from_dict(e) for e in event_list]
+
+    def save_to_file(self, filepath: str) -> None:
+        """Save scenario events to a JSON file.
+
+        Args:
+            filepath (str): Path where the JSON file should be saved.
+        """
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump([e.to_dict() for e in self.events], f, indent=2)

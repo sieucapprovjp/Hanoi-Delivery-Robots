@@ -6,10 +6,12 @@ if TYPE_CHECKING:
     from .graph import GraphSnapshot
 
 from ..utils.geo import haversine_distance, point_to_segment_distance_meters
+from .event_bus import Event, EventBus, EventType
 from ..config import (
     DEFAULT_EDGE_LENGTH,
     DEFAULT_OBSTACLE_PENALTY,
     DEFAULT_OBSTACLE_SEVERITY,
+    DEFAULT_OBSTACLE_TYPE,
     DEFAULT_RAIN_PENALTY,
     DEFAULT_RAIN_SEVERITY,
     DEFAULT_RUSH_HOUR_LABEL,
@@ -25,6 +27,31 @@ from ..config import (
     TRAFFIC_INFLUENCE_RADIUS_METERS,
     TRAFFIC_MIN_SEGMENT_STRENGTH,
     TRAFFIC_SEVERITY_SCALING_FACTOR,
+    DEFAULT_RANDOMIZE_RAIN_COUNT,
+    DEFAULT_RAIN_MIN_RADIUS,
+    DEFAULT_RAIN_MAX_RADIUS,
+    RAIN_ZONE_NAME_PREFIX,
+    RANDOM_LAT_MIN,
+    RANDOM_LAT_MAX,
+    RANDOM_LON_MIN,
+    RANDOM_LON_MAX,
+    TRAFFIC_ROUTE_NAME_PREFIX,
+    DEFAULT_RANDOMIZE_TRAFFIC_COUNT,
+    RANDOM_TRAFFIC_SEVERITY_MIN,
+    RANDOM_TRAFFIC_SEVERITY_MAX,
+    RANDOM_TRAFFIC_LAT_MIN,
+    RANDOM_TRAFFIC_LAT_MAX,
+    RANDOM_TRAFFIC_LON_MIN,
+    RANDOM_TRAFFIC_LON_MAX,
+    RANDOM_TRAFFIC_PATH_POINT_COUNT,
+    OBSTACLE_NAME_PREFIX,
+    OBSTACLE_RANDOMIZE_NAME_PREFIX,
+    DEFAULT_RANDOMIZE_OBSTACLE_COUNT,
+    RANDOM_OBSTACLE_RADIUS_MIN,
+    RANDOM_OBSTACLE_RADIUS_MAX,
+    RANDOM_OBSTACLE_SEVERITY_MIN,
+    RANDOM_OBSTACLE_SEVERITY_MAX,
+    OBSTACLE_TYPES,
 )
 
 
@@ -200,3 +227,155 @@ class SnapFactory:
 
         return GraphSnapshot(graph_copy, sim_time, snap_state)
 
+
+def register_environment_subscribers(event_bus: EventBus, state: dict) -> None:
+    """Register subscribers on the event bus to handle environment events.
+
+    Args:
+        event_bus (EventBus): The event bus instance.
+        state (dict): The global application state to be updated.
+    """
+
+    def handle_rain_added(event: Event) -> None:
+        data = event.data
+        name = (
+            data.get("name") or f"{RAIN_ZONE_NAME_PREFIX}{len(state['rain_zones']) + 1}"
+        )
+        state["rain_zones"].append(
+            {
+                "name": name,
+                "center": (data["lat"], data["lon"]),
+                "radius": data["radius"],
+                "severity": data.get("severity", DEFAULT_RAIN_SEVERITY),
+            }
+        )
+
+    def handle_rain_cleared(event: Event) -> None:
+        state["rain_zones"].clear()
+
+    def handle_rain_randomized(event: Event) -> None:
+        import random
+
+        data = event.data
+        count = data.get("count", DEFAULT_RANDOMIZE_RAIN_COUNT)
+        min_radius = data.get("minRadius", DEFAULT_RAIN_MIN_RADIUS)
+        max_radius = data.get("maxRadius", DEFAULT_RAIN_MAX_RADIUS)
+
+        state["rain_zones"].clear()
+        for i in range(count):
+            state["rain_zones"].append(
+                {
+                    "name": f"{RAIN_ZONE_NAME_PREFIX}{i + 1}",
+                    "center": (
+                        random.uniform(RANDOM_LAT_MIN, RANDOM_LAT_MAX),
+                        random.uniform(RANDOM_LON_MIN, RANDOM_LON_MAX),
+                    ),
+                    "radius": random.uniform(min_radius, max_radius),
+                    "severity": DEFAULT_RAIN_SEVERITY,
+                }
+            )
+
+    def handle_traffic_added(event: Event) -> None:
+        data = event.data
+        with state["dynamic_traffic_lock"]:
+            route_name = (
+                data.get("name")
+                or f"{TRAFFIC_ROUTE_NAME_PREFIX}{len(state['dynamic_traffic_routes']) + 1}"
+            )
+            route = {
+                "name": route_name,
+                "severity": data["severity"],
+                "path": data["path"],
+            }
+            state["dynamic_traffic_routes"].append(route)
+
+    def handle_traffic_cleared(event: Event) -> None:
+        with state["dynamic_traffic_lock"]:
+            state["dynamic_traffic_routes"].clear()
+
+    def handle_traffic_randomized(event: Event) -> None:
+        import random
+
+        data = event.data
+        count = data.get("count", DEFAULT_RANDOMIZE_TRAFFIC_COUNT)
+        routes = []
+        for i in range(count):
+            routes.append(
+                {
+                    "name": f"{TRAFFIC_ROUTE_NAME_PREFIX}{i + 1}",
+                    "severity": random.uniform(
+                        RANDOM_TRAFFIC_SEVERITY_MIN, RANDOM_TRAFFIC_SEVERITY_MAX
+                    ),
+                    "path": [
+                        {
+                            "lat": random.uniform(
+                                RANDOM_TRAFFIC_LAT_MIN, RANDOM_TRAFFIC_LAT_MAX
+                            ),
+                            "lon": random.uniform(
+                                RANDOM_TRAFFIC_LON_MIN, RANDOM_TRAFFIC_LON_MAX
+                            ),
+                        }
+                        for _ in range(RANDOM_TRAFFIC_PATH_POINT_COUNT)
+                    ],
+                }
+            )
+        with state["dynamic_traffic_lock"]:
+            state["dynamic_traffic_routes"].clear()
+            state["dynamic_traffic_routes"].extend(routes)
+
+    def handle_obstacle_added(event: Event) -> None:
+        data = event.data
+        with state["obstacles_lock"]:
+            name = (
+                data.get("name")
+                or f"{OBSTACLE_NAME_PREFIX}{len(state['obstacles']) + 1}"
+            )
+            obstacle = {
+                "name": name,
+                "center": (data["lat"], data["lon"]),
+                "radius": data["radius"],
+                "severity": data["severity"],
+                "type": data.get("type", DEFAULT_OBSTACLE_TYPE),
+            }
+            state["obstacles"].append(obstacle)
+
+    def handle_obstacle_cleared(event: Event) -> None:
+        with state["obstacles_lock"]:
+            state["obstacles"].clear()
+
+    def handle_obstacle_randomized(event: Event) -> None:
+        import random
+
+        data = event.data
+        count = data.get("count", DEFAULT_RANDOMIZE_OBSTACLE_COUNT)
+        new_obstacles = []
+        for i in range(count):
+            new_obstacles.append(
+                {
+                    "name": f"{OBSTACLE_RANDOMIZE_NAME_PREFIX}{i + 1}",
+                    "center": (
+                        random.uniform(RANDOM_LAT_MIN, RANDOM_LAT_MAX),
+                        random.uniform(RANDOM_LON_MIN, RANDOM_LON_MAX),
+                    ),
+                    "radius": random.uniform(
+                        RANDOM_OBSTACLE_RADIUS_MIN, RANDOM_OBSTACLE_RADIUS_MAX
+                    ),
+                    "severity": random.uniform(
+                        RANDOM_OBSTACLE_SEVERITY_MIN, RANDOM_OBSTACLE_SEVERITY_MAX
+                    ),
+                    "type": random.choice(OBSTACLE_TYPES),
+                }
+            )
+        with state["obstacles_lock"]:
+            state["obstacles"].clear()
+            state["obstacles"].extend(new_obstacles)
+
+    event_bus.subscribe(EventType.RAIN_ADDED, handle_rain_added)
+    event_bus.subscribe(EventType.RAIN_CLEARED, handle_rain_cleared)
+    event_bus.subscribe(EventType.RAIN_RANDOMIZED, handle_rain_randomized)
+    event_bus.subscribe(EventType.TRAFFIC_ADDED, handle_traffic_added)
+    event_bus.subscribe(EventType.TRAFFIC_CLEARED, handle_traffic_cleared)
+    event_bus.subscribe(EventType.TRAFFIC_RANDOMIZED, handle_traffic_randomized)
+    event_bus.subscribe(EventType.OBSTACLE_ADDED, handle_obstacle_added)
+    event_bus.subscribe(EventType.OBSTACLE_CLEARED, handle_obstacle_cleared)
+    event_bus.subscribe(EventType.OBSTACLE_RANDOMIZED, handle_obstacle_randomized)

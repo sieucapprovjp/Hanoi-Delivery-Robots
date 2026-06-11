@@ -1,10 +1,13 @@
 import simpy
 import random
 import threading
+from typing import Generator
 from .robot_agent import RobotAgent
+from ..event_bus import Event, EventType
 from ..data import LOCATIONS, INITIAL_ROBOTS
 from ..environment import get_simulation_time, get_rush_hour_multiplier, SnapFactory
-from ...config import RUSH_HOUR_INACTIVE_LABEL
+from ...config import ORDER_STATUS_PENDING, RUSH_HOUR_INACTIVE_LABEL
+
 from ...utils import Profiler, profile_time, profile_block
 
 
@@ -32,8 +35,12 @@ class SimulatorManager:
         self._stop_event = threading.Event()
 
         # Order dispatcher queue
-        self.order_queue = []
+        from .order_manager import OrderManager
+
+        self.order_manager = OrderManager(self.env, self.app_state, self.socketio)
+        self.order_queue = self.order_manager.order_queue
         self.app_state["order_queue"] = self.order_queue
+        self.scenario_config = None
 
     def initialize_robots(self):
         self.robots = []
@@ -120,24 +127,38 @@ class SimulatorManager:
         self.env.process(self._order_generator_process())
         self.env.process(self._dispatcher_process())
 
+        if self.scenario_config and self.scenario_config.events:
+            self.env.process(self._scenario_injector_process())
+
+        self.app_state["event_bus"].publish(
+            Event(EventType.SIM_STARTED, sim_time=self.env.now)
+        )
+
         self._thread = self.socketio.start_background_task(self._run_loop)
         self.emit_system_event("Simulation started")
 
     def pause(self):
         self.running = False
         self._stop_event.set()
+        self.app_state["event_bus"].publish(
+            Event(EventType.SIM_PAUSED, sim_time=self.env.now)
+        )
         self.emit_system_event("Simulation paused")
 
     def reset(self):
         self.pause()
         self.env = simpy.Environment()
-        self.order_queue = []
+        from .order_manager import OrderManager
+
+        self.order_manager = OrderManager(self.env, self.app_state, self.socketio)
+        self.order_queue = self.order_manager.order_queue
         self.app_state["order_queue"] = self.order_queue
         self.initialize_robots()
 
         # Broadcast initial states
         for robot in self.robots:
             self.emit_robot_state(robot.get_state())
+        self.app_state["event_bus"].publish(Event(EventType.SIM_RESET, sim_time=0.0))
         self.emit_system_event("Simulation reset")
 
     def _generate_random_location(self):
@@ -161,7 +182,7 @@ class SimulatorManager:
                 "pickup": pickup,
                 "dropoff": dropoff,
             }
-            self.order_queue.append(task)
+            self.order_manager.add_order(task)
             self.emit_system_event(
                 f"New order {task['id']} generated from {pickup['name']} to {dropoff['name']}"
             )
@@ -171,7 +192,9 @@ class SimulatorManager:
             # Dispatch checks every 10 seconds of sim time
             yield self.env.timeout(10)
 
-            if not self.order_queue:
+            if not any(
+                t.get("status") == ORDER_STATUS_PENDING for t in self.order_queue
+            ):
                 continue
 
             idle_robots = [r for r in self.robots if r.status == "idle"]
@@ -179,20 +202,22 @@ class SimulatorManager:
                 continue
 
             # Naive assignment: assign first task to first idle robot
-            task = self.order_queue.pop(0)
+            task = self.order_manager.pop_next_pending()
+            if not task:
+                continue
             robot = idle_robots[0]
 
             # Generate routes using frozen snapshot
             graph = self.app_state.get("road_graph")
             if not graph:
-                self.order_queue.insert(0, task)
+                self.order_manager.requeue_order(task)
                 continue
 
             try:
                 snap_graph = SnapFactory.create_snapshot(self.app_state, self.env.now)
             except Exception as e:
                 self.emit_system_event(f"Snapshot creation failed: {e}")
-                self.order_queue.insert(0, task)
+                self.order_manager.requeue_order(task)
                 continue
 
             try:
@@ -251,10 +276,25 @@ class SimulatorManager:
                 self.emit_system_event(
                     f"Routing failed for {task['id']}, retrying later"
                 )
-                self.order_queue.insert(0, task)
+                self.order_manager.requeue_order(task)
 
                 # Prevent tight loop spam if there is a persistent error
                 yield self.env.timeout(10)
+
+    def _scenario_injector_process(self) -> Generator[simpy.Event, None, None]:
+        """Yield simulation time and publish scenario events when reached.
+
+        Yields:
+            simpy.Event: A timeout event for SimPy scheduler.
+        """
+        if not self.scenario_config or not self.scenario_config.events:
+            return
+
+        sorted_events = sorted(self.scenario_config.events, key=lambda e: e.sim_time)
+        for event in sorted_events:
+            if event.sim_time > self.env.now:
+                yield self.env.timeout(event.sim_time - self.env.now)
+            self.app_state["event_bus"].publish(event)
 
     @profile_time(label="simulator_run_loop")
     def _run_loop(self):
@@ -270,6 +310,9 @@ class SimulatorManager:
 
                 self.env.run(until=self.env.now + sim_time_step)
                 self.app_state["sim_now"] = self.env.now
+                self.app_state["event_bus"].publish(
+                    Event(EventType.SIM_TICK, sim_time=self.env.now)
+                )
 
                 tick_counter += 1
                 if tick_counter >= ticks_per_real_second:

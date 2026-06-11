@@ -9,4 +9,11 @@ if __name__ == "__main__":
     print("Loading OpenStreetMap road graph for Hoan Kiem...")
     get_road_graph()
     print(f"Open http://127.0.0.1:{port} in your browser")
-    socketio.run(app, host="127.0.0.1", port=port, debug=True, allow_unsafe_werkzeug=True, use_reloader=False)
+    socketio.run(
+        app,
+        host="127.0.0.1",
+        port=port,
+        debug=True,
+        allow_unsafe_werkzeug=True,
+        use_reloader=False,
+    )

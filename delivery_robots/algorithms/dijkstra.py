@@ -13,6 +13,7 @@ class DijkstraSearch(SearchContract[SearchInput, AlgoResult]):
     @profile_time(label="dijkstra_search")
     def execute(self, context: SearchInput) -> AlgoResult:
         import time
+
         start_time = time.perf_counter()
         """Executes Dijkstra's search to find the shortest path.
 

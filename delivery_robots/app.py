@@ -27,6 +27,7 @@ from .core.environment import (
     obstacle_penalty_for_point as core_obstacle_penalty_for_point,
     rain_penalty_for_point as core_rain_penalty_for_point,
     traffic_penalty_for_point as core_traffic_penalty_for_point,
+    register_environment_subscribers,
 )
 from .core.event_bus import EventBus
 from .core.graph import get_road_graph as core_get_road_graph
@@ -111,6 +112,8 @@ _app_state = {
     "event_bus": _event_bus,
     "charging_stations": list(CHARGING_STATIONS),
 }
+
+register_environment_subscribers(_event_bus, _app_state)
 
 
 def _sync_state_from_globals():
@@ -230,6 +233,7 @@ def _build_routes_context():
 _ctx = _build_routes_context()
 register_main_routes(app, _ctx)
 register_environment_routes(app, _ctx)
+
 
 def _build_route_geometry(graph, route_nodes):
     """Helper that returns (geometry_path, segment_geometry) for a route."""

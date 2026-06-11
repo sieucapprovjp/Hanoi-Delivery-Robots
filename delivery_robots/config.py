@@ -132,13 +132,19 @@ ROBOT_STATUS_CHARGING = "charging"
 # ── Battery & Charging ──
 BATTERY_MAX = 100.0  # Maximum battery percentage (b_max)
 BATTERY_LOW = 30.0  # Threshold below which robot goes to charge after completing current order (b_low)
-BATTERY_PROACTIVE = 50.0  # Threshold below which idle robot goes to charge proactively (b_proactive)
+BATTERY_PROACTIVE = (
+    50.0  # Threshold below which idle robot goes to charge proactively (b_proactive)
+)
 CHARGING_RATE_PERCENT_PER_MINUTE = 5.0  # Rate at which battery charges (r_charge)
-BATTERY_DRAIN_RATE = 1.0 / 60.0  # Base battery consumption rate per physical travel second (r_drain)
+BATTERY_DRAIN_RATE = (
+    1.0 / 60.0
+)  # Base battery consumption rate per physical travel second (r_drain)
 BATTERY_SAFETY_MARGIN = 10.0  # Safety buffer percentage for dynamic safety-aware charging check (B_safety_margin)
 
 # ── Charging Station Selection ──
-W1_TRAVEL_COST_WEIGHT = 1.0  # Weight for physical/dynamic travel cost to charging hub (w1)
+W1_TRAVEL_COST_WEIGHT = (
+    1.0  # Weight for physical/dynamic travel cost to charging hub (w1)
+)
 W2_WAIT_TIME_WEIGHT = 1.0  # Weight for estimated waiting time at charging hub (w2)
 
 # ── Dispatching Weights (Weighted Cost Assignment) ──
@@ -149,14 +155,19 @@ DISPATCH_LAMBDA = 0.05  # Exponential coefficient in battery penalty function f(
 
 # ── Re-dispatching & Re-assignment ──
 REASSIGN_PENALTY = 60.0  # Penalty weight to prevent chattering/oscillating order re-assignments (penalty_reassign)
-MAX_REASSIGN_LIMIT = 2  # Maximum number of times an order can be reassigned (N_max_reassign)
-REASSIGN_COOLDOWN = 60  # Cooldown time in simulation seconds between re-assignments (T_cooldown)
+MAX_REASSIGN_LIMIT = (
+    2  # Maximum number of times an order can be reassigned (N_max_reassign)
+)
+REASSIGN_COOLDOWN = (
+    60  # Cooldown time in simulation seconds between re-assignments (T_cooldown)
+)
 
 # ── Order Statuses & Expiry ──
-ORDER_EXPIRY_TIMEOUT = 300  # Order waiting queue expiration timeout in simulation seconds (T_expire)
+ORDER_EXPIRY_TIMEOUT = (
+    300  # Order waiting queue expiration timeout in simulation seconds (T_expire)
+)
 ORDER_STATUS_PENDING = "pending"
 ORDER_STATUS_ASSIGNED = "assigned"
 ORDER_STATUS_IN_TRANSIT = "in_transit"
 ORDER_STATUS_DELIVERED = "delivered"
 ORDER_STATUS_EXPIRED = "expired"
-

@@ -3,6 +3,7 @@ import time
 import networkx as nx
 from flask import jsonify, request
 
+from ..core.event_bus import Event, EventType
 from ..config import (
     DEFAULT_LOG_LEVEL,
     DEFAULT_LOG_SOURCE,
@@ -22,17 +23,7 @@ from ..config import (
     LOGS_LIMIT_MAX,
     LOGS_LIMIT_MIN,
     OBSTACLE_NAME_PREFIX,
-    OBSTACLE_RANDOMIZE_NAME_PREFIX,
-    OBSTACLE_TYPES,
     RAIN_ZONE_NAME_PREFIX,
-    RANDOM_LAT_MAX,
-    RANDOM_LAT_MIN,
-    RANDOM_LON_MAX,
-    RANDOM_LON_MIN,
-    RANDOM_OBSTACLE_RADIUS_MAX,
-    RANDOM_OBSTACLE_RADIUS_MIN,
-    RANDOM_OBSTACLE_SEVERITY_MAX,
-    RANDOM_OBSTACLE_SEVERITY_MIN,
     RANDOM_TRAFFIC_LAT_MAX,
     RANDOM_TRAFFIC_LAT_MIN,
     RANDOM_TRAFFIC_LON_MAX,
@@ -40,7 +31,6 @@ from ..config import (
     RANDOM_TRAFFIC_PATH_POINT_COUNT,
     RANDOM_TRAFFIC_SEVERITY_MAX,
     RANDOM_TRAFFIC_SEVERITY_MIN,
-    RUSH_HOUR_INACTIVE_LABEL,
     TIMESTAMP_MS_MULTIPLIER,
     TRAFFIC_ROUTE_NAME_PREFIX,
     TRAFFIC_SEGMENT_STRENGTH_THRESHOLD,
@@ -51,8 +41,6 @@ from ..config import (
 
 def register_environment_routes(app, ctx):
     get_road_graph = ctx["get_road_graph"]
-    get_simulation_time = ctx["get_simulation_time"]
-    get_rush_hour_multiplier = ctx["get_rush_hour_multiplier"]
     build_metrics_payload = ctx["build_metrics_payload"]
     build_route_response = ctx["build_route_response"]
     nearest_node_id = ctx["nearest_node_id"]
@@ -68,8 +56,6 @@ def register_environment_routes(app, ctx):
     edge_weight_with_traffic = ctx["edge_weight_with_traffic"]
 
     traffic_period_seconds = ctx["traffic_period_seconds"]
-    rush_hours = ctx["rush_hours"]
-    simulation_speed = ctx["simulation_speed"]
 
     rain_zones = ctx["rain_zones"]
     dynamic_traffic_lock = ctx["dynamic_traffic_lock"]
@@ -80,6 +66,7 @@ def register_environment_routes(app, ctx):
     api_logs = ctx["api_logs"]
     api_logs_lock = ctx["api_logs_lock"]
     get_ox = ctx["get_ox"]
+    event_bus = ctx["event_bus"]
 
     @app.route("/api/logs", methods=["GET", "POST"])
     def api_logs_endpoint():
@@ -214,13 +201,16 @@ def register_environment_routes(app, ctx):
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
-        rain_zones.append(
-            {
-                "name": f"{RAIN_ZONE_NAME_PREFIX}{len(rain_zones) + 1}",
-                "center": (lat, lon),
-                "radius": radius,
-                "severity": DEFAULT_RAIN_SEVERITY,
-            }
+        event_bus.publish(
+            Event(
+                EventType.RAIN_ADDED,
+                {
+                    "lat": lat,
+                    "lon": lon,
+                    "radius": radius,
+                    "severity": DEFAULT_RAIN_SEVERITY,
+                },
+            )
         )
         return jsonify(
             {
@@ -235,7 +225,6 @@ def register_environment_routes(app, ctx):
 
     @app.route("/api/rain/randomize", methods=["POST"])
     def randomize_rain():
-        import random
 
         d = request.get_json(silent=True) or {}
         try:
@@ -256,20 +245,15 @@ def register_environment_routes(app, ctx):
                 {"error": "minRadius must be less than or equal to maxRadius"}
             ), 400
 
-        rain_zones.clear()
-        rain_zones.extend(
-            [
+        event_bus.publish(
+            Event(
+                EventType.RAIN_RANDOMIZED,
                 {
-                    "name": f"{RAIN_ZONE_NAME_PREFIX}{i + 1}",
-                    "center": (
-                        random.uniform(RANDOM_LAT_MIN, RANDOM_LAT_MAX),
-                        random.uniform(RANDOM_LON_MIN, RANDOM_LON_MAX),
-                    ),
-                    "radius": random.uniform(min_radius, max_radius),
-                    "severity": DEFAULT_RAIN_SEVERITY,
-                }
-                for i in range(count)
-            ]
+                    "count": count,
+                    "minRadius": min_radius,
+                    "maxRadius": max_radius,
+                },
+            )
         )
         return jsonify(
             {
@@ -287,7 +271,7 @@ def register_environment_routes(app, ctx):
 
     @app.route("/api/rain/clear", methods=["POST"])
     def clear_rain():
-        rain_zones.clear()
+        event_bus.publish(Event(EventType.RAIN_CLEARED))
         return jsonify({"message": "Cleared"})
 
     @app.route("/api/traffic/list")
@@ -331,21 +315,26 @@ def register_environment_routes(app, ctx):
             include_cost_breakdown=False,
         )
 
-        with dynamic_traffic_lock:
-            route_name = (
-                d.get("name")
-                or f"{TRAFFIC_ROUTE_NAME_PREFIX}{len(dynamic_traffic_routes) + 1}"
-            )
-            route = {
-                "name": route_name,
-                "severity": severity,
-                "path": route_payload["path"],
-            }
-            dynamic_traffic_routes.append(route)
-
-        return jsonify(
-            {"message": "Added", "route": route, "routes": list(dynamic_traffic_routes)}
+        route_name = (
+            d.get("name")
+            or f"{TRAFFIC_ROUTE_NAME_PREFIX}{len(dynamic_traffic_routes) + 1}"
         )
+        event_bus.publish(
+            Event(
+                EventType.TRAFFIC_ADDED,
+                {
+                    "name": route_name,
+                    "severity": severity,
+                    "path": route_payload["path"],
+                },
+            )
+        )
+
+        with dynamic_traffic_lock:
+            route = dynamic_traffic_routes[-1]
+            routes_list = list(dynamic_traffic_routes)
+
+        return jsonify({"message": "Added", "route": route, "routes": routes_list})
 
     @app.route("/api/traffic/randomize", methods=["POST"])
     def randomize_traffic():
@@ -380,15 +369,14 @@ def register_environment_routes(app, ctx):
                     ],
                 }
             )
+        event_bus.publish(Event(EventType.TRAFFIC_RANDOMIZED, {"count": count}))
         with dynamic_traffic_lock:
-            dynamic_traffic_routes.clear()
-            dynamic_traffic_routes.extend(routes)
+            routes = list(dynamic_traffic_routes)
         return jsonify({"message": f"Added {count}", "routes": routes})
 
     @app.route("/api/traffic/clear", methods=["POST"])
     def clear_traffic():
-        with dynamic_traffic_lock:
-            dynamic_traffic_routes.clear()
+        event_bus.publish(Event(EventType.TRAFFIC_CLEARED))
         return jsonify({"message": "Cleared"})
 
     @app.route("/api/obstacle/list")
@@ -425,15 +413,24 @@ def register_environment_routes(app, ctx):
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
-        obstacle = {
-            "name": f"{OBSTACLE_NAME_PREFIX}{len(obstacles) + 1}",
-            "center": (lat, lon),
-            "radius": radius,
-            "severity": severity,
-            "type": d.get("type", DEFAULT_OBSTACLE_TYPE),
-        }
+        obstacle_name = d.get("name") or f"{OBSTACLE_NAME_PREFIX}{len(obstacles) + 1}"
+        event_bus.publish(
+            Event(
+                EventType.OBSTACLE_ADDED,
+                {
+                    "name": obstacle_name,
+                    "lat": lat,
+                    "lon": lon,
+                    "radius": radius,
+                    "severity": severity,
+                    "type": d.get("type", DEFAULT_OBSTACLE_TYPE),
+                },
+            )
+        )
+
         with obstacles_lock:
-            obstacles.append(obstacle)
+            obstacle = obstacles[-1]
+
         return jsonify(
             {
                 "message": "Added",
@@ -449,7 +446,6 @@ def register_environment_routes(app, ctx):
 
     @app.route("/api/obstacle/randomize", methods=["POST"])
     def randomize_obstacles():
-        import random
 
         d = request.get_json(silent=True) or {}
         try:
@@ -459,47 +455,28 @@ def register_environment_routes(app, ctx):
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
+        event_bus.publish(Event(EventType.OBSTACLE_RANDOMIZED, {"count": count}))
         with obstacles_lock:
-            obstacles.clear()
-            obstacles.extend(
-                [
-                    {
-                        "name": f"{OBSTACLE_RANDOMIZE_NAME_PREFIX}{i + 1}",
-                        "center": (
-                            random.uniform(RANDOM_LAT_MIN, RANDOM_LAT_MAX),
-                            random.uniform(RANDOM_LON_MIN, RANDOM_LON_MAX),
-                        ),
-                        "radius": random.uniform(
-                            RANDOM_OBSTACLE_RADIUS_MIN, RANDOM_OBSTACLE_RADIUS_MAX
-                        ),
-                        "severity": random.uniform(
-                            RANDOM_OBSTACLE_SEVERITY_MIN, RANDOM_OBSTACLE_SEVERITY_MAX
-                        ),
-                        "type": random.choice(OBSTACLE_TYPES),
-                    }
-                    for i in range(count)
-                ]
-            )
+            obs_list = [
+                {
+                    "name": o["name"],
+                    "center": {"lat": o["center"][0], "lon": o["center"][1]},
+                    "radius": o["radius"],
+                    "severity": o["severity"],
+                    "type": o["type"],
+                }
+                for o in obstacles
+            ]
         return jsonify(
             {
                 "message": f"Added {count}",
-                "obstacles": [
-                    {
-                        "name": o["name"],
-                        "center": {"lat": o["center"][0], "lon": o["center"][1]},
-                        "radius": o["radius"],
-                        "severity": o["severity"],
-                        "type": o["type"],
-                    }
-                    for o in obstacles
-                ],
+                "obstacles": obs_list,
             }
         )
 
     @app.route("/api/obstacle/clear", methods=["POST"])
     def clear_obstacles():
-        with obstacles_lock:
-            obstacles.clear()
+        event_bus.publish(Event(EventType.OBSTACLE_CLEARED))
         return jsonify({"message": "Cleared"})
 
     @app.route("/api/route", methods=["GET"])
@@ -519,7 +496,9 @@ def register_environment_routes(app, ctx):
         try:
             start_node = nearest_node_id(graph, from_lat, from_lon, ox)
             end_node = nearest_node_id(graph, to_lat, to_lon, ox)
-            route_nodes = nx.shortest_path(graph, start_node, end_node, weight=edge_weight_with_traffic)
+            route_nodes = nx.shortest_path(
+                graph, start_node, end_node, weight=edge_weight_with_traffic
+            )
             route_payload = build_route_response(
                 graph,
                 route_nodes,
@@ -530,6 +509,8 @@ def register_environment_routes(app, ctx):
             )
             return jsonify(route_payload), 200
         except nx.NetworkXNoPath:
-            return jsonify({"error": "No path found between the specified coordinates"}), 404
+            return jsonify(
+                {"error": "No path found between the specified coordinates"}
+            ), 404
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500

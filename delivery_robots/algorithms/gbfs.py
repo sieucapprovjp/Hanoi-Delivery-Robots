@@ -14,6 +14,7 @@ class GBFSSearch(SearchContract[SearchInput, AlgoResult]):
     @profile_time(label="gbfs_search")
     def execute(self, context: SearchInput) -> AlgoResult:
         import time
+
         start_time = time.perf_counter()
         """Executes Greedy Best-First Search to find the route.
 

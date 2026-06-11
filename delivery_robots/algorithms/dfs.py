@@ -12,6 +12,7 @@ class DFSSearch(SearchContract[SearchInput, AlgoResult]):
     @profile_time(label="dfs_search")
     def execute(self, context: SearchInput) -> AlgoResult:
         import time
+
         start_time = time.perf_counter()
         """Executes Depth-First Search to find a path.
 

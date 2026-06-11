@@ -1,7 +1,7 @@
 """Module containing the Breadth-First Search (BFS) algorithm implementation."""
 
 from collections import deque
-from typing import Tuple, List, Dict, Set, Optional
+from typing import Tuple, Dict, Set, Optional
 import networkx as nx
 from .base import SearchContract, SearchInput, reconstruct_node_path, AlgoResult
 from ..utils import profile_time
@@ -13,6 +13,7 @@ class BFSSearch(SearchContract[SearchInput, AlgoResult]):
     @profile_time(label="bfs_search")
     def execute(self, context: SearchInput) -> AlgoResult:
         import time
+
         start_time = time.perf_counter()
         """Executes Breadth-First Search to find a path.
 

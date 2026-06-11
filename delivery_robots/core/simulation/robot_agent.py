@@ -138,7 +138,13 @@ class RobotAgent:
         start_battery: float = self.battery
         start_time: float = self.env.now
         self.current_task = task
-        task["status"] = ORDER_STATUS_ASSIGNED
+
+        order_manager = self.app_state.get("order_manager")
+        if order_manager:
+            order_manager.mark_assigned(task)
+        else:
+            task["status"] = ORDER_STATUS_ASSIGNED
+
         self.status = ROBOT_STATUS_MOVING_TO_PICKUP
 
         try:
@@ -158,7 +164,10 @@ class RobotAgent:
 
             # Arrive at pickup -> transition status to DELIVERING (moving_to_dropoff)
             self.status = ROBOT_STATUS_MOVING_TO_DROPOFF
-            task["status"] = ORDER_STATUS_IN_TRANSIT
+            if order_manager:
+                order_manager.mark_in_transit(task)
+            else:
+                task["status"] = ORDER_STATUS_IN_TRANSIT
             self.route_target = "Pickup (Loading)"
             self._emit_state()
 
@@ -184,7 +193,10 @@ class RobotAgent:
             yield self.env.timeout(30)
             gps_trace.append((self.lat, self.lon))
 
-            task["status"] = ORDER_STATUS_DELIVERED
+            if order_manager:
+                order_manager.mark_delivered(task)
+            else:
+                task["status"] = ORDER_STATUS_DELIVERED
 
             from ...algorithms.base import ExecutionTrace
 
@@ -215,10 +227,13 @@ class RobotAgent:
 
         except EmergencyChargingException:
             # Dynamic safety threshold violated! Return task to order queue
-            order_queue = self.app_state.get("order_queue")
-            if order_queue is not None:
-                task["status"] = ORDER_STATUS_PENDING
-                order_queue.insert(0, task)
+            if order_manager:
+                order_manager.requeue_order(task)
+            else:
+                order_queue = self.app_state.get("order_queue")
+                if order_queue is not None:
+                    task["status"] = ORDER_STATUS_PENDING
+                    order_queue.insert(0, task)
 
             self.status = ROBOT_STATUS_MOVING_TO_CHARGE
             self.current_path = []
@@ -464,7 +479,9 @@ class RobotAgent:
         best_cost = float("inf")
 
         robot_node = nearest_node_id(graph, self.lat, self.lon, self.app_state)
-        avg_charge_time = ((BATTERY_MAX - BATTERY_LOW) / CHARGING_RATE_PERCENT_PER_MINUTE) * 60.0
+        avg_charge_time = (
+            (BATTERY_MAX - BATTERY_LOW) / CHARGING_RATE_PERCENT_PER_MINUTE
+        ) * 60.0
 
         for hub in hubs:
             travel_cost = 0.0
@@ -530,7 +547,9 @@ class RobotAgent:
         self.path_index = 0
 
         start_node = nearest_node_id(graph, self.lat, self.lon, self.app_state)
-        hub_node = nearest_node_id(graph, station["lat"], station["lon"], self.app_state)
+        hub_node = nearest_node_id(
+            graph, station["lat"], station["lon"], self.app_state
+        )
 
         def weight_fn(u, v, d):
             return edge_weight_with_traffic(self.app_state, u, v, d)
@@ -577,7 +596,9 @@ class RobotAgent:
         hub_resources = self.app_state.get("hub_resources", {})
         resource = hub_resources.get(station["name"])
 
-        r_charge = CHARGING_RATE_PERCENT_PER_MINUTE / 60.0  # converted to percent per second
+        r_charge = (
+            CHARGING_RATE_PERCENT_PER_MINUTE / 60.0
+        )  # converted to percent per second
 
         if resource:
             # Determine priority if it is a PriorityResource (lower battery = higher priority)

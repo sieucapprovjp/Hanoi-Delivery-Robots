@@ -12,6 +12,7 @@ def create_metrics():
         "totalCalculationTime": 0,
         "totalNodesExplored": 0,
         "pathLengths": [],
+        "failedOrders": 0,
     }
 
 
@@ -33,7 +34,9 @@ def record_route_metrics(metrics, calc_time_ms, nodes_explored, path_length):
         metrics["pathLengths"] = metrics["pathLengths"][-METRICS_PATH_LENGTHS_MAX_SIZE:]
 
 
-def build_metrics_payload(metrics, graph, rain_count, traffic_count, obstacle_count, include_static=False):
+def build_metrics_payload(
+    metrics, graph, rain_count, traffic_count, obstacle_count, include_static=False
+):
     avg_path = (
         sum(metrics["pathLengths"]) / len(metrics["pathLengths"])
         if metrics["pathLengths"]
@@ -55,6 +58,9 @@ def build_metrics_payload(metrics, graph, rain_count, traffic_count, obstacle_co
             "rainZones": rain_count,
             "trafficRoutes": traffic_count,
             "obstacles": obstacle_count,
+        },
+        "failureMetrics": {
+            "failedOrders": metrics.get("failedOrders", 0),
         },
     }
 

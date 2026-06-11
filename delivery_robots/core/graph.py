@@ -167,4 +167,3 @@ class GraphSnapshot(nx.MultiDiGraph):
             data.get("weight", data.get("length", DEFAULT_EDGE_LENGTH))
             for data in edge_data.values()
         )
-

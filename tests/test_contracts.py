@@ -457,7 +457,7 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
             "charging_stations": [
                 {"lat": 21.0285, "lon": 105.8542, "name": "Hoan Kiem Hub", "spots": 3},
                 {"lat": 21.0355, "lon": 105.8516, "name": "Dong Xuan", "spots": 2},
-            ]
+            ],
         }
 
         sim_manager = SimulatorManager(
@@ -509,7 +509,7 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
             "hub_resources": {
                 "Hub A": simpy.Resource(env, capacity=1),
                 "Hub B": simpy.Resource(env, capacity=1),
-            }
+            },
         }
 
         agent = RobotAgent(
@@ -531,8 +531,10 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
 
         # Simulate active charging on Hub B
         req1 = res_b.request()
+
         def get_req():
             yield req1
+
         env.run(env.process(get_req()))
 
         # Simulate a robot waiting in queue on Hub B
@@ -570,7 +572,7 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
             ],
             "hub_resources": {
                 "Hub C": simpy.Resource(env, capacity=2),
-            }
+            },
         }
 
         agent = RobotAgent(
@@ -594,7 +596,9 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
         # Let the simulation run for 61 seconds of charging (since charging starts at t=1, we run until t=62)
         env.run(until=62)
 
-        self.assertAlmostEqual(agent.battery, 30.0 + CHARGING_RATE_PERCENT_PER_MINUTE, places=1)
+        self.assertAlmostEqual(
+            agent.battery, 30.0 + CHARGING_RATE_PERCENT_PER_MINUTE, places=1
+        )
 
     def test_robot_priority_charging(self):
         import simpy
@@ -621,12 +625,39 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
             ],
             "hub_resources": {
                 "Priority Hub": simpy.PriorityResource(env, capacity=1),
-            }
+            },
         }
 
-        r1 = RobotAgent(env=env, robot_id=1, name="R1", color="red", start_lat=21.000, start_lon=105.000, app_state=state, on_state_change=None)
-        r2 = RobotAgent(env=env, robot_id=2, name="R2", color="green", start_lat=21.000, start_lon=105.000, app_state=state, on_state_change=None)
-        r3 = RobotAgent(env=env, robot_id=3, name="R3", color="blue", start_lat=21.000, start_lon=105.000, app_state=state, on_state_change=None)
+        r1 = RobotAgent(
+            env=env,
+            robot_id=1,
+            name="R1",
+            color="red",
+            start_lat=21.000,
+            start_lon=105.000,
+            app_state=state,
+            on_state_change=None,
+        )
+        r2 = RobotAgent(
+            env=env,
+            robot_id=2,
+            name="R2",
+            color="green",
+            start_lat=21.000,
+            start_lon=105.000,
+            app_state=state,
+            on_state_change=None,
+        )
+        r3 = RobotAgent(
+            env=env,
+            robot_id=3,
+            name="R3",
+            color="blue",
+            start_lat=21.000,
+            start_lon=105.000,
+            app_state=state,
+            on_state_change=None,
+        )
 
         # Let their background run() processes go to sleep first
         env.run(until=1)
@@ -660,7 +691,6 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
             ROBOT_STATUS_MOVING_TO_DROPOFF,
             ROBOT_STATUS_MOVING_TO_CHARGE,
             ROBOT_STATUS_CHARGING,
-            ORDER_STATUS_PENDING,
             ORDER_STATUS_ASSIGNED,
             ORDER_STATUS_IN_TRANSIT,
             ORDER_STATUS_DELIVERED,
@@ -701,6 +731,7 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
         }
 
         history = []
+
         def on_change(agent_state):
             current_status = agent_state.get("status")
             task_status = task.get("status")
@@ -729,8 +760,20 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
         # It should contain (ROBOT_STATUS_MOVING_TO_PICKUP, ORDER_STATUS_ASSIGNED)
         # and then (ROBOT_STATUS_MOVING_TO_DROPOFF, ORDER_STATUS_IN_TRANSIT)
         # and then (ROBOT_STATUS_IDLE, ORDER_STATUS_DELIVERED)
-        self.assertTrue(any(status == ROBOT_STATUS_MOVING_TO_PICKUP and t_status == ORDER_STATUS_ASSIGNED for status, t_status in history))
-        self.assertTrue(any(status == ROBOT_STATUS_MOVING_TO_DROPOFF and t_status == ORDER_STATUS_IN_TRANSIT for status, t_status in history))
+        self.assertTrue(
+            any(
+                status == ROBOT_STATUS_MOVING_TO_PICKUP
+                and t_status == ORDER_STATUS_ASSIGNED
+                for status, t_status in history
+            )
+        )
+        self.assertTrue(
+            any(
+                status == ROBOT_STATUS_MOVING_TO_DROPOFF
+                and t_status == ORDER_STATUS_IN_TRANSIT
+                for status, t_status in history
+            )
+        )
         self.assertEqual(agent.status, ROBOT_STATUS_IDLE)
         self.assertEqual(task.get("status"), ORDER_STATUS_DELIVERED)
 
@@ -742,10 +785,10 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
             "pickup": {"lat": 21.001, "lon": 105.000},
             "dropoff": {"lat": 21.000, "lon": 105.000},
         }
-        
+
         agent.battery = 50.0  # above low battery threshold (30%)
         history.clear()
-        
+
         # Reset task status for on_change capture
         def on_change2(agent_state):
             current_status = agent_state.get("status")
@@ -754,7 +797,7 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
             # Set battery to 20% (low) during dropoff leg to trigger low-battery charging after delivery
             if current_status == ROBOT_STATUS_MOVING_TO_DROPOFF:
                 agent.battery = 20.0
-            
+
         agent.on_state_change = on_change2
         agent.assign_task(task2)
         env.run(until=3000)
@@ -762,7 +805,9 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
         # The robot should have completed delivery and then transitioned to ROBOT_STATUS_MOVING_TO_CHARGE
         # and ultimately to CHARGING, and then IDLE after battery >= 100%
         self.assertEqual(task2.get("status"), ORDER_STATUS_DELIVERED)
-        self.assertTrue(any(status == ROBOT_STATUS_MOVING_TO_CHARGE for status, _ in history))
+        self.assertTrue(
+            any(status == ROBOT_STATUS_MOVING_TO_CHARGE for status, _ in history)
+        )
         self.assertTrue(any(status == ROBOT_STATUS_CHARGING for status, _ in history))
         self.assertEqual(agent.status, ROBOT_STATUS_IDLE)
         self.assertEqual(agent.battery, 100.0)
@@ -774,7 +819,6 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
         from delivery_robots.config import (
             ROBOT_STATUS_MOVING_TO_CHARGE,
             ORDER_STATUS_PENDING,
-            ORDER_STATUS_ASSIGNED,
             ROBOT_STATUS_MOVING_TO_PICKUP,
         )
 
@@ -827,6 +871,7 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
         env.run(until=1)
 
         history = []
+
         def on_change(agent_state):
             current_status = agent_state.get("status")
             task_status = task.get("status")
@@ -834,6 +879,7 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
             # Set battery to 5% (below safety threshold) during pickup movement to trigger interrupt
             if current_status == ROBOT_STATUS_MOVING_TO_PICKUP:
                 agent.battery = 5.0
+
         agent.on_state_change = on_change
 
         agent.assign_task(task)
@@ -845,9 +891,250 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
         self.assertEqual(state["order_queue"][0]["status"], ORDER_STATUS_PENDING)
 
         # Agent should have transitioned to charging, charged up to 100% and then become IDLE
-        self.assertTrue(any(status == ROBOT_STATUS_MOVING_TO_CHARGE for status, _ in history))
+        self.assertTrue(
+            any(status == ROBOT_STATUS_MOVING_TO_CHARGE for status, _ in history)
+        )
         self.assertEqual(agent.status, "idle")
         self.assertEqual(agent.battery, 100.0)
+
+
+class EventBusAndEnvironmentTests(unittest.TestCase):
+    def test_event_bus_environment_mutations(self):
+        import threading
+        from delivery_robots.core.event_bus import EventBus, Event, EventType
+        from delivery_robots.core.environment import register_environment_subscribers
+
+        state = {
+            "rain_zones": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+        }
+
+        bus = EventBus()
+        register_environment_subscribers(bus, state)
+
+        # 1. Test Rain
+        bus.publish(
+            Event(EventType.RAIN_ADDED, {"lat": 21.03, "lon": 105.85, "radius": 150})
+        )
+        self.assertEqual(len(state["rain_zones"]), 1)
+        self.assertEqual(state["rain_zones"][0]["center"], (21.03, 105.85))
+        self.assertEqual(state["rain_zones"][0]["radius"], 150)
+
+        bus.publish(Event(EventType.RAIN_CLEARED))
+        self.assertEqual(len(state["rain_zones"]), 0)
+
+        # 2. Test Traffic
+        path = [{"lat": 21.0, "lon": 105.0}, {"lat": 21.1, "lon": 105.1}]
+        bus.publish(
+            Event(
+                EventType.TRAFFIC_ADDED,
+                {"name": "Test Traffic", "severity": 0.8, "path": path},
+            )
+        )
+        self.assertEqual(len(state["dynamic_traffic_routes"]), 1)
+        self.assertEqual(state["dynamic_traffic_routes"][0]["name"], "Test Traffic")
+        self.assertEqual(state["dynamic_traffic_routes"][0]["severity"], 0.8)
+
+        bus.publish(Event(EventType.TRAFFIC_CLEARED))
+        self.assertEqual(len(state["dynamic_traffic_routes"]), 0)
+
+        # 3. Test Obstacle
+        bus.publish(
+            Event(
+                EventType.OBSTACLE_ADDED,
+                {"lat": 21.01, "lon": 105.82, "radius": 50, "severity": 10},
+            )
+        )
+        self.assertEqual(len(state["obstacles"]), 1)
+        self.assertEqual(state["obstacles"][0]["center"], (21.01, 105.82))
+        self.assertEqual(state["obstacles"][0]["severity"], 10)
+
+        bus.publish(Event(EventType.OBSTACLE_CLEARED))
+        self.assertEqual(len(state["obstacles"]), 0)
+
+    def test_scenario_config_serialization(self):
+        import os
+        from delivery_robots.core.event_bus import Event, EventType, ScenarioConfig
+
+        # Create temporary file path inside workspace cache directory
+        scratch_dir = "/home/lan/projects/AI-Intro/cache"
+        os.makedirs(scratch_dir, exist_ok=True)
+        filepath = os.path.join(scratch_dir, "test_scenario.json")
+
+        events = [
+            Event(
+                EventType.RAIN_ADDED,
+                {"lat": 21.0, "lon": 105.0, "radius": 100},
+                sim_time=10.0,
+            ),
+            Event(
+                EventType.OBSTACLE_ADDED,
+                {"lat": 21.1, "lon": 105.1, "radius": 50, "severity": 5.0},
+                sim_time=20.0,
+            ),
+        ]
+        config = ScenarioConfig(events)
+        config.save_to_file(filepath)
+
+        loaded_config = ScenarioConfig()
+        loaded_config.load_from_file(filepath)
+
+        self.assertEqual(len(loaded_config.events), 2)
+        self.assertEqual(loaded_config.events[0].event_type, EventType.RAIN_ADDED)
+        self.assertEqual(loaded_config.events[0].sim_time, 10.0)
+        self.assertEqual(loaded_config.events[0].data["lat"], 21.0)
+        self.assertEqual(loaded_config.events[1].event_type, EventType.OBSTACLE_ADDED)
+        self.assertEqual(loaded_config.events[1].sim_time, 20.0)
+
+        # Clean up
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+    def test_scenario_injection_simulation(self):
+        import threading
+        from unittest.mock import MagicMock
+        from delivery_robots.core.event_bus import (
+            EventBus,
+            Event,
+            EventType,
+            ScenarioConfig,
+        )
+        from delivery_robots.core.environment import register_environment_subscribers
+        from delivery_robots.core.simulation.simulator import SimulatorManager
+
+        bus = EventBus()
+        state = {
+            "road_graph": nx.MultiDiGraph(),
+            "history_lock": threading.Lock(),
+            "delivery_history": [],
+            "traffic_routes": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "rain_zones": [],
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+            "rush_hours": [],
+            "charging_stations": [],
+            "hub_resources": {},
+            "order_queue": [],
+            "event_bus": bus,
+        }
+
+        register_environment_subscribers(bus, state)
+
+        sim_manager = SimulatorManager(
+            socketio=MagicMock(),
+            app_state=state,
+            nearest_node_id=MagicMock(),
+            run_weighted_route_search=MagicMock(),
+            edge_weight_with_traffic=MagicMock(),
+            build_route_geometry=MagicMock(),
+        )
+
+        events = [
+            Event(
+                EventType.RAIN_ADDED,
+                {"lat": 21.02, "lon": 105.84, "radius": 120},
+                sim_time=15.0,
+            ),
+        ]
+        scenario = ScenarioConfig(events)
+        sim_manager.scenario_config = scenario
+
+        # Bind processes
+        sim_manager.env.process(sim_manager._scenario_injector_process())
+
+        # At t=10, rain zones should be empty
+        sim_manager.env.run(until=10)
+        self.assertEqual(len(state["rain_zones"]), 0)
+
+        # At t=20, rain zone should be populated
+        sim_manager.env.run(until=20)
+        self.assertEqual(len(state["rain_zones"]), 1)
+        self.assertEqual(state["rain_zones"][0]["center"], (21.02, 105.84))
+
+
+class OrderManagerTests(unittest.TestCase):
+    def test_order_lifecycle_and_fifo(self):
+        import simpy
+        from delivery_robots.core.simulation.order_manager import OrderManager
+        from delivery_robots.config import (
+            ORDER_STATUS_PENDING,
+            ORDER_STATUS_ASSIGNED,
+            ORDER_STATUS_IN_TRANSIT,
+            ORDER_STATUS_DELIVERED,
+        )
+
+        env = simpy.Environment()
+        state = {"metrics": {"failedOrders": 0}}
+        om = OrderManager(env, state)
+
+        t1 = {"id": "ORDER-1", "pickup": "A", "dropoff": "B"}
+        t2 = {"id": "ORDER-2", "pickup": "B", "dropoff": "C"}
+
+        om.add_order(t1)
+        om.add_order(t2)
+
+        self.assertEqual(len(om.order_queue), 2)
+        self.assertEqual(t1["status"], ORDER_STATUS_PENDING)
+        self.assertEqual(t2["status"], ORDER_STATUS_PENDING)
+        self.assertEqual(t1["created_time"], 0.0)
+        self.assertEqual(t2["created_time"], 0.0)
+
+        # FIFO verification
+        popped_t1 = om.pop_next_pending()
+        self.assertEqual(popped_t1["id"], "ORDER-1")
+        self.assertEqual(popped_t1["status"], ORDER_STATUS_ASSIGNED)
+
+        popped_t2 = om.pop_next_pending()
+        self.assertEqual(popped_t2["id"], "ORDER-2")
+        self.assertEqual(popped_t2["status"], ORDER_STATUS_ASSIGNED)
+
+        # Transition lifecycle
+        om.mark_in_transit(popped_t1)
+        self.assertEqual(popped_t1["status"], ORDER_STATUS_IN_TRANSIT)
+
+        om.mark_delivered(popped_t1)
+        self.assertEqual(popped_t1["status"], ORDER_STATUS_DELIVERED)
+
+        # Requeue verification
+        om.requeue_order(popped_t1)
+        self.assertEqual(popped_t1["status"], ORDER_STATUS_PENDING)
+        self.assertEqual(om.order_queue[0]["id"], "ORDER-1")
+
+    def test_order_expiration_and_failure_metrics(self):
+        import simpy
+        from unittest.mock import MagicMock
+        from delivery_robots.core.simulation.order_manager import OrderManager
+        from delivery_robots.config import ORDER_STATUS_EXPIRED, ORDER_EXPIRY_TIMEOUT
+
+        env = simpy.Environment()
+        state = {"metrics": {"failedOrders": 0}}
+        socket_mock = MagicMock()
+        om = OrderManager(env, state, socket_mock)
+
+        t1 = {"id": "ORDER-X", "pickup": "A", "dropoff": "B"}
+        om.add_order(t1)
+
+        # Run environment forward by less than expiration timeout (e.g., 100 sim seconds)
+        env.run(until=100)
+        self.assertEqual(t1["status"], "pending")
+        self.assertEqual(len(om.order_queue), 1)
+
+        # Run environment past expiration timeout (e.g., 320 seconds)
+        env.run(until=320)
+        self.assertEqual(t1["status"], ORDER_STATUS_EXPIRED)
+        self.assertEqual(len(om.order_queue), 0)
+        self.assertEqual(state["metrics"]["failedOrders"], 1)
+
+        # Verify socketio emit was called
+        socket_mock.emit.assert_called_with(
+            "system_event",
+            {"message": f"Order ORDER-X has expired after {ORDER_EXPIRY_TIMEOUT}s"},
+        )
 
 
 if __name__ == "__main__":
