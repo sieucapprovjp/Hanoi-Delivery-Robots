@@ -155,6 +155,7 @@ DISPATCH_LAMBDA = 0.05  # Exponential coefficient in battery penalty function f(
 DEFAULT_DISPATCH_MODEL = "nearest_idle"  # Default dispatch model identifier
 
 # ── Re-dispatching & Re-assignment ──
+REPLANNING_THRESHOLD = 15.0  # Allowable gap threshold before triggering replanning
 REASSIGN_PENALTY = 60.0  # Penalty weight to prevent chattering/oscillating order re-assignments (penalty_reassign)
 MAX_REASSIGN_LIMIT = (
     2  # Maximum number of times an order can be reassigned (N_max_reassign)

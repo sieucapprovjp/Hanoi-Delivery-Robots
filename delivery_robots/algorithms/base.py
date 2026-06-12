@@ -22,6 +22,9 @@ class AlgoResult:
         explored_count (int): Number of nodes explored during the search.
         planned_cost (float): Total calculated cost of the path at planning time.
         planning_time (float): The timestamp when the planning occurred.
+        computation_time (float): Time taken to compute the path in seconds.
+        optimality_ratio (float): Ratio of planned cost compared to optimal cost.
+        heuristic_effectiveness (float): Effectiveness ratio of the heuristic.
     """
 
     path: List[int]
@@ -29,6 +32,8 @@ class AlgoResult:
     planned_cost: float
     planning_time: float
     computation_time: float = 0.0
+    optimality_ratio: float = 1.0
+    heuristic_effectiveness: float = 1.0
 
     def __len__(self) -> int:
         return 2
@@ -142,6 +147,8 @@ class AssignmentPair:
         pickup_path (List[int]): Pre-computed route path from robot's position to pickup.
         dropoff_path (List[int]): Pre-computed route path from pickup to delivery.
         cost (float): Calculated dispatch cost of this assignment.
+        pickup_cost (float): Pre-computed route cost from robot's position to pickup.
+        dropoff_cost (float): Pre-computed route cost from pickup to delivery.
     """
 
     robot: Any
@@ -149,6 +156,8 @@ class AssignmentPair:
     pickup_path: List[int]
     dropoff_path: List[int]
     cost: float
+    pickup_cost: float = 0.0
+    dropoff_cost: float = 0.0
 
 
 @dataclass(frozen=True)

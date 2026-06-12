@@ -44,10 +44,12 @@ class OrderManager:
         self.app_state["order_queue"] = self.order_queue
         self.app_state["order_manager"] = self
 
-        # Ensure failedOrders is initialized in metrics
+        # Ensure failed_orders and total_orders are initialized in metrics
         if "metrics" in self.app_state:
-            if "failedOrders" not in self.app_state["metrics"]:
-                self.app_state["metrics"]["failedOrders"] = 0
+            if "failed_orders" not in self.app_state["metrics"]:
+                self.app_state["metrics"]["failed_orders"] = 0
+            if "total_orders" not in self.app_state["metrics"]:
+                self.app_state["metrics"]["total_orders"] = 0
 
         # Start periodic expiration check process
         self.process: simpy.Process = self.env.process(self.run())
@@ -65,6 +67,10 @@ class OrderManager:
         task["reassign_count"] = 0
         task["last_reassign_time"] = None
         self.order_queue.append(task)
+        if "metrics" in self.app_state:
+            self.app_state["metrics"]["total_orders"] = (
+                self.app_state["metrics"].get("total_orders", 0) + 1
+            )
 
     def pop_next_pending(self) -> dict | None:
         """Retrieve the next PENDING order from the queue (FIFO policy).
@@ -130,8 +136,8 @@ class OrderManager:
 
                     # Update failure metrics
                     if "metrics" in self.app_state:
-                        self.app_state["metrics"]["failedOrders"] = (
-                            self.app_state["metrics"].get("failedOrders", 0) + 1
+                        self.app_state["metrics"]["failed_orders"] = (
+                            self.app_state["metrics"].get("failed_orders", 0) + 1
                         )
 
                     # Emit system event via socketio if available

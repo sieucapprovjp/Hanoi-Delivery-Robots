@@ -5,13 +5,57 @@ from typing import Tuple, List, Dict, Set, Callable, Any
 import networkx as nx
 from .base import SearchContract, SearchInput, reconstruct_node_path, AlgoResult
 from ..utils.geo import haversine_distance
-from ..utils import profile_time
+from ..utils import intercept_measure
+
+
+def compute_reverse_dijkstra(
+    graph: nx.MultiDiGraph,
+    dest_node: int,
+    weight_fn: Callable[[int, int, dict], float],
+) -> Dict[int, float]:
+    """Computes the shortest path cost from all nodes to dest_node using Reverse Dijkstra.
+
+    Args:
+        graph (nx.MultiDiGraph): The road network graph snapshot.
+        dest_node (int): The destination node from which the reverse search starts.
+        weight_fn (Callable[[int, int, dict], float]): Function to calculate edge weight.
+
+    Returns:
+        Dict[int, float]: A dictionary mapping node IDs to their optimal cost to dest_node.
+    """
+    dist: Dict[int, float] = {dest_node: 0.0}
+    visited: Set[int] = set()
+    pq: List[Tuple[float, int]] = [(0.0, dest_node)]
+
+    while pq:
+        d, u = heapq.heappop(pq)
+        if u in visited:
+            continue
+        visited.add(u)
+
+        for p in graph.predecessors(u):
+            if p in visited:
+                continue
+
+            edge_data_dict = graph[p][u]
+            min_w = float("inf")
+            for key, edge_data in edge_data_dict.items():
+                w = weight_fn(p, u, edge_data)
+                if w < min_w:
+                    min_w = w
+
+            tentative = d + min_w
+            if tentative < dist.get(p, float("inf")):
+                dist[p] = tentative
+                heapq.heappush(pq, (tentative, p))
+
+    return dist
 
 
 class AStarSearch(SearchContract[SearchInput, AlgoResult]):
     """Implementation of the A* routing algorithm using the Haversine heuristic."""
 
-    @profile_time(label="astar_search")
+    @intercept_measure
     def execute(self, context: SearchInput) -> AlgoResult:
         import time
 
@@ -62,6 +106,29 @@ class AStarSearch(SearchContract[SearchInput, AlgoResult]):
                 for i in range(len(path) - 1):
                     u, v = path[i], path[i + 1]
                     planned_cost += weight_fn(u, v, graph[u][v])
+
+                # Calculate Heuristic Effectiveness Ratio using Reverse Dijkstra
+                reverse_costs = compute_reverse_dijkstra(graph, end_node, weight_fn)
+                total_ratio = 0.0
+                ratio_count = 0
+                for node in path:
+                    if node == end_node:
+                        continue
+                    h_val = haversine_distance(
+                        graph.nodes[node]["y"],
+                        graph.nodes[node]["x"],
+                        goal_lat,
+                        goal_lon,
+                    )
+                    h_star_val = reverse_costs.get(node, 0.0)
+                    if h_star_val > 0.0:
+                        total_ratio += h_val / h_star_val
+                        ratio_count += 1
+
+                heuristic_effectiveness = (
+                    total_ratio / ratio_count if ratio_count > 0 else 1.0
+                )
+
                 comp_time = time.perf_counter() - start_time
                 return AlgoResult(
                     path=path,
@@ -69,6 +136,7 @@ class AStarSearch(SearchContract[SearchInput, AlgoResult]):
                     planned_cost=planned_cost,
                     planning_time=getattr(graph, "planning_time", 0.0),
                     computation_time=comp_time,
+                    heuristic_effectiveness=heuristic_effectiveness,
                 )
 
             for neighbor in graph.neighbors(current):

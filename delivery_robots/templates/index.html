@@ -54,22 +54,22 @@
                     details: 'Click a robot icon to view computing process'
                 },
                 updateMetrics(d) {
-                    this.metrics.totalCalculations = d.pathfinding.totalCalculations;
-                    this.metrics.avgTime = d.pathfinding.avgCalculationTime + 'ms';
-                    this.metrics.lastTime = d.pathfinding.lastCalculationTime + 'ms';
-                    this.metrics.nodesExplored = d.pathfinding.avgNodesExplored.toFixed(0);
-                    this.metrics.minTime = d.pathfinding.minCalculationTime + 'ms';
-                    this.metrics.maxTime = d.pathfinding.maxCalculationTime + 'ms';
-                    this.metrics.pathLength = d.pathfinding.avgPathLength;
+                    this.metrics.totalCalculations = d.pathfinding.total_calculations;
+                    this.metrics.avgTime = d.pathfinding.avg_calculation_time + 'ms';
+                    this.metrics.lastTime = d.pathfinding.last_calculation_time + 'ms';
+                    this.metrics.nodesExplored = d.pathfinding.avg_nodes_explored.toFixed(0);
+                    this.metrics.minTime = d.pathfinding.min_calculation_time + 'ms';
+                    this.metrics.maxTime = d.pathfinding.max_calculation_time + 'ms';
+                    this.metrics.pathLength = d.pathfinding.avg_path_length;
 
                     if (d.graph) {
-                        this.metrics.graphNodes = d.graph.totalNodes;
-                        this.metrics.graphEdges = d.graph.totalEdges;
+                        this.metrics.graphNodes = d.graph.total_nodes;
+                        this.metrics.graphEdges = d.graph.total_edges;
                     }
 
-                    this.metrics.rainCount = d.activeFactors.rainZones;
-                    this.metrics.trafficCount = d.activeFactors.trafficRoutes;
-                    this.metrics.obstacleCount = d.activeFactors.obstacles;
+                    this.metrics.rainCount = d.active_factors.rain_zones;
+                    this.metrics.trafficCount = d.active_factors.traffic_routes;
+                    this.metrics.obstacleCount = d.active_factors.obstacles;
                 }
             });
         });

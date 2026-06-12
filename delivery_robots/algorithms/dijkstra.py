@@ -4,13 +4,13 @@ import heapq
 from typing import Tuple, List, Dict, Set, Callable, Any
 import networkx as nx
 from .base import SearchContract, SearchInput, reconstruct_node_path, AlgoResult
-from ..utils import profile_time
+from ..utils import intercept_measure
 
 
 class DijkstraSearch(SearchContract[SearchInput, AlgoResult]):
     """Implementation of Dijkstra's shortest path routing algorithm."""
 
-    @profile_time(label="dijkstra_search")
+    @intercept_measure
     def execute(self, context: SearchInput) -> AlgoResult:
         import time
 

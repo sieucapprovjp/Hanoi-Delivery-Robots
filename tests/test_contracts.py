@@ -1,9 +1,19 @@
 import unittest
+import networkx as nx
 from delivery_robots.algorithms.base import (
     SearchContract,
     AssignmentContract,
     ChargingPolicyContract,
+    SearchInput,
+    AlgoResult,
+    ExecutionTrace,
 )
+from delivery_robots.algorithms.astar import AStarSearch
+from delivery_robots.algorithms.dijkstra import DijkstraSearch
+from delivery_robots.algorithms.gbfs import GBFSSearch
+from delivery_robots.algorithms.dfs import DFSSearch
+from delivery_robots.algorithms.bfs import BFSSearch
+from delivery_robots.core.environment import SnapFactory
 
 
 class ContractTests(unittest.TestCase):
@@ -42,16 +52,6 @@ class ContractTests(unittest.TestCase):
 
         policy = ConcreteChargingPolicy()
         self.assertEqual(policy.execute(100), "Charge: 100")
-
-
-import networkx as nx
-from delivery_robots.algorithms.base import SearchInput, AlgoResult, ExecutionTrace
-from delivery_robots.algorithms.astar import AStarSearch
-from delivery_robots.algorithms.dijkstra import DijkstraSearch
-from delivery_robots.algorithms.gbfs import GBFSSearch
-from delivery_robots.algorithms.dfs import DFSSearch
-from delivery_robots.algorithms.bfs import BFSSearch
-from delivery_robots.core.environment import SnapFactory
 
 
 class SearchAlgorithmTests(unittest.TestCase):
@@ -258,7 +258,9 @@ class SnapshotIsolationTests(unittest.TestCase):
         g.add_node(2, x=105.000, y=21.001)
         g.add_edge(1, 2, length=100.0)
 
-        weight_fn = lambda u, v, d: d.get("length", 1.0)
+        def weight_fn(u, v, d):
+            return d.get("length", 1.0)
+
         context = SearchInput(
             graph=g,
             start_node=1,
@@ -526,7 +528,7 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
         # Let the background run() loop go to sleep first
         env.run(until=1)
 
-        res_a = state["hub_resources"]["Hub A"]
+        state["hub_resources"]["Hub A"]
         res_b = state["hub_resources"]["Hub B"]
 
         # Simulate active charging on Hub B
@@ -538,7 +540,7 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
         env.run(env.process(get_req()))
 
         # Simulate a robot waiting in queue on Hub B
-        req2 = res_b.request()
+        res_b.request()
 
         self.assertEqual(res_b.count, 1)
         self.assertEqual(len(res_b.queue), 1)
@@ -897,6 +899,139 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
         self.assertEqual(agent.status, "idle")
         self.assertEqual(agent.battery, 100.0)
 
+    def test_plan_execute_gap_calculation(self):
+        import simpy
+        import threading
+        from delivery_robots.core.simulation.robot_agent import RobotAgent
+
+        env = simpy.Environment()
+        g = nx.MultiDiGraph()
+        g.add_node(1, x=105.000, y=21.000)
+        g.add_node(2, x=105.000, y=21.001)
+        g.add_edge(1, 2, length=120.0)
+        g.add_edge(2, 1, length=120.0)
+
+        state = {
+            "road_graph": g,
+            "graph_lock": threading.Lock(),
+            "history_lock": threading.Lock(),
+            "delivery_history": [],
+            "traffic_routes": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "rain_zones": [],
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+            "rush_hours": [],
+        }
+
+        agent = RobotAgent(
+            env=env,
+            robot_id=0,
+            name="TestRobot",
+            color="red",
+            start_lat=21.000,
+            start_lon=105.000,
+            app_state=state,
+            on_state_change=None,
+        )
+
+        task = {
+            "id": "T1",
+            "pickup_path": [1, 2],
+            "dropoff_path": [2, 1],
+            "pickup": {"lat": 21.001, "lon": 105.000},
+            "dropoff": {"lat": 21.000, "lon": 105.000},
+            "pickup_planned_cost": 120.0,
+            "dropoff_planned_cost": 120.0,
+            "pickup_edge_planned_costs": [120.0],
+            "dropoff_edge_planned_costs": [120.0],
+        }
+
+        env.run(until=1)
+        agent.assign_task(task)
+        env.run(until=1000)
+
+        self.assertIn("planned_cost", task)
+        self.assertIn("actual_cost", task)
+        self.assertIn("plan_execute_gap", task)
+        self.assertEqual(task["planned_cost"], 240.0)
+        self.assertEqual(task["actual_cost"], 240.0)
+        self.assertEqual(task["plan_execute_gap"], 0.0)
+
+    def test_replanning_on_traffic_spike(self):
+        import simpy
+        import threading
+        from delivery_robots.core.simulation.robot_agent import RobotAgent
+
+        env = simpy.Environment()
+        g = nx.MultiDiGraph()
+        g.add_node(1, x=105.000, y=21.000)
+        g.add_node(2, x=105.000, y=21.001)
+        g.add_node(3, x=105.001, y=21.000)
+        g.add_node(4, x=105.001, y=21.001)
+
+        g.add_edge(1, 2, length=60.0)
+        g.add_edge(2, 4, length=60.0)
+        g.add_edge(1, 3, length=70.0)
+        g.add_edge(3, 4, length=70.0)
+        g.add_edge(4, 1, length=60.0)
+
+        state = {
+            "road_graph": g,
+            "graph_lock": threading.Lock(),
+            "history_lock": threading.Lock(),
+            "delivery_history": [],
+            "traffic_routes": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "rain_zones": [],
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+            "rush_hours": [],
+        }
+
+        agent = RobotAgent(
+            env=env,
+            robot_id=0,
+            name="TestRobot",
+            color="red",
+            start_lat=21.000,
+            start_lon=105.000,
+            app_state=state,
+            on_state_change=None,
+        )
+
+        task = {
+            "id": "T2",
+            "pickup_path": [1, 2, 4],
+            "dropoff_path": [4, 1],
+            "pickup": {"lat": 21.001, "lon": 105.001},
+            "dropoff": {"lat": 21.000, "lon": 105.000},
+            "pickup_planned_cost": 120.0,
+            "dropoff_planned_cost": 60.0,
+            "pickup_edge_planned_costs": [60.0, 60.0],
+            "dropoff_edge_planned_costs": [60.0],
+        }
+
+        env.run(until=1)
+
+        # Introduce obstacle to trigger replanning (small radius covers only 2 -> 4)
+        state["obstacles"].append(
+            {
+                "name": "Obs1",
+                "center": (21.001, 105.0005),
+                "radius": 30.0,
+                "severity": 100.0,
+                "type": "roadblock",
+            }
+        )
+
+        agent.assign_task(task)
+        env.run(until=1000)
+
+        self.assertEqual(task["pickup_path"], [1, 3, 4])
+
 
 class EventBusAndEnvironmentTests(unittest.TestCase):
     def test_event_bus_environment_mutations(self):
@@ -1069,7 +1204,7 @@ class OrderManagerTests(unittest.TestCase):
         )
 
         env = simpy.Environment()
-        state = {"metrics": {"failedOrders": 0}}
+        state = {"metrics": {"failed_orders": 0, "total_orders": 0}}
         om = OrderManager(env, state)
 
         t1 = {"id": "ORDER-1", "pickup": "A", "dropoff": "B"}
@@ -1112,7 +1247,7 @@ class OrderManagerTests(unittest.TestCase):
         from delivery_robots.config import ORDER_STATUS_EXPIRED, ORDER_EXPIRY_TIMEOUT
 
         env = simpy.Environment()
-        state = {"metrics": {"failedOrders": 0}}
+        state = {"metrics": {"failed_orders": 0, "total_orders": 0}}
         socket_mock = MagicMock()
         om = OrderManager(env, state, socket_mock)
 
@@ -1128,13 +1263,265 @@ class OrderManagerTests(unittest.TestCase):
         env.run(until=320)
         self.assertEqual(t1["status"], ORDER_STATUS_EXPIRED)
         self.assertEqual(len(om.order_queue), 0)
-        self.assertEqual(state["metrics"]["failedOrders"], 1)
+        self.assertEqual(state["metrics"]["failed_orders"], 1)
 
         # Verify socketio emit was called
         socket_mock.emit.assert_called_with(
             "system_event",
             {"message": f"Order ORDER-X has expired after {ORDER_EXPIRY_TIMEOUT}s"},
         )
+
+
+class RoutingOptimalityTests(unittest.TestCase):
+    def setUp(self):
+        self.graph = nx.MultiDiGraph()
+        self.graph.add_node(1, x=105.000, y=21.000)
+        self.graph.add_node(2, x=105.000, y=21.001)
+        self.graph.add_node(3, x=105.000, y=21.002)
+        # 1 -> 2 length 120.0
+        # 2 -> 3 length 120.0
+        # 1 -> 3 length 1000.0 (suboptimal direct path)
+        self.graph.add_edge(1, 2, length=120.0)
+        self.graph.add_edge(2, 3, length=120.0)
+        self.graph.add_edge(1, 3, length=1000.0)
+
+        def weight_fn(u, v, d):
+            return (
+                d.get("length", 1.0)
+                if "length" in d
+                else min(edge.get("length", 1.0) for edge in d.values())
+            )
+
+        self.weight_fn = weight_fn
+
+    def test_dijkstra_oracle_ratio(self):
+        from delivery_robots.algorithms.search_manager import run_weighted_route_search
+
+        # Test Dijkstra returns optimality_ratio == 1.0
+        res_dijkstra = run_weighted_route_search(
+            graph=self.graph,
+            start_node=1,
+            end_node=3,
+            goal_lat=21.002,
+            goal_lon=105.000,
+            weight_fn=self.weight_fn,
+            algorithm="dijkstra",
+        )
+        self.assertEqual(res_dijkstra.optimality_ratio, 1.0)
+        self.assertEqual(res_dijkstra.path, [1, 2, 3])
+        self.assertEqual(res_dijkstra.planned_cost, 240.0)
+
+    def test_astar_oracle_ratio(self):
+        from delivery_robots.algorithms.search_manager import run_weighted_route_search
+
+        # Test A* returns optimality_ratio == 1.0 (since it finds the optimal path)
+        res_astar = run_weighted_route_search(
+            graph=self.graph,
+            start_node=1,
+            end_node=3,
+            goal_lat=21.002,
+            goal_lon=105.000,
+            weight_fn=self.weight_fn,
+            algorithm="astar",
+        )
+        self.assertEqual(res_astar.optimality_ratio, 1.0)
+        self.assertEqual(res_astar.path, [1, 2, 3])
+        self.assertEqual(res_astar.planned_cost, 240.0)
+
+    def test_bfs_dfs_recalculated_cost_and_ratio(self):
+        from delivery_robots.algorithms.search_manager import run_weighted_route_search
+
+        # Test BFS
+        res_bfs = run_weighted_route_search(
+            graph=self.graph,
+            start_node=1,
+            end_node=3,
+            goal_lat=21.002,
+            goal_lon=105.000,
+            weight_fn=self.weight_fn,
+            algorithm="bfs",
+        )
+        # Its planned_cost should be calculated using weight_fn
+        expected_cost = sum(
+            self.weight_fn(u, v, self.graph[u][v])
+            for u, v in zip(res_bfs.path[:-1], res_bfs.path[1:])
+        )
+        self.assertEqual(res_bfs.planned_cost, expected_cost)
+        self.assertEqual(res_bfs.optimality_ratio, expected_cost / 240.0)
+
+    def test_metrics_optimality_ratio_recording(self):
+        from delivery_robots.utils.metrics import (
+            create_metrics,
+            record_route_metrics,
+            build_metrics_payload,
+        )
+
+        metrics = create_metrics()
+        self.assertIn("avg_optimality_ratio", metrics)
+        self.assertEqual(metrics["avg_optimality_ratio"], 1.0)
+        self.assertEqual(metrics["suboptimal_rate"], 0.0)
+
+        # Record route metrics
+        record_route_metrics(
+            metrics,
+            calc_time_ms=5.0,
+            nodes_explored=10,
+            path_length=3,
+            memory_bytes=100,
+            optimality_ratio=1.0,
+        )
+        self.assertEqual(metrics["avg_optimality_ratio"], 1.0)
+        self.assertEqual(metrics["suboptimal_rate"], 0.0)
+
+        # Record suboptimal path
+        record_route_metrics(
+            metrics,
+            calc_time_ms=6.0,
+            nodes_explored=12,
+            path_length=4,
+            memory_bytes=120,
+            optimality_ratio=1.5,
+        )
+        self.assertEqual(metrics["avg_optimality_ratio"], 1.25)
+        self.assertEqual(metrics["suboptimal_rate"], 0.5)
+
+        # Build payload and verify
+        payload = build_metrics_payload(
+            metrics, self.graph, rain_count=0, traffic_count=0, obstacle_count=0
+        )
+        self.assertEqual(payload["pathfinding"]["avg_optimality_ratio"], 1.25)
+        self.assertEqual(payload["pathfinding"]["suboptimal_rate"], 0.5)
+
+    def test_reverse_dijkstra_calculation(self) -> None:
+        from delivery_robots.algorithms.astar import compute_reverse_dijkstra
+
+        # Compute reverse Dijkstra costs from target node 3
+        reverse_costs = compute_reverse_dijkstra(
+            self.graph, dest_node=3, weight_fn=self.weight_fn
+        )
+
+        # Expected shortest path cost from node 1 to 3 is 240.0 (via 2)
+        # Expected shortest path cost from node 2 to 3 is 120.0
+        # Expected shortest path cost from node 3 to 3 is 0.0
+        self.assertEqual(reverse_costs[1], 240.0)
+        self.assertEqual(reverse_costs[2], 120.0)
+        self.assertEqual(reverse_costs[3], 0.0)
+
+    def test_astar_heuristic_effectiveness(self) -> None:
+        from delivery_robots.algorithms.search_manager import run_weighted_route_search
+
+        # Test A* returns heuristic_effectiveness in result
+        res_astar = run_weighted_route_search(
+            graph=self.graph,
+            start_node=1,
+            end_node=3,
+            goal_lat=21.002,
+            goal_lon=105.000,
+            weight_fn=self.weight_fn,
+            algorithm="astar",
+        )
+        # Ensure heuristic_effectiveness exists and is within [0.0, 1.0]
+        self.assertTrue(hasattr(res_astar, "heuristic_effectiveness"))
+        self.assertTrue(0.0 <= res_astar.heuristic_effectiveness <= 1.0)
+
+    def test_metrics_heuristic_effectiveness_recording(self) -> None:
+        from delivery_robots.utils.metrics import (
+            create_metrics,
+            record_route_metrics,
+            build_metrics_payload,
+        )
+
+        metrics = create_metrics()
+        self.assertIn("avg_heuristic_effectiveness", metrics)
+        self.assertEqual(metrics["avg_heuristic_effectiveness"], 1.0)
+
+        # Record route metrics with heuristic_effectiveness = 0.8
+        record_route_metrics(
+            metrics,
+            calc_time_ms=5.0,
+            nodes_explored=10,
+            path_length=3,
+            memory_bytes=100,
+            optimality_ratio=1.0,
+            heuristic_effectiveness=0.8,
+        )
+        self.assertEqual(metrics["last_heuristic_effectiveness"], 0.8)
+        self.assertEqual(metrics["avg_heuristic_effectiveness"], 0.8)
+
+        # Record another route metrics with heuristic_effectiveness = 0.6
+        record_route_metrics(
+            metrics,
+            calc_time_ms=6.0,
+            nodes_explored=12,
+            path_length=4,
+            memory_bytes=120,
+            optimality_ratio=1.5,
+            heuristic_effectiveness=0.6,
+        )
+        self.assertEqual(metrics["last_heuristic_effectiveness"], 0.6)
+        self.assertAlmostEqual(metrics["avg_heuristic_effectiveness"], 0.7)
+
+        # Build payload and verify
+        payload = build_metrics_payload(
+            metrics, self.graph, rain_count=0, traffic_count=0, obstacle_count=0
+        )
+        self.assertEqual(payload["pathfinding"]["avg_heuristic_effectiveness"], 0.7)
+        self.assertEqual(payload["pathfinding"]["last_heuristic_effectiveness"], 0.6)
+
+    def test_metrics_payload_new_snake_case_fields(self) -> None:
+        from delivery_robots.utils.metrics import (
+            create_metrics,
+            record_route_metrics,
+            record_delivery_gap,
+            build_metrics_payload,
+        )
+
+        metrics = create_metrics()
+        self.assertEqual(metrics["plan_execute_gap"], 0.0)
+        self.assertEqual(metrics["failure_rate"], 0.0)
+
+        # Record a route metric
+        record_route_metrics(
+            metrics,
+            calc_time_ms=10.0,
+            nodes_explored=5,
+            path_length=2,
+            memory_bytes=50,
+            optimality_ratio=1.1,
+            heuristic_effectiveness=0.9,
+        )
+
+        # Record a delivery gap
+        record_delivery_gap(metrics, 15.5)
+        self.assertEqual(metrics["plan_execute_gap"], 15.5)
+        self.assertEqual(metrics["total_plan_execute_gap"], 15.5)
+        self.assertEqual(metrics["total_deliveries"], 1)
+
+        # Increment total and failed orders
+        metrics["total_orders"] = 10
+        metrics["failed_orders"] = 2
+
+        payload = build_metrics_payload(
+            metrics, self.graph, rain_count=1, traffic_count=2, obstacle_count=3
+        )
+
+        # Assert new payload fields
+        self.assertEqual(payload["optimality_ratio"], 1.1)
+        self.assertEqual(payload["plan_execute_gap"], 15.5)
+        self.assertEqual(payload["heuristic_effectiveness"], 0.9)
+        self.assertEqual(payload["failure_rate"], 0.2)
+        self.assertEqual(payload["suboptimal_rate"], 1.0)  # since 1.1 > 1.05
+
+        # Check pathfinding structure
+        self.assertEqual(payload["pathfinding"]["optimality_ratio"], 1.1)
+        self.assertEqual(payload["pathfinding"]["plan_execute_gap"], 15.5)
+        self.assertEqual(payload["pathfinding"]["heuristic_effectiveness"], 0.9)
+        self.assertEqual(payload["pathfinding"]["suboptimal_rate"], 1.0)
+
+        # Check failure_metrics structure
+        self.assertEqual(payload["failure_metrics"]["failed_orders"], 2)
+        self.assertEqual(payload["failure_metrics"]["total_orders"], 10)
+        self.assertEqual(payload["failure_metrics"]["failure_rate"], 0.2)
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ from ...utils.route_analysis import (
     build_segment_geometry,
 )
 from ...algorithms import run_weighted_route_search
+from ...utils.metrics import record_delivery_gap
 
 
 class EmergencyChargingException(Exception):
@@ -160,7 +161,9 @@ class RobotAgent:
                 self.route_target = f"Charging at {hub_name}"
                 self.segment_duration = 0
                 self._emit_state()
-                yield from self.traverse_path(self.current_path, gps_trace)
+                yield from self.traverse_path(
+                    self.current_path, gps_trace, "charge_actual_cost"
+                )
 
                 # Charge the robot
                 if hub:
@@ -179,7 +182,9 @@ class RobotAgent:
             self.route_target = "Pickup"
             self.segment_duration = 0
             self._emit_state()
-            yield from self.traverse_path(self.current_path, gps_trace)
+            yield from self.traverse_path(
+                self.current_path, gps_trace, "pickup_actual_cost"
+            )
 
             # Arrive at pickup -> transition status to DELIVERING (moving_to_dropoff)
             self.status = ROBOT_STATUS_MOVING_TO_DROPOFF
@@ -206,7 +211,9 @@ class RobotAgent:
             self.route_target = "Dropoff"
             self.segment_duration = 0
             self._emit_state()
-            yield from self.traverse_path(self.current_path, gps_trace)
+            yield from self.traverse_path(
+                self.current_path, gps_trace, "dropoff_actual_cost"
+            )
 
             # 4. Drop off item
             yield self.env.timeout(30)
@@ -227,6 +234,33 @@ class RobotAgent:
                 energy_consumed=actual_energy_consumed,
                 travel_time=actual_travel_time,
             )
+
+            # Calculate and store Plan-Execute Gap metrics
+            planned_cost = task.get("pickup_planned_cost", 0.0) + task.get(
+                "dropoff_planned_cost", 0.0
+            )
+            if task.get("is_3_leg"):
+                planned_cost += task.get("charge_planned_cost", 0.0)
+
+            actual_cost = (
+                task.get("charge_actual_cost", 0.0)
+                + task.get("pickup_actual_cost", 0.0)
+                + task.get("dropoff_actual_cost", 0.0)
+            )
+            gap = actual_cost - planned_cost
+
+            task["planned_cost"] = planned_cost
+            task["actual_cost"] = actual_cost
+            task["plan_execute_gap"] = gap
+
+            metrics = self.app_state.get("metrics")
+            metrics_lock = self.app_state.get("metrics_lock")
+            if metrics is not None:
+                if metrics_lock is not None:
+                    with metrics_lock:
+                        record_delivery_gap(metrics, gap)
+                else:
+                    record_delivery_gap(metrics, gap)
 
             history_lock = self.app_state.get("history_lock")
             delivery_history = self.app_state.get("delivery_history")
@@ -287,7 +321,10 @@ class RobotAgent:
         return
 
     def traverse_path(
-        self, path_nodes: list, gps_trace: list | None = None
+        self,
+        path_nodes: list,
+        gps_trace: list | None = None,
+        cost_key: str | None = None,
     ) -> typing.Generator:
         """Move along a sequence of node IDs.
 
@@ -298,15 +335,50 @@ class RobotAgent:
         Args:
             path_nodes (list): The list of node IDs defining the routing path.
             gps_trace (list | None): Optional list to record traversed GPS coordinates.
+            cost_key (str | None): Optional key to record traversed path costs.
 
         Returns:
             typing.Generator: A generator that yields SimPy timeout events.
         """
+        from ...config import REPLANNING_THRESHOLD
+        from ..environment import SnapFactory
+
         graph = self.app_state["road_graph"]
         if not graph or len(path_nodes) < 2:
             return
 
-        for i in range(len(path_nodes) - 1):
+        # Dynamically determine phase from self.status
+        phase = None
+        if self.status == ROBOT_STATUS_MOVING_TO_PICKUP:
+            phase = "pickup"
+        elif self.status == ROBOT_STATUS_MOVING_TO_DROPOFF:
+            phase = "dropoff"
+        elif self.status == ROBOT_STATUS_MOVING_TO_CHARGE:
+            phase = "charge"
+
+        # Initialize actual cost key on task if needed
+        if cost_key and self.current_task is not None:
+            if cost_key not in self.current_task:
+                self.current_task[cost_key] = 0.0
+
+        # Dynamically populate planned cost and edge planned costs if missing (e.g. for unit tests)
+        if phase and self.current_task is not None:
+            if f"{phase}_edge_planned_costs" not in self.current_task:
+                edge_planned_costs = []
+                for u, v in zip(path_nodes[:-1], path_nodes[1:]):
+                    edge_data = graph.get_edge_data(u, v)
+                    if edge_data:
+                        weight = edge_weight_with_traffic(
+                            self.app_state, u, v, edge_data
+                        )
+                        edge_planned_costs.append(weight)
+                    else:
+                        edge_planned_costs.append(0.0)
+                self.current_task[f"{phase}_edge_planned_costs"] = edge_planned_costs
+                self.current_task[f"{phase}_planned_cost"] = sum(edge_planned_costs)
+
+        i = 0
+        while i < len(path_nodes) - 1:
             from_node = path_nodes[i]
             to_node = path_nodes[i + 1]
             self.path_index = i
@@ -320,10 +392,123 @@ class RobotAgent:
                 if gps_trace is not None:
                     gps_trace.append((self.lat, self.lon))
 
-                # Calculate time to traverse
+                # Check if replanning is needed
+                if phase and self.current_task is not None:
+                    edge_planned_costs = self.current_task.get(
+                        f"{phase}_edge_planned_costs", []
+                    )
+                    actual_cost_so_far = self.current_task.get(cost_key, 0.0)
+
+                    # Remaining current cost (along current path nodes on active environment)
+                    remaining_path = path_nodes[i:]
+                    remaining_current_cost = 0.0
+                    for u, v in zip(remaining_path[:-1], remaining_path[1:]):
+                        ed = graph.get_edge_data(u, v)
+                        if ed:
+                            remaining_current_cost += edge_weight_with_traffic(
+                                self.app_state, u, v, ed
+                            )
+
+                    # Compute projected gap
+                    projected_gap = (
+                        actual_cost_so_far + remaining_current_cost
+                    ) - self.current_task.get(f"{phase}_planned_cost", 0.0)
+
+                    if projected_gap > REPLANNING_THRESHOLD:
+                        # Trigger replanning!
+                        snap_graph = SnapFactory.create_snapshot(
+                            self.app_state, self.env.now
+                        )
+                        destination_node = path_nodes[-1]
+                        dest_node_data = snap_graph.nodes[destination_node]
+                        destination_lat = dest_node_data["y"]
+                        destination_lon = dest_node_data["x"]
+
+                        def weight_fn(u, v, d):
+                            return snap_graph.get_edge_weight(u, v, d)
+
+                        try:
+                            route_result = run_weighted_route_search(
+                                snap_graph,
+                                from_node,
+                                destination_node,
+                                destination_lat,
+                                destination_lon,
+                                weight_fn,
+                                "astar",
+                            )
+                            new_path = route_result.path
+
+                            # Log the replanning trigger
+                            api_logs_lock = self.app_state.get("api_logs_lock")
+                            api_logs = self.app_state.get("api_logs")
+                            if api_logs is not None:
+                                entry = {
+                                    "ts": round(self.env.now),
+                                    "message": f"Robot {self.name} triggered replanning for {phase}. Projected gap: {projected_gap:.2f} > threshold: {REPLANNING_THRESHOLD}.",
+                                    "level": "info",
+                                    "source": "simulation",
+                                }
+                                if api_logs_lock is not None:
+                                    with api_logs_lock:
+                                        api_logs.append(entry)
+                                else:
+                                    api_logs.append(entry)
+
+                            # If a new path is found, update the task's path and planned costs
+                            if new_path and len(new_path) >= 2:
+                                # Re-calculate planned costs for the new remaining path on snap_graph
+                                remaining_new_edge_costs = [
+                                    snap_graph.get_edge_weight(
+                                        u, v, snap_graph.get_edge_data(u, v)
+                                    )
+                                    for u, v in zip(new_path[:-1], new_path[1:])
+                                ]
+
+                                # Update path_nodes list dynamically (the while loop is controlled by len(path_nodes))
+                                path_nodes = path_nodes[:i] + new_path
+                                self.current_path = path_nodes
+
+                                # Update the task path keys and planned cost info
+                                self.current_task[f"{phase}_path"] = path_nodes
+                                self.current_task[f"{phase}_edge_planned_costs"] = (
+                                    edge_planned_costs[:i] + remaining_new_edge_costs
+                                )
+                                self.current_task[f"{phase}_planned_cost"] = sum(
+                                    self.current_task[f"{phase}_edge_planned_costs"]
+                                )
+
+                                # Update geometry paths so the front-end renders the new path
+                                self.geometry_path = build_geometry_path(
+                                    graph, self.current_path
+                                )
+                                self.segment_geometry = build_segment_geometry(
+                                    graph, self.current_path
+                                )
+                                self.current_task[f"{phase}_geometry_path"] = (
+                                    self.geometry_path
+                                )
+                                self.current_task[f"{phase}_segment_geometry"] = (
+                                    self.segment_geometry
+                                )
+
+                                # Re-evaluate from_node and to_node for the next traversal step
+                                from_node = path_nodes[i]
+                                to_node = path_nodes[i + 1]
+                                edge_data = graph.get_edge_data(from_node, to_node)
+                        except Exception:
+                            # If route search fails, keep using current path
+                            pass
+
+                # Calculate time to traverse the edge
                 weight = edge_weight_with_traffic(
                     self.app_state, from_node, to_node, edge_data
                 )
+                if cost_key and self.current_task is not None:
+                    self.current_task[cost_key] = (
+                        self.current_task.get(cost_key, 0.0) + weight
+                    )
+
                 self.segment_duration = weight / SPEED_METERS_PER_SECOND
 
                 # Emit state BEFORE yielding. Frontend knows we are at `i` and moving to `i+1`
@@ -351,6 +536,9 @@ class RobotAgent:
                         raise EmergencyChargingException("Safety threshold violated")
 
                 yield self.env.timeout(self.segment_duration)
+            else:
+                pass
+            i += 1
 
         # Final node
         final_node = path_nodes[-1]

@@ -5,13 +5,13 @@ from typing import Tuple, List, Dict, Set, Callable, Any
 import networkx as nx
 from .base import SearchContract, SearchInput, reconstruct_node_path, AlgoResult
 from ..utils.geo import haversine_distance
-from ..utils import profile_time
+from ..utils import intercept_measure
 
 
 class GBFSSearch(SearchContract[SearchInput, AlgoResult]):
     """Implementation of Greedy Best-First Search shortest path routing algorithm."""
 
-    @profile_time(label="gbfs_search")
+    @intercept_measure
     def execute(self, context: SearchInput) -> AlgoResult:
         import time
 

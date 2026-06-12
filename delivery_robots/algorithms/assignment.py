@@ -123,6 +123,8 @@ class NearestIdleAssignment(AssignmentContract[AssignmentInput, AssignmentResult
                         pickup_path=best_pickup_path,
                         dropoff_path=dropoff_path,
                         cost=best_cost,
+                        pickup_cost=best_cost,
+                        dropoff_cost=dropoff_result.planned_cost,
                     )
                 )
                 available_robots.remove(best_robot)
@@ -216,6 +218,8 @@ class NearestFeasibleAssignment(AssignmentContract[AssignmentInput, AssignmentRe
                         pickup_path=best_pickup_path,
                         dropoff_path=dropoff_path,
                         cost=best_cost,
+                        pickup_cost=best_cost,
+                        dropoff_cost=dropoff_result.planned_cost,
                     )
                 )
                 available_robots.remove(best_robot)
@@ -316,6 +320,8 @@ class WeightedCostAssignment(AssignmentContract[AssignmentInput, AssignmentResul
                         pickup_path=best_pickup_path,
                         dropoff_path=dropoff_path,
                         cost=best_pickup_cost,
+                        pickup_cost=best_pickup_cost,
+                        dropoff_cost=dropoff_cost,
                     )
                 )
                 available_robots.remove(best_robot)
@@ -422,6 +428,7 @@ class HungarianAssignment(AssignmentContract[AssignmentInput, AssignmentResult])
             cost_val = cost_matrix[r_idx][o_idx]
             if cost_val < 1e8:  # Valid assignment, not a penalty
                 pickup_path, dropoff_path, pickup_cost = path_cache[(r_idx, o_idx)]
+                _, dropoff_cost, _ = dropoff_info[o_idx]
                 assignments.append(
                     AssignmentPair(
                         robot=robots[r_idx],
@@ -429,6 +436,8 @@ class HungarianAssignment(AssignmentContract[AssignmentInput, AssignmentResult])
                         pickup_path=pickup_path,
                         dropoff_path=dropoff_path,
                         cost=pickup_cost,
+                        pickup_cost=pickup_cost,
+                        dropoff_cost=dropoff_cost,
                     )
                 )
 

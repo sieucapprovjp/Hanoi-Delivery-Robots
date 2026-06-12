@@ -4,13 +4,13 @@ from collections import deque
 from typing import Tuple, Dict, Set, Optional
 import networkx as nx
 from .base import SearchContract, SearchInput, reconstruct_node_path, AlgoResult
-from ..utils import profile_time
+from ..utils import intercept_measure
 
 
 class BFSSearch(SearchContract[SearchInput, AlgoResult]):
     """Implementation of Breadth-First Search routing algorithm."""
 
-    @profile_time(label="bfs_search")
+    @intercept_measure
     def execute(self, context: SearchInput) -> AlgoResult:
         import time
 

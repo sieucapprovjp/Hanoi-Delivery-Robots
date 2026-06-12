@@ -3,13 +3,13 @@
 from typing import Tuple, List, Dict, Set, Optional
 import networkx as nx
 from .base import SearchContract, SearchInput, reconstruct_node_path, AlgoResult
-from ..utils import profile_time
+from ..utils import intercept_measure
 
 
 class DFSSearch(SearchContract[SearchInput, AlgoResult]):
     """Implementation of Depth-First Search routing algorithm."""
 
-    @profile_time(label="dfs_search")
+    @intercept_measure
     def execute(self, context: SearchInput) -> AlgoResult:
         import time
 

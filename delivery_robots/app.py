@@ -33,7 +33,12 @@ from .core.environment import (
 from .core.event_bus import EventBus
 from .core.graph import get_road_graph as core_get_road_graph
 from .routes import register_environment_routes, register_main_routes
-from .utils.metrics import build_metrics_payload, create_metrics, record_route_metrics
+from .utils.metrics import (
+    build_metrics_payload,
+    create_metrics,
+    record_route_metrics,
+)
+from .utils import MetricsInterceptor
 from .utils.route_analysis import (
     build_geometry_path,
     build_route_response,
@@ -74,6 +79,43 @@ _obstacles_lock = threading.Lock()
 _obstacles = []
 
 _metrics = create_metrics()
+_metrics_lock = threading.Lock()
+
+
+def _on_route_search_completed(
+    calc_time_ms: float,
+    nodes_explored: int,
+    path_length: int,
+    memory_bytes: int,
+    algo_name: str,
+    optimality_ratio: float = 1.0,
+    heuristic_effectiveness: float = 1.0,
+) -> None:
+    """Callback function triggered when a route search is completed.
+
+    Args:
+        calc_time_ms (float): Computation time in milliseconds.
+        nodes_explored (int): Number of nodes explored during search.
+        path_length (int): Number of nodes in the generated path.
+        memory_bytes (int): Memory usage in bytes.
+        algo_name (str): Name of the pathfinding algorithm.
+        optimality_ratio (float): Path optimality ratio. Defaults to 1.0.
+        heuristic_effectiveness (float): Heuristic effectiveness ratio. Defaults to 1.0.
+    """
+    with _metrics_lock:
+        record_route_metrics(
+            _metrics,
+            calc_time_ms,
+            nodes_explored,
+            path_length,
+            memory_bytes=memory_bytes,
+            optimality_ratio=optimality_ratio,
+            heuristic_effectiveness=heuristic_effectiveness,
+        )
+
+
+MetricsInterceptor.register_callback(_on_route_search_completed)
+
 _api_logs_lock = threading.Lock()
 _api_logs = deque(maxlen=API_LOGS_MAX_LENGTH)
 
@@ -113,6 +155,8 @@ _app_state = {
     "event_bus": _event_bus,
     "charging_stations": list(CHARGING_STATIONS),
     "dispatch_model": DEFAULT_DISPATCH_MODEL,
+    "metrics": _metrics,
+    "metrics_lock": _metrics_lock,
 }
 
 register_environment_subscribers(_event_bus, _app_state)

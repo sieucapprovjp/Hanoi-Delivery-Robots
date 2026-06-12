@@ -373,6 +373,11 @@ class SimulatorManager:
                                 best_charge_path = charge_path
                                 best_hub = hub
                                 is_3_leg_for_best = is_3_leg
+                                best_pickup_cost = pickup_cost
+                                best_dropoff_cost = dropoff_cost
+                                best_charge_cost = (
+                                    charge_result.planned_cost if is_3_leg else 0.0
+                                )
 
                     if best_candidate:
                         # Reassign!
@@ -385,6 +390,23 @@ class SimulatorManager:
                         task["is_3_leg"] = is_3_leg_for_best
                         task["pickup_path"] = best_pickup_path
                         task["dropoff_path"] = best_dropoff_path
+
+                        task["pickup_planned_cost"] = best_pickup_cost
+                        task["dropoff_planned_cost"] = best_dropoff_cost
+                        task["pickup_edge_planned_costs"] = [
+                            snap_graph.get_edge_weight(
+                                u, v, snap_graph.get_edge_data(u, v)
+                            )
+                            for u, v in zip(best_pickup_path[:-1], best_pickup_path[1:])
+                        ]
+                        task["dropoff_edge_planned_costs"] = [
+                            snap_graph.get_edge_weight(
+                                u, v, snap_graph.get_edge_data(u, v)
+                            )
+                            for u, v in zip(
+                                best_dropoff_path[:-1], best_dropoff_path[1:]
+                            )
+                        ]
 
                         pickup_geom_path, pickup_seg_geom = self.build_route_geometry(
                             snap_graph, best_pickup_path
@@ -401,6 +423,15 @@ class SimulatorManager:
                         if is_3_leg_for_best:
                             task["charging_station"] = best_hub
                             task["charge_path"] = best_charge_path
+                            task["charge_planned_cost"] = best_charge_cost
+                            task["charge_edge_planned_costs"] = [
+                                snap_graph.get_edge_weight(
+                                    u, v, snap_graph.get_edge_data(u, v)
+                                )
+                                for u, v in zip(
+                                    best_charge_path[:-1], best_charge_path[1:]
+                                )
+                            ]
                             charge_geom_path, charge_seg_geom = (
                                 self.build_route_geometry(snap_graph, best_charge_path)
                             )
@@ -411,6 +442,8 @@ class SimulatorManager:
                             task.pop("charge_path", None)
                             task.pop("charge_geometry_path", None)
                             task.pop("charge_segment_geometry", None)
+                            task.pop("charge_planned_cost", None)
+                            task.pop("charge_edge_planned_costs", None)
 
                         self.order_manager.mark_assigned(task)
 
@@ -537,6 +570,34 @@ class SimulatorManager:
                             task["pickup_path"] = pickup_result.path
                             task["dropoff_path"] = dropoff_result.path
 
+                            task["charge_planned_cost"] = charge_result.planned_cost
+                            task["pickup_planned_cost"] = pickup_result.planned_cost
+                            task["dropoff_planned_cost"] = dropoff_result.planned_cost
+                            task["charge_edge_planned_costs"] = [
+                                snap_graph.get_edge_weight(
+                                    u, v, snap_graph.get_edge_data(u, v)
+                                )
+                                for u, v in zip(
+                                    charge_result.path[:-1], charge_result.path[1:]
+                                )
+                            ]
+                            task["pickup_edge_planned_costs"] = [
+                                snap_graph.get_edge_weight(
+                                    u, v, snap_graph.get_edge_data(u, v)
+                                )
+                                for u, v in zip(
+                                    pickup_result.path[:-1], pickup_result.path[1:]
+                                )
+                            ]
+                            task["dropoff_edge_planned_costs"] = [
+                                snap_graph.get_edge_weight(
+                                    u, v, snap_graph.get_edge_data(u, v)
+                                )
+                                for u, v in zip(
+                                    dropoff_result.path[:-1], dropoff_result.path[1:]
+                                )
+                            ]
+
                             # Build geometry for all three legs
                             charge_geometry_path, charge_segment_geometry = (
                                 self.build_route_geometry(
@@ -569,6 +630,26 @@ class SimulatorManager:
                     if not task.get("is_3_leg"):
                         task["pickup_path"] = assignment.pickup_path
                         task["dropoff_path"] = assignment.dropoff_path
+
+                        task["pickup_planned_cost"] = assignment.pickup_cost
+                        task["dropoff_planned_cost"] = assignment.dropoff_cost
+                        task["pickup_edge_planned_costs"] = [
+                            snap_graph.get_edge_weight(
+                                u, v, snap_graph.get_edge_data(u, v)
+                            )
+                            for u, v in zip(
+                                assignment.pickup_path[:-1], assignment.pickup_path[1:]
+                            )
+                        ]
+                        task["dropoff_edge_planned_costs"] = [
+                            snap_graph.get_edge_weight(
+                                u, v, snap_graph.get_edge_data(u, v)
+                            )
+                            for u, v in zip(
+                                assignment.dropoff_path[:-1],
+                                assignment.dropoff_path[1:],
+                            )
+                        ]
 
                         # Build geometry for accurate drawing and proportional interpolation
                         pickup_geometry_path, pickup_segment_geometry = (

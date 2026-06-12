@@ -2,7 +2,8 @@
 
 from typing import Tuple, List, Callable, Dict
 import networkx as nx
-from .base import SearchContract, SearchInput
+import dataclasses
+from .base import SearchContract, SearchInput, AlgoResult
 from .dijkstra import DijkstraSearch
 from .gbfs import GBFSSearch
 from .astar import AStarSearch
@@ -10,7 +11,7 @@ from .dfs import DFSSearch
 from .bfs import BFSSearch
 from ..utils import profile_time
 
-ALGORITHMS: Dict[str, SearchContract[SearchInput, Tuple[List[int], int]]] = {
+ALGORITHMS: Dict[str, SearchContract[SearchInput, AlgoResult]] = {
     "dijkstra": DijkstraSearch(),
     "gbfs": GBFSSearch(),
     "astar": AStarSearch(),
@@ -46,7 +47,7 @@ def run_weighted_route_search(
     Raises:
         nx.NetworkXNoPath: If no path exists.
     """
-    searcher: SearchContract[SearchInput, Tuple[List[int], int]] = ALGORITHMS.get(
+    searcher: SearchContract[SearchInput, AlgoResult] = ALGORITHMS.get(
         algorithm, ALGORITHMS["astar"]
     )
     context: SearchInput = SearchInput(
@@ -57,4 +58,33 @@ def run_weighted_route_search(
         goal_lat=goal_lat,
         goal_lon=goal_lon,
     )
-    return searcher.execute(context)
+    algo_result = searcher.execute(context)
+
+    # Recalculate cost for BFS and DFS to ensure correct weights at t_planning are used
+    cost_algo = algo_result.planned_cost
+    if algorithm in ("dfs", "bfs"):
+        path = algo_result.path
+        recalculated_cost = 0.0
+        for i in range(len(path) - 1):
+            u, v = path[i], path[i + 1]
+            recalculated_cost += weight_fn(u, v, graph[u][v])
+        cost_algo = recalculated_cost
+        algo_result = dataclasses.replace(algo_result, planned_cost=recalculated_cost)
+
+    # Calculate optimal baseline using Dijkstra Oracle
+    if algorithm == "dijkstra":
+        optimality_ratio = 1.0
+    else:
+        try:
+            dijkstra_searcher = ALGORITHMS["dijkstra"]
+            dijkstra_result = dijkstra_searcher.execute(context)
+            cost_optimal = dijkstra_result.planned_cost
+            if cost_optimal > 0:
+                optimality_ratio = cost_algo / cost_optimal
+            else:
+                optimality_ratio = 1.0
+        except nx.NetworkXNoPath:
+            optimality_ratio = 1.0
+
+    algo_result = dataclasses.replace(algo_result, optimality_ratio=optimality_ratio)
+    return algo_result
