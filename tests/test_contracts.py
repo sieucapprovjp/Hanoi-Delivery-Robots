@@ -1032,6 +1032,80 @@ class ChargingAndHubSelectionTests(unittest.TestCase):
 
         self.assertEqual(task["pickup_path"], [1, 3, 4])
 
+    def test_robot_charging_state_fields(self):
+        import simpy
+        import threading
+        from delivery_robots.core.simulation.robot_agent import RobotAgent
+        from delivery_robots.config import (
+            ROBOT_STATUS_CHARGING,
+            ROBOT_STATUS_MOVING_TO_CHARGE,
+        )
+
+        env = simpy.Environment()
+        g = nx.MultiDiGraph()
+        g.add_node(1, x=105.000, y=21.000)
+
+        state = {
+            "road_graph": g,
+            "history_lock": threading.Lock(),
+            "delivery_history": [],
+            "traffic_routes": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "rain_zones": [],
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+            "rush_hours": [],
+            "charging_stations": [
+                {"lat": 21.000, "lon": 105.000, "name": "Hub X", "spots": 1}
+            ],
+            "hub_resources": {
+                "Hub X": simpy.Resource(env, capacity=1),
+            },
+        }
+
+        agent = RobotAgent(
+            env=env,
+            robot_id=0,
+            name="TestRobot",
+            color="red",
+            start_lat=21.000,
+            start_lon=105.000,
+            app_state=state,
+            on_state_change=None,
+        )
+
+        env.run(until=1)
+
+        # Verify initial fields
+        agent_state = agent.get_state()
+        self.assertIn("charging_station", agent_state)
+        self.assertIn("remaining_charge_time", agent_state)
+        self.assertIsNone(agent_state["charging_station"])
+        self.assertEqual(agent_state["remaining_charge_time"], 0.0)
+
+        # Simulate moving to charge
+        station = state["charging_stations"][0]
+        agent.status = ROBOT_STATUS_MOVING_TO_CHARGE
+        agent.charging_station_name = station["name"]
+
+        agent_state = agent.get_state()
+        self.assertEqual(agent_state["status"], ROBOT_STATUS_MOVING_TO_CHARGE)
+        self.assertEqual(agent_state["charging_station"], "Hub X")
+
+        # Start charging
+        agent.battery = 50.0
+        env.process(agent.charge(station))
+
+        # Let it step slightly (t=5)
+        env.run(until=5)
+
+        agent_state = agent.get_state()
+        self.assertEqual(agent_state["status"], ROBOT_STATUS_CHARGING)
+        self.assertEqual(agent_state["charging_station"], "Hub X")
+        # Remaining time should be calculated and > 0 since battery < 100
+        self.assertGreater(agent_state["remaining_charge_time"], 0.0)
+
 
 class EventBusAndEnvironmentTests(unittest.TestCase):
     def test_event_bus_environment_mutations(self):
@@ -1111,18 +1185,32 @@ class EventBusAndEnvironmentTests(unittest.TestCase):
                 sim_time=20.0,
             ),
         ]
-        config = ScenarioConfig(events)
+        config = ScenarioConfig(events, seed=42, params={"dispatch_model": "hungarian"})
         config.save_to_file(filepath)
 
         loaded_config = ScenarioConfig()
         loaded_config.load_from_file(filepath)
 
+        self.assertEqual(loaded_config.seed, 42)
+        self.assertEqual(loaded_config.params.get("dispatch_model"), "hungarian")
         self.assertEqual(len(loaded_config.events), 2)
         self.assertEqual(loaded_config.events[0].event_type, EventType.RAIN_ADDED)
         self.assertEqual(loaded_config.events[0].sim_time, 10.0)
         self.assertEqual(loaded_config.events[0].data["lat"], 21.0)
         self.assertEqual(loaded_config.events[1].event_type, EventType.OBSTACLE_ADDED)
         self.assertEqual(loaded_config.events[1].sim_time, 20.0)
+
+        # Test backward compatibility (older format where JSON is a raw list of events)
+        import json
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump([e.to_dict() for e in events], f, indent=2)
+
+        loaded_legacy = ScenarioConfig()
+        loaded_legacy.load_from_file(filepath)
+        self.assertIsNone(loaded_legacy.seed)
+        self.assertEqual(loaded_legacy.params, {})
+        self.assertEqual(len(loaded_legacy.events), 2)
 
         # Clean up
         if os.path.exists(filepath):
@@ -1190,6 +1278,69 @@ class EventBusAndEnvironmentTests(unittest.TestCase):
         sim_manager.env.run(until=20)
         self.assertEqual(len(state["rain_zones"]), 1)
         self.assertEqual(state["rain_zones"][0]["center"], (21.02, 105.84))
+
+    def test_scenario_config_params_and_seeding(self):
+        import threading
+        from unittest.mock import MagicMock
+        from delivery_robots.core.event_bus import (
+            EventBus,
+            ScenarioConfig,
+        )
+        from delivery_robots.core.simulation.simulator import SimulatorManager
+
+        bus = EventBus()
+        state = {
+            "road_graph": nx.MultiDiGraph(),
+            "history_lock": threading.Lock(),
+            "delivery_history": [],
+            "traffic_routes": [],
+            "dynamic_traffic_routes": [],
+            "dynamic_traffic_lock": threading.Lock(),
+            "rain_zones": [],
+            "obstacles": [],
+            "obstacles_lock": threading.Lock(),
+            "rush_hours": [],
+            "charging_stations": [],
+            "hub_resources": {},
+            "order_queue": [],
+            "event_bus": bus,
+            "dispatch_model": "nearest_idle",
+            "simulation_speed": 60,
+        }
+
+        sim_manager = SimulatorManager(
+            socketio=MagicMock(),
+            app_state=state,
+            nearest_node_id=MagicMock(),
+            run_weighted_route_search=MagicMock(),
+            edge_weight_with_traffic=MagicMock(),
+            build_route_geometry=MagicMock(),
+        )
+
+        scenario = ScenarioConfig(
+            events=[],
+            seed=12345,
+            params={"dispatch_model": "hungarian", "simulation_speed": 120},
+        )
+        sim_manager.scenario_config = scenario
+
+        # Call start (mocking background task and loop sleep)
+        sim_manager.socketio.start_background_task = MagicMock()
+        sim_manager.start()
+
+        # Check that state parameters were overridden
+        self.assertEqual(state["dispatch_model"], "hungarian")
+        self.assertEqual(state["simulation_speed"], 120)
+
+        # Verify that random was seeded deterministically
+        import random
+
+        r1 = random.random()
+
+        # Reset and run again with same seed
+        random.seed(12345)
+        r2 = random.random()
+        self.assertEqual(r1, r2)
 
 
 class OrderManagerTests(unittest.TestCase):

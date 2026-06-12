@@ -24,6 +24,7 @@
                     decision: false,
                     insights: false
                 },
+                orders: [],
                 metrics: {
                     totalCalculations: 0,
                     avgTime: '0ms',
@@ -39,6 +40,12 @@
                     obstacleCount: 0,
                     fleetAlgo: 'A*',
                     speed: '1x',
+                    failureRate: '0.0%',
+                    suboptimalRate: '0.0%',
+                    failedQueries: 0,
+                    batteryFailures: 0,
+                    totalQueries: 0,
+                    worstCase: {},
                     strata: {
                         short: { total_calculations: 0, avg_calculation_time: 0, avg_nodes_explored: 0, avg_optimality_ratio: 1.0, avg_heuristic_effectiveness: 1.0, avg_memory_used_bytes: 0 },
                         medium: { total_calculations: 0, avg_calculation_time: 0, avg_nodes_explored: 0, avg_optimality_ratio: 1.0, avg_heuristic_effectiveness: 1.0, avg_memory_used_bytes: 0 },
@@ -69,6 +76,16 @@
                     this.metrics.maxTime = d.pathfinding.max_calculation_time + 'ms';
                     this.metrics.pathLength = d.pathfinding.avg_path_length;
 
+                    // Parse new failure and suboptimal rate metrics
+                    this.metrics.failureRate = (d.failure_rate * 100).toFixed(1) + '%';
+                    this.metrics.suboptimalRate = (d.suboptimal_rate * 100).toFixed(1) + '%';
+                    if (d.failure_metrics) {
+                        this.metrics.failedQueries = d.failure_metrics.failed_queries || 0;
+                        this.metrics.batteryFailures = d.failure_metrics.battery_failures || 0;
+                        this.metrics.totalQueries = d.failure_metrics.total_queries || 0;
+                    }
+                    this.metrics.worstCase = d.worst_case || {};
+
                     if (d.graph) {
                         this.metrics.graphNodes = d.graph.total_nodes;
                         this.metrics.graphEdges = d.graph.total_edges;
@@ -82,6 +99,7 @@
                         this.metrics.strata = d.strata;
                     }
                 }
+
             });
         });
     </script>
@@ -260,8 +278,114 @@
             </div>
             <div class="dispatch-metrics">
                 <div class="summary-title">Dispatch Insights</div>
-                <div id="dispatch-insights" class="list-container" style="max-height: 250px; overflow-y: auto;">
+                <div id="dispatch-insights" class="list-container" style="max-height: 100px; overflow-y: auto;">
                     <p class="info-text fs-12 color-secondary-text">No dispatch logs available yet.</p>
+                </div>
+            </div>
+
+            <!-- Order Lifecycle & History Section -->
+            <div class="orders-section" style="margin-top: 20px;" x-data="{ activeOrderTab: 'active' }">
+                <div class="summary-title">Order Lifecycle & History</div>
+                
+                <!-- Tab Headers (Active vs Expired vs Delivered) -->
+                <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                    <button class="mode-tab" :class="activeOrderTab === 'active' ? 'mode-tab-active' : ''"
+                            style="flex: 1; padding: 6px; font-size: 11px; cursor: pointer;"
+                            @click="activeOrderTab = 'active'">
+                        Active (<span x-text="$store.sim.orders.filter(o => ['PENDING', 'ASSIGNED', 'IN_TRANSIT'].includes(o.status)).length">0</span>)
+                    </button>
+                    <button class="mode-tab" :class="activeOrderTab === 'expired' ? 'mode-tab-active' : ''"
+                            style="flex: 1; padding: 6px; font-size: 11px; cursor: pointer;"
+                            @click="activeOrderTab = 'expired'">
+                        Expired (<span x-text="$store.sim.orders.filter(o => o.status === 'EXPIRED').length">0</span>)
+                    </button>
+                    <button class="mode-tab" :class="activeOrderTab === 'delivered' ? 'mode-tab-active' : ''"
+                            style="flex: 1; padding: 6px; font-size: 11px; cursor: pointer;"
+                            @click="activeOrderTab = 'delivered'">
+                        Delivered (<span x-text="$store.sim.orders.filter(o => o.status === 'DELIVERED').length">0</span>)
+                    </button>
+                </div>
+                
+                <!-- Orders List -->
+                <div class="list-container" style="max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
+                    <!-- Active Orders -->
+                    <template x-if="activeOrderTab === 'active'">
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <template x-for="order in $store.sim.orders.filter(o => ['PENDING', 'ASSIGNED', 'IN_TRANSIT'].includes(o.status))" :key="order.id">
+                                <div class="delivery-item" :style="'border-left-color: ' + (order.status === 'PENDING' ? '#74c0fc' : order.status === 'ASSIGNED' ? '#f59f00' : '#9775fa')">
+                                    <div class="delivery-id">
+                                        <span x-text="order.id">ORDER-0</span>
+                                        <span class="status-badge" 
+                                              :style="'background: ' + (order.status === 'PENDING' ? 'rgba(116,192,252,0.15); color: #1c7ed6;' : order.status === 'ASSIGNED' ? 'rgba(245,159,0,0.15); color: #d9480f;' : 'rgba(151,117,250,0.15); color: #5f3dc4;')"
+                                              x-text="order.status">PENDING</span>
+                                    </div>
+                                    <div class="delivery-route">
+                                        <span class="delivery-stop pickup" x-text="order.pickup.name">Pickup</span>
+                                        <span class="delivery-arrow">➔</span>
+                                        <span class="delivery-stop dropoff" x-text="order.dropoff.name">Dropoff</span>
+                                    </div>
+                                    <template x-if="order.robot_name">
+                                        <div style="font-size: 11px; margin-top: 6px; color: #5f6368; display: flex; align-items: center; gap: 4px;">
+                                            <span>🤖 Assigned to: <strong x-text="order.robot_name">Robot</strong></span>
+                                            <template x-if="order.reassign_count > 0">
+                                                <span style="color: #f76707; font-weight: 600;" x-text="'(Reassigned ' + order.reassign_count + 'x)'"></span>
+                                            </template>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                            <div x-show="$store.sim.orders.filter(o => ['PENDING', 'ASSIGNED', 'IN_TRANSIT'].includes(o.status)).length === 0" 
+                                 style="text-align: center; font-style: italic; font-size: 12px; color: #999; padding: 15px;">
+                                No active orders.
+                            </div>
+                        </div>
+                    </template>
+                    
+                    <!-- Expired Orders -->
+                    <template x-if="activeOrderTab === 'expired'">
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <template x-for="order in $store.sim.orders.filter(o => o.status === 'EXPIRED')" :key="order.id">
+                                <div class="delivery-item" style="border-left-color: #ff6b6b; background: linear-gradient(135deg, #fff5f5 0%, #fffafb 100%);">
+                                    <div class="delivery-id">
+                                        <span x-text="order.id">ORDER-0</span>
+                                        <span class="status-badge" style="background: rgba(255, 107, 107, 0.15); color: #e03131;" x-text="order.status">EXPIRED</span>
+                                    </div>
+                                    <div class="delivery-route">
+                                        <span class="delivery-stop pickup" style="opacity: 0.7;" x-text="order.pickup.name">Pickup</span>
+                                        <span class="delivery-arrow" style="color: #ff6b6b;">➔</span>
+                                        <span class="delivery-stop dropoff" style="opacity: 0.7;" x-text="order.dropoff.name">Dropoff</span>
+                                    </div>
+                                </div>
+                            </template>
+                            <div x-show="$store.sim.orders.filter(o => o.status === 'EXPIRED').length === 0" 
+                                 style="text-align: center; font-style: italic; font-size: 12px; color: #999; padding: 15px;">
+                                No expired orders.
+                            </div>
+                        </div>
+                    </template>
+                    
+                    <!-- Delivered Orders -->
+                    <template x-if="activeOrderTab === 'delivered'">
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <template x-for="order in $store.sim.orders.filter(o => o.status === 'DELIVERED')" :key="order.id">
+                                <div class="delivery-item" style="border-left-color: #51cf66; background: linear-gradient(135deg, #f4fbf7 0%, #fafdfb 100%);">
+                                    <div class="delivery-id">
+                                        <span x-text="order.id">ORDER-0</span>
+                                        <span class="status-badge" style="background: rgba(81, 207, 102, 0.15); color: #2b8a3e;" x-text="order.status">DELIVERED</span>
+                                    </div>
+                                    <div class="delivery-route">
+                                        <span class="delivery-stop pickup" style="opacity: 0.7;" x-text="order.pickup.name">Pickup</span>
+                                        <span class="delivery-arrow" style="color: #51cf66;">➔</span>
+                                        <span class="delivery-stop dropoff" style="opacity: 0.7;" x-text="order.dropoff.name">Dropoff</span>
+                                    </div>
+                                </div>
+                            </template>
+                            <div x-show="$store.sim.orders.filter(o => o.status === 'DELIVERED').length === 0" 
+                                 style="text-align: center; font-style: italic; font-size: 12px; color: #999; padding: 15px;">
+                                No delivered orders.
+                            </div>
+                        </div>
+                    </template>
                 </div>
             </div>
         </div>
@@ -273,15 +397,41 @@
             <h3>Routing Insights</h3>
             <button class="close-panel" @click="$store.sim.panels.insights = false">×</button>
         </div>
-        <div class="panel-content">
-            <div class="compact-summary" style="margin-bottom: 20px;">
+        <div class="panel-content" style="max-height: calc(100vh - 80px); overflow-y: auto;">
+            <!-- Edge Cases & Reliability Section -->
+            <div class="compact-summary" style="margin-bottom: 10px;">
+                <div class="summary-title">Edge Cases & Reliability</div>
+                <div class="summary-hint" style="margin-top: 2px; line-height: 1.3;">
+                    Tracks system failures (timeouts, battery emergencies) and suboptimal route calculation rates.
+                </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+                <div class="stratum-card" style="padding: 10px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
+                    <div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7;">Failure Rate</div>
+                    <div style="font-size: 20px; font-weight: 700; margin-top: 4px;" x-text="$store.sim.metrics.failureRate">0.0%</div>
+                    <div style="font-size: 10px; opacity: 0.6; margin-top: 4px; line-height: 1.3;">
+                        Failed: <span x-text="$store.sim.metrics.failedQueries">0</span> queries, 
+                        <span x-text="$store.sim.metrics.batteryFailures">0</span> battery drops
+                    </div>
+                </div>
+                <div class="stratum-card" style="padding: 10px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
+                    <div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7;">Suboptimal Rate</div>
+                    <div style="font-size: 20px; font-weight: 700; margin-top: 4px;" x-text="$store.sim.metrics.suboptimalRate">0.0%</div>
+                    <div style="font-size: 10px; opacity: 0.6; margin-top: 4px; line-height: 1.3;">
+                        Queries with Optimality Ratio &gt; 1.05
+                    </div>
+                </div>
+            </div>
+
+            <div class="compact-summary" style="margin-bottom: 12px;">
                 <div class="summary-title">Performance by Difficulty</div>
-                <div class="summary-hint" style="margin-top: 0; margin-bottom: 12px; line-height: 1.4;">
+                <div class="summary-hint" style="margin-top: 2px; line-height: 1.3;">
                     Evaluates routing efficiency across different distance strata and topological complexity.
                 </div>
             </div>
 
-            <div class="strata-grid">
+            <div class="strata-grid" style="margin-bottom: 20px;">
                 <!-- Short Strata -->
                 <div class="stratum-card short">
                     <div class="stratum-header">
@@ -398,7 +548,50 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Worst-case Scenario Section -->
+            <div class="compact-summary" style="margin-top: 15px; margin-bottom: 12px;">
+                <div class="summary-title">Worst-case Scenario Profiling</div>
+                <div class="summary-hint" style="margin-top: 2px; line-height: 1.3;">
+                    Tracks maximum calculation time and node exploration queries for each algorithm.
+                </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;">
+                <template x-for="(stats, algo) in $store.sim.metrics.worstCase" :key="algo">
+                    <div class="stratum-card" style="padding: 10px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); font-size: 11px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px; margin-bottom: 6px;">
+                            <span style="font-weight: 600;" x-text="algo.replace('Search', '')">A*</span>
+                            <span style="font-size: 9px; padding: 1px 4px; border-radius: 3px;"
+                                  :style="stats.worst_time_query && stats.worst_time_query.status === 'failure' ? 'color: #ff6b6b; background: rgba(255,107,107,0.1);' : 'color: #51cf66; background: rgba(81,207,102,0.1);'"
+                                  x-text="stats.worst_time_query && stats.worst_time_query.status === 'failure' ? 'Failed Run' : 'Success Run'">Success</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <div>
+                                <span style="opacity: 0.6; font-size: 10px;">Max Time:</span>
+                                <div style="font-weight: 600; font-size: 11px; margin-top: 1px;" x-text="(stats.max_calculation_time || 0).toFixed(1) + ' ms'">0.0 ms</div>
+                                <div style="opacity: 0.5; font-size: 9px; margin-top: 2px;" x-show="stats.worst_time_query">
+                                    Nodes: <span x-text="stats.worst_time_query?.nodes_explored">0</span><br>
+                                    Path: <span x-text="stats.worst_time_query?.start_node">0</span> → <span x-text="stats.worst_time_query?.end_node">0</span>
+                                </div>
+                            </div>
+                            <div>
+                                <span style="opacity: 0.6; font-size: 10px;">Max Nodes Explored:</span>
+                                <div style="font-weight: 600; font-size: 11px; margin-top: 1px;" x-text="stats.max_nodes_explored + ' nodes'">0 nodes</div>
+                                <div style="opacity: 0.5; font-size: 9px; margin-top: 2px;" x-show="stats.worst_nodes_query">
+                                    Time: <span x-text="(stats.worst_nodes_query?.calc_time_ms || 0).toFixed(1) + ' ms'">0.0 ms</span><br>
+                                    Path: <span x-text="stats.worst_nodes_query?.start_node">0</span> → <span x-text="stats.worst_nodes_query?.end_node">0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+                <div x-show="Object.keys($store.sim.metrics.worstCase).length === 0" style="text-align: center; opacity: 0.5; padding: 15px; font-style: italic;">
+                    No worst-case profiling data collected yet.
+                </div>
+            </div>
         </div>
+
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

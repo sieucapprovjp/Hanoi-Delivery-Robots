@@ -17,9 +17,10 @@ class DisplayEngine {
             window.mapManager = mapManager;
         }
 
-        const [locData, robotData] = await Promise.all([
+        const [locData, robotData, orderData] = await Promise.all([
             pathfindingManager.getLocations(),
-            pathfindingManager.getRobots()
+            pathfindingManager.getRobots(),
+            pathfindingManager.getOrders().catch(() => ({ orders: [] }))
         ]);
 
         this.snappedLocations = locData.locations;
@@ -32,6 +33,13 @@ class DisplayEngine {
 
         this.robots.forEach(robot => robot.createMarker(mapManager.map));
 
+        if (orderData && orderData.orders) {
+            const store = Alpine.store('sim');
+            if (store) {
+                store.orders = orderData.orders;
+            }
+        }
+
         // Connect WebSocket
         if (typeof io !== 'undefined') {
             this.socket = io();
@@ -40,11 +48,29 @@ class DisplayEngine {
                 this.handleRobotState(state);
             });
 
+            this.socket.on('order_state_update', (task) => {
+                const store = Alpine.store('sim');
+                if (store) {
+                    const idx = store.orders.findIndex(o => o.id === task.id);
+                    if (idx !== -1) {
+                        store.orders[idx] = task;
+                    } else {
+                        store.orders.unshift(task);
+                    }
+                }
+            });
+
             this.socket.on('system_event', (data) => {
                 logEvent('🌐 ' + data.message);
                 addDispatchInsight(data.message);
                 if (typeof window.appendDispatchInsight === 'function') {
                     window.appendDispatchInsight(data.message);
+                }
+                if (data.message === "Simulation reset") {
+                    const store = Alpine.store('sim');
+                    if (store) {
+                        store.orders = [];
+                    }
                 }
             });
 
@@ -78,6 +104,9 @@ class DisplayEngine {
         robot.status = state.status;
         robot.battery = state.battery;
         robot.currentPathLength = state.current_path_length;
+        robot.chargingStation = state.charging_station;
+        robot.remainingChargeTime = state.remaining_charge_time;
+        robot.updateMarkerIcon();
         
         // Save duration per path index to prevent overwriting the duration of the current interpolating segment
         robot.backendDurations = robot.backendDurations || {};
@@ -112,7 +141,7 @@ class DisplayEngine {
                     state.path_index
                 );
             }
-        } else if (state.status === 'idle') {
+        } else if (state.status === 'idle' || state.status === 'charging') {
             robot.clearPathLine();
             robot.currentPath    = [];
             robot.geometryPath   = [];
@@ -167,8 +196,16 @@ class DisplayEngine {
             card.className = 'robot-card';
             card.style.borderLeftColor = robot.color;
             card.innerHTML = `
-                <div class="robot-name" style="color:${robot.color}">${robot.name}</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div class="robot-name" style="color:${robot.color}; margin-bottom: 0;">${robot.name}</div>
+                    <span style="font-size: 11px; font-weight: 700; color: ${robot.battery < 20 ? '#ea4335' : '#34a853'};">
+                        ${(robot.battery || 100).toFixed(1)}%
+                    </span>
+                </div>
                 <div class="robot-detail">Status: ${robot.status.toUpperCase()}</div>
+                ${robot.status === 'charging' && robot.remainingChargeTime > 0 ? `
+                    <div class="robot-detail">Remaining Charge Time: ${Math.round(robot.remainingChargeTime)}s</div>
+                ` : ''}
                 <div class="robot-detail">Target: ${robot.routeTarget ? robot.routeTarget : 'None'}</div>
                 <div class="battery-bar">
                     <div class="battery-fill" style="width: ${robot.battery || 100}%; background: ${robot.battery < 20 ? '#ea4335' : 'linear-gradient(90deg, #34a853, #4285f4)'}"></div>

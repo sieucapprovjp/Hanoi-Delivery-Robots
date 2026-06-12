@@ -191,33 +191,55 @@ class EventBus:
 class ScenarioConfig:
     """Configuration loader for pre-defined scenarios.
 
-    Handles loading and saving scenario event sequences from/to JSON files.
+    Handles loading and saving scenario event sequences, seeds, and parameters
+    from/to JSON files.
     """
 
-    def __init__(self, events: list[Event] | None = None) -> None:
+    def __init__(
+        self,
+        events: list[Event] | None = None,
+        seed: int | None = None,
+        params: dict | None = None,
+    ) -> None:
         """Initialize the ScenarioConfig.
 
         Args:
             events (list[Event] | None): Initial list of events.
+            seed (int | None): Seed value for random number generation.
+            params (dict | None): Scenario-specific parameter overrides.
         """
         self.events: list[Event] = events or []
+        self.seed: int | None = seed
+        self.params: dict = params or {}
 
     def load_from_file(self, filepath: str) -> None:
-        """Load scenario events from a JSON file.
+        """Load scenario events, seed, and params from a JSON file.
 
         Args:
             filepath (str): Path to the JSON file.
         """
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
-            event_list = data.get("events", data) if isinstance(data, dict) else data
+            if isinstance(data, dict):
+                self.seed = data.get("seed")
+                self.params = data.get("params", {})
+                event_list = data.get("events", [])
+            else:
+                self.seed = None
+                self.params = {}
+                event_list = data
             self.events = [Event.from_dict(e) for e in event_list]
 
     def save_to_file(self, filepath: str) -> None:
-        """Save scenario events to a JSON file.
+        """Save scenario events, seed, and params to a JSON file.
 
         Args:
             filepath (str): Path where the JSON file should be saved.
         """
         with open(filepath, "w", encoding="utf-8") as f:
-            json.dump([e.to_dict() for e in self.events], f, indent=2)
+            data = {
+                "seed": self.seed,
+                "params": self.params,
+                "events": [e.to_dict() for e in self.events],
+            }
+            json.dump(data, f, indent=2)

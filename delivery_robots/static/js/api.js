@@ -54,4 +54,10 @@ class BackendAPI {
         return response.json();
     }
 
+    async getOrders() {
+        const response = await fetch(CONFIG.API.ORDERS);
+        if (!response.ok) throw new Error(`Orders request failed: ${response.status}`);
+        return response.json();
+    }
+
 }

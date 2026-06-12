@@ -10,6 +10,8 @@ from .base import (
     AlgoResult,
     get_ordered_neighbors,
 )
+from .. import config
+from .exceptions import NoPathError, RoutingTimeoutError
 from ..utils.geo import haversine_distance
 from ..utils import intercept_measure
 
@@ -22,7 +24,7 @@ def compute_reverse_dijkstra(
     """Computes the shortest path cost from all nodes to dest_node using Reverse Dijkstra.
 
     Args:
-        graph (nx.MultiDiGraph): The road network graph snapshot.
+        graph (nx.MultiDiGraph): The road network snapshot.
         dest_node (int): The destination node from which the reverse search starts.
         weight_fn (Callable[[int, int, dict], float]): Function to calculate edge weight.
 
@@ -76,7 +78,8 @@ class AStarSearch(SearchContract[SearchInput, AlgoResult]):
                 planned cost, and planning time snapshot.
 
         Raises:
-            nx.NetworkXNoPath: If no path exists between the start and end nodes.
+            RoutingTimeoutError: If the search query times out.
+            NoPathError: If no path exists between the start and end nodes.
         """
         graph: nx.MultiDiGraph = context.graph
         start_node: int = context.start_node
@@ -99,6 +102,11 @@ class AStarSearch(SearchContract[SearchInput, AlgoResult]):
         open_set: List[Tuple[float, int]] = [(start_h, start_node)]
 
         while open_set:
+            if (time.perf_counter() - start_time) * 1000.0 > config.ROUTING_TIMEOUT_MS:
+                raise RoutingTimeoutError(
+                    "A* search timed out", nodes_explored=nodes_explored
+                )
+
             _, current = heapq.heappop(open_set)
             if current in visited:
                 continue
@@ -170,7 +178,7 @@ class AStarSearch(SearchContract[SearchInput, AlgoResult]):
                 priority: float = tentative_g + h_neighbor
                 heapq.heappush(open_set, (priority, neighbor))
 
-        raise nx.NetworkXNoPath
+        raise NoPathError("No path found by A*", nodes_explored=nodes_explored)
 
 
 def astar_search(

@@ -127,9 +127,27 @@ class SimulatorManager:
             },
         )
 
-    def start(self):
+    def start(self) -> None:
+        """Start the simulation loop and processes.
+
+        If a scenario config is loaded, apply its seed and parameters.
+        """
         if self.running:
             return
+
+        # Apply seed and params if scenario config is present
+        if self.scenario_config:
+            if self.scenario_config.seed is not None:
+                random.seed(self.scenario_config.seed)
+                try:
+                    import numpy as np
+
+                    np.random.seed(self.scenario_config.seed)
+                except ImportError:
+                    pass
+            if self.scenario_config.params:
+                for key, val in self.scenario_config.params.items():
+                    self.app_state[key] = val
 
         if not self.robots:
             self.initialize_robots()
@@ -445,6 +463,7 @@ class SimulatorManager:
                             task.pop("charge_planned_cost", None)
                             task.pop("charge_edge_planned_costs", None)
 
+                        task["robot_name"] = best_candidate.name
                         self.order_manager.mark_assigned(task)
 
                         # Assign task to new robot
@@ -498,6 +517,7 @@ class SimulatorManager:
                     # Remove from pending queue and mark assigned
                     if task in self.order_queue:
                         self.order_queue.remove(task)
+                    task["robot_name"] = robot.name
                     self.order_manager.mark_assigned(task)
 
                     # Compute battery cost to see if robot is low on battery

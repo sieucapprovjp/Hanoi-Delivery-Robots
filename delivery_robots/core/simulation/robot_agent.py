@@ -29,7 +29,7 @@ from ...utils.route_analysis import (
     build_segment_geometry,
 )
 from ...algorithms import run_weighted_route_search
-from ...utils.metrics import record_delivery_gap
+from ...utils.metrics import record_delivery_gap, record_battery_failure
 
 
 class EmergencyChargingException(Exception):
@@ -71,6 +71,7 @@ class RobotAgent:
         # Battery could be implemented here; for now we simulate basic movement
         self.battery = BATTERY_MAX
         self.current_task = None
+        self.charging_station_name: str | None = None
 
         # Start the lifecycle process
         self.action = env.process(self.run())
@@ -139,6 +140,7 @@ class RobotAgent:
         start_battery: float = self.battery
         start_time: float = self.env.now
         self.current_task = task
+        self.charging_station_name = None
 
         order_manager = self.app_state.get("order_manager")
         if order_manager:
@@ -159,6 +161,7 @@ class RobotAgent:
                 hub = task.get("charging_station")
                 hub_name = hub["name"] if hub else "Unknown Hub"
                 self.route_target = f"Charging at {hub_name}"
+                self.charging_station_name = hub_name
                 self.segment_duration = 0
                 self._emit_state()
                 yield from self.traverse_path(
@@ -288,7 +291,17 @@ class RobotAgent:
                     task["status"] = ORDER_STATUS_PENDING
                     order_queue.insert(0, task)
 
+            metrics = self.app_state.get("metrics")
+            metrics_lock = self.app_state.get("metrics_lock")
+            if metrics is not None:
+                if metrics_lock is not None:
+                    with metrics_lock:
+                        record_battery_failure(metrics)
+                else:
+                    record_battery_failure(metrics)
+
             self.status = ROBOT_STATUS_MOVING_TO_CHARGE
+            self.charging_station_name = None
             self.current_path = []
             self.geometry_path = []
             self.segment_geometry = []
@@ -300,6 +313,7 @@ class RobotAgent:
         except simpy.Interrupt as exc:
             if exc.cause == "reassignment":
                 self.status = ROBOT_STATUS_IDLE
+                self.charging_station_name = None
                 self.current_path = []
                 self.geometry_path = []
                 self.segment_geometry = []
@@ -315,6 +329,7 @@ class RobotAgent:
         self.geometry_path = []
         self.segment_geometry = []
         self.route_target = None
+        self.charging_station_name = None
         self.segment_duration = 0
         self.current_task = None
         self._emit_state()
@@ -764,6 +779,7 @@ class RobotAgent:
         graph = self.app_state["road_graph"]
         self.status = ROBOT_STATUS_MOVING_TO_CHARGE
         self.route_target = f"Charging at {station['name']}"
+        self.charging_station_name = station["name"]
         self.path_index = 0
 
         start_node = nearest_node_id(graph, self.lat, self.lon, self.app_state)
@@ -808,6 +824,7 @@ class RobotAgent:
         """
         self.status = ROBOT_STATUS_CHARGING
         self.route_target = f"Charging at {station['name']}"
+        self.charging_station_name = station["name"]
         self.current_path = []
         self.geometry_path = []
         self.segment_geometry = []
@@ -851,6 +868,7 @@ class RobotAgent:
 
         self.status = ROBOT_STATUS_IDLE
         self.route_target = None
+        self.charging_station_name = None
         self._emit_state()
         return
 
@@ -858,6 +876,20 @@ class RobotAgent:
         # Notify the manager/frontend of a state change
         if self.on_state_change:
             self.on_state_change(self.get_state())
+
+    def get_remaining_charge_time(self) -> float:
+        """Calculate the remaining time required to reach full charge (100%).
+
+        Args:
+            None
+
+        Returns:
+            float: Remaining charge time in simulation seconds, or 0.0 if not charging.
+        """
+        if self.status != ROBOT_STATUS_CHARGING:
+            return 0.0
+        r_charge = CHARGING_RATE_PERCENT_PER_MINUTE / 60.0
+        return max(0.0, (BATTERY_MAX - self.battery) / r_charge)
 
     def get_state(self):
         state = {
@@ -872,6 +904,8 @@ class RobotAgent:
             "battery": self.battery,
             "current_path_length": len(self.current_path),
             "segment_duration": self.segment_duration,
+            "charging_station": getattr(self, "charging_station_name", None),
+            "remaining_charge_time": self.get_remaining_charge_time(),
         }
 
         if self.geometry_path:

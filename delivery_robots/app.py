@@ -38,6 +38,7 @@ from .utils.metrics import (
     build_metrics_payload,
     create_metrics,
     record_route_metrics,
+    record_route_failure,
 )
 from .utils import MetricsInterceptor
 from .utils.route_analysis import (
@@ -118,10 +119,49 @@ def _on_route_search_completed(
             heuristic_effectiveness=heuristic_effectiveness,
             graph=graph,
             path=path,
+            algo_name=algo_name,
+        )
+
+
+def _on_route_search_failed(
+    calc_time_ms: float,
+    memory_bytes: int,
+    algo_name: str,
+    error: Exception,
+    graph=None,
+    start_node=None,
+    end_node=None,
+    nodes_explored: int = 0,
+) -> None:
+    """Callback function triggered when a route search fails.
+
+    Args:
+        calc_time_ms (float): Computation time spent before failure in ms.
+        memory_bytes (int): Memory usage in bytes.
+        algo_name (str): Name of the pathfinding algorithm.
+        error (Exception): The error/exception that caused the failure.
+        graph: The road network graph snapshot. Defaults to None.
+        start_node: The start node ID. Defaults to None.
+        end_node: The target node ID. Defaults to None.
+        nodes_explored: Number of nodes explored before failure.
+    """
+    with _metrics_lock:
+        record_route_failure(
+            _metrics,
+            calc_time_ms,
+            memory_bytes,
+            algo_name,
+            error,
+            graph=graph,
+            start_node=start_node,
+            end_node=end_node,
+            nodes_explored=nodes_explored,
         )
 
 
 MetricsInterceptor.register_callback(_on_route_search_completed)
+MetricsInterceptor.register_failure_callback(_on_route_search_failed)
+
 
 _api_logs_lock = threading.Lock()
 _api_logs = deque(maxlen=API_LOGS_MAX_LENGTH)
@@ -304,6 +344,7 @@ simulator = SimulatorManager(
     edge_weight_with_traffic=core_edge_weight_with_traffic,
     build_route_geometry=_build_route_geometry,
 )
+_app_state["simulator"] = simulator
 
 
 @socketio.on("start_simulation")

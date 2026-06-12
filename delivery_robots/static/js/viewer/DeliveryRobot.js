@@ -246,11 +246,47 @@ class DeliveryRobot {
             zIndexOffset: 1000
         }).addTo(map);
 
+        this.updateMarkerIcon();
+
         this.marker.bindPopup('Loading...');
         this.marker.on('click', () => {
             this.updatePopup();
             this.marker.openPopup();
         });
+    }
+
+    updateMarkerIcon() {
+        if (!this.marker) return;
+        const batteryPercent = Math.round(this.battery || 100);
+        const isCharging = this.status === 'charging';
+
+        let chargingBadge = '';
+        if (isCharging) {
+            chargingBadge = `<div class="robot-charge-badge">⚡</div>`;
+        }
+
+        let batteryColor = '#34a853'; // Green
+        if (batteryPercent < 20) {
+            batteryColor = '#ea4335'; // Red
+        } else if (batteryPercent < 50) {
+            batteryColor = '#fbc02d'; // Yellow
+        }
+
+        const batteryLabel = `<div class="robot-battery-label" style="background-color: ${batteryColor}">${batteryPercent}%</div>`;
+
+        const iconHtml = `
+            <div class="robot-marker-icon" style="--robot-color: ${this.color}">
+                🤖
+                ${chargingBadge}
+                ${batteryLabel}
+            </div>
+        `;
+
+        this.marker.setIcon(L.divIcon({
+            html: iconHtml,
+            iconSize: [44, 44],
+            iconAnchor: [22, 22]
+        }));
     }
 
     removeMarker() {
@@ -263,26 +299,64 @@ class DeliveryRobot {
 
     updatePopup() {
         let decisionState = CONFIG.UI.STATE_LABELS.IDLE;
+        let badgeClass = 'status-neutral';
+
         if (this.status !== CONFIG.ROBOT.STATUSES.IDLE) {
-            if (this.status === 'moving_to_pickup') decisionState = CONFIG.UI.STATE_LABELS.ROUTING_PICKUP;
-            else if (this.status === 'moving_to_dropoff') decisionState = CONFIG.UI.STATE_LABELS.ROUTING_DROPOFF;
-            else decisionState = CONFIG.UI.STATE_LABELS.MOVING;
+            if (this.status === 'moving_to_pickup') {
+                decisionState = CONFIG.UI.STATE_LABELS.ROUTING_PICKUP;
+                badgeClass = 'status-success';
+            } else if (this.status === 'moving_to_dropoff') {
+                decisionState = CONFIG.UI.STATE_LABELS.ROUTING_DROPOFF;
+                badgeClass = 'status-success';
+            } else if (this.status === 'moving_to_charge') {
+                decisionState = CONFIG.UI.STATE_LABELS.ROUTING_CHARGE;
+                badgeClass = 'status-warn';
+            } else if (this.status === 'charging') {
+                decisionState = CONFIG.UI.STATE_LABELS.CHARGING;
+                badgeClass = 'status-success';
+            } else {
+                decisionState = CONFIG.UI.STATE_LABELS.MOVING;
+                badgeClass = 'status-success';
+            }
+        }
+
+        let gridHtml = `
+            <div class="popup-grid-2">
+                <div class="grid-item"><div class="item-label">Status</div><div class="item-value">${this.status.toUpperCase()}</div></div>
+                <div class="grid-item"><div class="item-label">Battery</div><div class="item-value">${(this.battery || 100).toFixed(1)}%</div></div>
+            </div>
+        `;
+
+        if (this.status === 'charging' && this.remainingChargeTime > 0) {
+            gridHtml = `
+                <div class="popup-grid-3">
+                    <div class="grid-item"><div class="item-label">Status</div><div class="item-value">${this.status.toUpperCase()}</div></div>
+                    <div class="grid-item"><div class="item-label">Battery</div><div class="item-value">${(this.battery || 100).toFixed(1)}%</div></div>
+                    <div class="grid-item"><div class="item-label">Charge Time</div><div class="item-value">${Math.round(this.remainingChargeTime)}s</div></div>
+                </div>
+            `;
+        }
+
+        let targetHtml = '';
+        if (this.routeTarget) {
+            if (this.status === 'charging') {
+                targetHtml = `<div class="popup-info-box status-success">🎯 Target: ${this.routeTarget}</div>`;
+            } else {
+                const waypointsLeft = Math.max(0, (this.currentPathLength || this.currentPath.length) - this.pathIndex);
+                targetHtml = `<div class="popup-info-box status-success">🎯 Target: ${this.routeTarget}<br>${waypointsLeft} waypoints left</div>`;
+            }
         }
 
         const content = `
             <div class="robot-popup">
                 <div class="popup-title" style="--robot-color: ${this.color}">🤖 ${this.name}</div>
 
-                <div class="popup-status-badge ${this.status === CONFIG.ROBOT.STATUSES.MOVING ? 'status-success' : 'status-neutral'}">
+                <div class="popup-status-badge ${badgeClass}">
                     ${decisionState}
                 </div>
 
-                <div class="popup-grid-2">
-                    <div class="grid-item"><div class="item-label">Status</div><div class="item-value">${this.status.toUpperCase()}</div></div>
-                    <div class="grid-item"><div class="item-label">Battery</div><div class="item-value">${(this.battery || 100).toFixed(1)}%</div></div>
-                </div>
-
-                ${this.routeTarget ? `<div class="popup-info-box status-success">🎯 Target: ${this.routeTarget}<br>${(this.currentPathLength || this.currentPath.length) - this.pathIndex} waypoints left</div>` : ''}
+                ${gridHtml}
+                ${targetHtml}
             </div>
         `;
 
@@ -348,5 +422,6 @@ class DeliveryRobot {
         }
 
         this.drawPathLine();
+        this.updateMarkerIcon();
     }
 }

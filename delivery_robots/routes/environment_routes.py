@@ -213,6 +213,41 @@ def register_environment_routes(app, ctx):
             )
         )
 
+    @app.route("/api/orders", methods=["GET"])
+    def get_all_orders():
+        orders_list = app_state.get("all_orders", [])
+        orders_lock = app_state.get("orders_lock")
+
+        def get_order_state(task):
+            pickup = task.get("pickup", {})
+            dropoff = task.get("dropoff", {})
+            return {
+                "id": task["id"],
+                "pickup": {
+                    "name": pickup.get("name", "Unknown"),
+                    "lat": pickup.get("lat", 0.0),
+                    "lon": pickup.get("lon", 0.0),
+                },
+                "dropoff": {
+                    "name": dropoff.get("name", "Unknown"),
+                    "lat": dropoff.get("lat", 0.0),
+                    "lon": dropoff.get("lon", 0.0),
+                },
+                "status": task["status"],
+                "robot_name": task.get("robot_name"),
+                "created_time": task.get("created_time"),
+                "reassign_count": task.get("reassign_count", 0),
+                "last_reassign_time": task.get("last_reassign_time"),
+            }
+
+        if orders_lock:
+            with orders_lock:
+                serialized = [get_order_state(t) for t in orders_list]
+        else:
+            serialized = [get_order_state(t) for t in orders_list]
+
+        return jsonify({"orders": serialized}), 200
+
     @app.route("/api/rain/list")
     def list_rain():
         return jsonify(
@@ -554,3 +589,70 @@ def register_environment_routes(app, ctx):
             ), 404
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
+
+    @app.route("/api/scenario/load", methods=["POST"])
+    def load_scenario() -> tuple:
+        payload = request.get_json(silent=True) or {}
+        filepath = payload.get("filepath")
+
+        from ..core.event_bus import ScenarioConfig
+
+        config = ScenarioConfig()
+        if filepath:
+            try:
+                config.load_from_file(filepath)
+            except Exception as e:
+                return jsonify(
+                    {"error": f"Failed to load scenario from file: {e}"}
+                ), 400
+        else:
+            try:
+                seed = payload.get("seed")
+                params = payload.get("params", {})
+                events_data = payload.get("events", [])
+                events = [Event.from_dict(e) for e in events_data]
+
+                config.seed = seed
+                config.params = params
+                config.events = events
+            except Exception as e:
+                return jsonify({"error": f"Failed to parse scenario payload: {e}"}), 400
+
+        simulator = app_state.get("simulator")
+        if not simulator:
+            return jsonify(
+                {"error": "SimulatorManager instance not found in app state"}
+            ), 500
+
+        simulator.scenario_config = config
+
+        if config.params:
+            for key, val in config.params.items():
+                app_state[key] = val
+
+        return jsonify(
+            {
+                "status": "ok",
+                "message": "Scenario config loaded successfully",
+                "seed": config.seed,
+                "params": config.params,
+                "events_count": len(config.events),
+            }
+        ), 200
+
+    @app.route("/api/scenario/active", methods=["GET"])
+    def get_active_scenario() -> tuple:
+        simulator = app_state.get("simulator")
+        if not simulator or not simulator.scenario_config:
+            return jsonify({"scenario": None}), 200
+
+        config = simulator.scenario_config
+        return jsonify(
+            {
+                "scenario": {
+                    "seed": config.seed,
+                    "params": config.params,
+                    "events": [e.to_dict() for e in config.events],
+                }
+            }
+        ), 200

@@ -21,6 +21,10 @@ def create_metrics() -> Dict[str, Any]:
         "failed_orders": 0,
         "total_orders": 0,
         "failure_rate": 0.0,
+        "failed_queries": 0,
+        "battery_failures": 0,
+        "total_queries": 0,
+        "worst_case": {},
         "total_memory_used": 0,
         "avg_memory_used": 0.0,
         "last_memory_used": 0,
@@ -68,6 +72,7 @@ def record_route_metrics(
     heuristic_effectiveness: float = 1.0,
     graph: Any = None,
     path: List[int] = None,
+    algo_name: str = "AStarSearch",
 ) -> None:
     """Records the route calculation metrics from a single query execution.
 
@@ -79,6 +84,9 @@ def record_route_metrics(
         memory_bytes (int): Memory usage in bytes. Defaults to 0.
         optimality_ratio (float): Path optimality ratio. Defaults to 1.0.
         heuristic_effectiveness (float): Heuristic effectiveness ratio. Defaults to 1.0.
+        graph (Any, optional): The road graph. Defaults to None.
+        path (List[int], optional): The node ID path. Defaults to None.
+        algo_name (str): Name of the search algorithm used. Defaults to "AStarSearch".
     """
     from ..config import NEIGHBOR_ORDERING_POLICY
 
@@ -91,6 +99,43 @@ def record_route_metrics(
     metrics["neighbor_ordering_policy"] = policy
 
     metrics["total_calculations"] += 1
+    metrics["total_queries"] = metrics.get("total_queries", 0) + 1
+
+    # Track worst-case scenarios dynamically
+    if "worst_case" not in metrics:
+        metrics["worst_case"] = {}
+    if algo_name not in metrics["worst_case"]:
+        metrics["worst_case"][algo_name] = {
+            "max_calculation_time": 0.0,
+            "max_nodes_explored": 0,
+            "worst_time_query": None,
+            "worst_nodes_query": None,
+        }
+    algo_worst = metrics["worst_case"][algo_name]
+
+    if calc_time_ms > algo_worst["max_calculation_time"]:
+        algo_worst["max_calculation_time"] = calc_time_ms
+        if path:
+            algo_worst["worst_time_query"] = {
+                "start_node": int(path[0]),
+                "end_node": int(path[-1]),
+                "nodes_explored": int(nodes_explored),
+                "calc_time_ms": calc_time_ms,
+                "path_length": path_length,
+                "status": "success",
+            }
+    if nodes_explored > algo_worst["max_nodes_explored"]:
+        algo_worst["max_nodes_explored"] = nodes_explored
+        if path:
+            algo_worst["worst_nodes_query"] = {
+                "start_node": int(path[0]),
+                "end_node": int(path[-1]),
+                "nodes_explored": int(nodes_explored),
+                "calc_time_ms": calc_time_ms,
+                "path_length": path_length,
+                "status": "success",
+            }
+
     metrics["last_calculation_time"] = calc_time_ms
     metrics["min_calculation_time"] = min(metrics["min_calculation_time"], calc_time_ms)
     metrics["max_calculation_time"] = max(metrics["max_calculation_time"], calc_time_ms)
@@ -210,6 +255,76 @@ def record_delivery_gap(metrics: Dict[str, Any], gap: float) -> None:
     metrics["total_plan_execute_gap"] = metrics.get("total_plan_execute_gap", 0.0) + gap
 
 
+def record_route_failure(
+    metrics: Dict[str, Any],
+    calc_time_ms: float,
+    memory_bytes: int,
+    algo_name: str,
+    error: Exception,
+    graph: Any = None,
+    start_node: int | None = None,
+    end_node: int | None = None,
+    nodes_explored: int = 0,
+) -> None:
+    """Records a route calculation failure.
+
+    Args:
+        metrics (Dict[str, Any]): The metrics collection dictionary to update.
+        calc_time_ms (float): Computation time spent before failure in ms.
+        memory_bytes (int): Memory used during execution in bytes.
+        algo_name (str): Name of the pathfinding algorithm.
+        error (Exception): The error/exception that caused the failure.
+        graph (Any, optional): The road graph. Defaults to None.
+        start_node (int, optional): Start node ID of query. Defaults to None.
+        end_node (int, optional): End node ID of query. Defaults to None.
+        nodes_explored (int): Number of nodes explored. Defaults to 0.
+    """
+    metrics["failed_queries"] = metrics.get("failed_queries", 0) + 1
+    metrics["total_queries"] = metrics.get("total_queries", 0) + 1
+
+    # Worst-case scenario tracking for failures
+    if "worst_case" not in metrics:
+        metrics["worst_case"] = {}
+    if algo_name not in metrics["worst_case"]:
+        metrics["worst_case"][algo_name] = {
+            "max_calculation_time": 0.0,
+            "max_nodes_explored": 0,
+            "worst_time_query": None,
+            "worst_nodes_query": None,
+        }
+    algo_worst = metrics["worst_case"][algo_name]
+
+    if calc_time_ms > algo_worst["max_calculation_time"]:
+        algo_worst["max_calculation_time"] = calc_time_ms
+        algo_worst["worst_time_query"] = {
+            "start_node": int(start_node) if start_node is not None else None,
+            "end_node": int(end_node) if end_node is not None else None,
+            "nodes_explored": int(nodes_explored),
+            "calc_time_ms": calc_time_ms,
+            "error": type(error).__name__,
+            "status": "failure",
+        }
+    if nodes_explored > algo_worst["max_nodes_explored"]:
+        algo_worst["max_nodes_explored"] = nodes_explored
+        algo_worst["worst_nodes_query"] = {
+            "start_node": int(start_node) if start_node is not None else None,
+            "end_node": int(end_node) if end_node is not None else None,
+            "nodes_explored": int(nodes_explored),
+            "calc_time_ms": calc_time_ms,
+            "error": type(error).__name__,
+            "status": "failure",
+        }
+
+
+def record_battery_failure(metrics: Dict[str, Any]) -> None:
+    """Records an order failure due to robot running out of battery midway (safety abort).
+
+    Args:
+        metrics (Dict[str, Any]): The metrics collection dictionary to update.
+    """
+    metrics["battery_failures"] = metrics.get("battery_failures", 0) + 1
+
+
 def build_metrics_payload(
     metrics: Dict[str, Any],
     graph: Any,
@@ -236,7 +351,20 @@ def build_metrics_payload(
 
     total_orders = metrics.get("total_orders", 0)
     failed_orders = metrics.get("failed_orders", 0)
-    failure_rate = failed_orders / total_orders if total_orders > 0 else 0.0
+
+    failed_queries = metrics.get("failed_queries", 0)
+    battery_failures = metrics.get("battery_failures", 0)
+    total_queries = metrics.get("total_queries", 0)
+
+    query_failure_rate = (
+        (failed_queries + battery_failures) / total_queries
+        if total_queries > 0
+        else 0.0
+    )
+    order_failure_rate = failed_orders / total_orders if total_orders > 0 else 0.0
+    failure_rate = max(query_failure_rate, order_failure_rate)
+
+    failure_rate = min(1.0, max(0.0, failure_rate))
 
     from ..config import NEIGHBOR_ORDERING_POLICY
 
@@ -287,6 +415,9 @@ def build_metrics_payload(
             "failed_orders": failed_orders,
             "total_orders": total_orders,
             "failure_rate": round(failure_rate, 3),
+            "failed_queries": failed_queries,
+            "battery_failures": battery_failures,
+            "total_queries": total_queries,
         },
         "optimality_ratio": round(metrics.get("optimality_ratio", 1.0), 3),
         "plan_execute_gap": round(metrics.get("plan_execute_gap", 0.0), 3),
@@ -295,6 +426,7 @@ def build_metrics_payload(
         ),
         "failure_rate": round(failure_rate, 3),
         "suboptimal_rate": round(metrics.get("suboptimal_rate", 0.0), 3),
+        "worst_case": metrics.get("worst_case", {}),
     }
 
     if "strata" not in metrics:

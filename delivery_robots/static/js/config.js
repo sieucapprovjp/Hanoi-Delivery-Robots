@@ -30,7 +30,11 @@ const CONFIG = {
         },
         STATUSES: {
             IDLE: 'idle',
-            MOVING: 'moving'
+            MOVING: 'moving',
+            MOVING_TO_PICKUP: 'moving_to_pickup',
+            MOVING_TO_DROPOFF: 'moving_to_dropoff',
+            MOVING_TO_CHARGE: 'moving_to_charge',
+            CHARGING: 'charging'
         },
         PHASES: {
             TO_PICKUP: 'to_pickup',
@@ -67,6 +71,7 @@ const CONFIG = {
         OBSTACLE_CLEAR: '/api/obstacle/clear',
         OBSTACLE_RANDOMIZE: '/api/obstacle/randomize',
         METRICS: '/api/metrics',
+        ORDERS: '/api/orders',
         DATA_LOCATIONS: '/api/data/locations',
         DATA_HUBS: '/api/data/hubs',
         DATA_ROBOTS: '/api/data/robots'
@@ -88,7 +93,9 @@ const CONFIG = {
             IDLE: '⏸ Idle',
             MOVING: '🔄 Moving',
             ROUTING_PICKUP: '📦 Routing to pickup location',
-            ROUTING_DROPOFF: '🚚 Routing to delivery destination'
+            ROUTING_DROPOFF: '🚚 Routing to delivery destination',
+            ROUTING_CHARGE: '⚡ Routing to charging station',
+            CHARGING: '🔋 Charging'
         },
         LOG_SOURCES: {
             UI: 'ui',

@@ -4,6 +4,7 @@ Handles order lifecycle (PENDING, ASSIGNED, IN_TRANSIT, DELIVERED, EXPIRED),
 FIFO queue policy, periodic expiration checking, and failure metrics.
 """
 
+import threading
 import typing
 from typing import Generator
 
@@ -41,7 +42,11 @@ class OrderManager:
         self.socketio: typing.Any = socketio
 
         self.order_queue: list[dict] = []
+        self.all_orders: list[dict] = []
+        self._orders_lock: threading.Lock = threading.Lock()
         self.app_state["order_queue"] = self.order_queue
+        self.app_state["all_orders"] = self.all_orders
+        self.app_state["orders_lock"] = self._orders_lock
         self.app_state["order_manager"] = self
 
         # Ensure failed_orders and total_orders are initialized in metrics
@@ -53,6 +58,51 @@ class OrderManager:
 
         # Start periodic expiration check process
         self.process: simpy.Process = self.env.process(self.run())
+
+    def _emit_order_state(self, task: dict) -> None:
+        """Emit the order state update via SocketIO."""
+        if not self.socketio:
+            return
+
+        pickup = task.get("pickup")
+        if isinstance(pickup, dict):
+            pickup_serialized = {
+                "name": pickup.get("name", "Unknown"),
+                "lat": pickup.get("lat", 0.0),
+                "lon": pickup.get("lon", 0.0),
+            }
+        else:
+            pickup_serialized = {
+                "name": str(pickup) if pickup is not None else "Unknown",
+                "lat": 0.0,
+                "lon": 0.0,
+            }
+
+        dropoff = task.get("dropoff")
+        if isinstance(dropoff, dict):
+            dropoff_serialized = {
+                "name": dropoff.get("name", "Unknown"),
+                "lat": dropoff.get("lat", 0.0),
+                "lon": dropoff.get("lon", 0.0),
+            }
+        else:
+            dropoff_serialized = {
+                "name": str(dropoff) if dropoff is not None else "Unknown",
+                "lat": 0.0,
+                "lon": 0.0,
+            }
+
+        serialized = {
+            "id": task["id"],
+            "pickup": pickup_serialized,
+            "dropoff": dropoff_serialized,
+            "status": task["status"],
+            "robot_name": task.get("robot_name"),
+            "created_time": task.get("created_time"),
+            "reassign_count": task.get("reassign_count", 0),
+            "last_reassign_time": task.get("last_reassign_time"),
+        }
+        self.socketio.emit("order_state_update", serialized)
 
     def add_order(self, task: dict) -> None:
         """Add a new order to the queue.
@@ -66,11 +116,14 @@ class OrderManager:
         task["status"] = ORDER_STATUS_PENDING
         task["reassign_count"] = 0
         task["last_reassign_time"] = None
+        with self._orders_lock:
+            self.all_orders.append(task)
         self.order_queue.append(task)
         if "metrics" in self.app_state:
             self.app_state["metrics"]["total_orders"] = (
                 self.app_state["metrics"].get("total_orders", 0) + 1
             )
+        self._emit_order_state(task)
 
     def pop_next_pending(self) -> dict | None:
         """Retrieve the next PENDING order from the queue (FIFO policy).
@@ -95,7 +148,9 @@ class OrderManager:
             task (dict): The order information dictionary.
         """
         task["status"] = ORDER_STATUS_PENDING
+        task["robot_name"] = None
         self.order_queue.insert(0, task)
+        self._emit_order_state(task)
 
     def mark_assigned(self, task: dict) -> None:
         """Transition order status to ASSIGNED.
@@ -104,6 +159,7 @@ class OrderManager:
             task (dict): The order information dictionary.
         """
         task["status"] = ORDER_STATUS_ASSIGNED
+        self._emit_order_state(task)
 
     def mark_in_transit(self, task: dict) -> None:
         """Transition order status to IN_TRANSIT.
@@ -112,6 +168,7 @@ class OrderManager:
             task (dict): The order information dictionary.
         """
         task["status"] = ORDER_STATUS_IN_TRANSIT
+        self._emit_order_state(task)
 
     def mark_delivered(self, task: dict) -> None:
         """Transition order status to DELIVERED.
@@ -120,6 +177,7 @@ class OrderManager:
             task (dict): The order information dictionary.
         """
         task["status"] = ORDER_STATUS_DELIVERED
+        self._emit_order_state(task)
 
     def check_expired_orders(self) -> None:
         """Scan the queue and mark pending orders as EXPIRED if timeout is exceeded."""
@@ -132,6 +190,7 @@ class OrderManager:
                     and (now - created_time) > ORDER_EXPIRY_TIMEOUT
                 ):
                     task["status"] = ORDER_STATUS_EXPIRED
+                    task["robot_name"] = None
                     self.order_queue.remove(task)
 
                     # Update failure metrics
@@ -139,6 +198,8 @@ class OrderManager:
                         self.app_state["metrics"]["failed_orders"] = (
                             self.app_state["metrics"].get("failed_orders", 0) + 1
                         )
+
+                    self._emit_order_state(task)
 
                     # Emit system event via socketio if available
                     if self.socketio:

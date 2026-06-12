@@ -181,3 +181,6 @@ DIFFICULTY_ONE_WAY_THRESHOLD = 0.2
 
 # ── Neighbor Ordering ──
 NEIGHBOR_ORDERING_POLICY = "id"  # Default neighbor ordering policy
+
+# ── Routing Query Timeout ──
+ROUTING_TIMEOUT_MS = 1000.0  # Time limit in milliseconds for pathfinding query

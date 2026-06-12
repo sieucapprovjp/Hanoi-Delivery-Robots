@@ -9,6 +9,8 @@ from .base import (
     AlgoResult,
     get_ordered_neighbors,
 )
+from .. import config
+from .exceptions import NoPathError, RoutingTimeoutError
 from ..utils import intercept_measure
 
 
@@ -30,7 +32,8 @@ class DFSSearch(SearchContract[SearchInput, AlgoResult]):
                 planned cost, and planning time snapshot.
 
         Raises:
-            nx.NetworkXNoPath: If no path exists between the start and end nodes.
+            RoutingTimeoutError: If the search query times out.
+            NoPathError: If no path exists between the start and end nodes.
         """
         graph: nx.MultiDiGraph = context.graph
         start_node: int = context.start_node
@@ -42,6 +45,11 @@ class DFSSearch(SearchContract[SearchInput, AlgoResult]):
         nodes_explored: int = 0
 
         while stack:
+            if (time.perf_counter() - start_time) * 1000.0 > config.ROUTING_TIMEOUT_MS:
+                raise RoutingTimeoutError(
+                    "DFS search timed out", nodes_explored=nodes_explored
+                )
+
             current, parent = stack.pop()
             if current in visited:
                 continue
@@ -76,4 +84,4 @@ class DFSSearch(SearchContract[SearchInput, AlgoResult]):
                 if neighbor not in visited:
                     stack.append((neighbor, current))
 
-        raise nx.NetworkXNoPath
+        raise NoPathError("No path found by DFS", nodes_explored=nodes_explored)

@@ -7,6 +7,7 @@ from .metrics import (
 )
 from .profiler import Profiler, profile_block, profile_time
 from .interceptor import MetricsInterceptor, intercept_measure
+from .stats_engine import StatsEngine
 from .route_analysis import (
     build_route_response,
     edge_geometry_coordinates,
@@ -39,4 +40,5 @@ __all__ = [
     "validate_positive_number",
     "MetricsInterceptor",
     "intercept_measure",
+    "StatsEngine",
 ]

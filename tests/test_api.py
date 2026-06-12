@@ -112,6 +112,42 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 400)
 
+    def test_scenario_load_and_active_api(self):
+        # Initial active scenario should be None
+        resp_active = self.client.get("/api/scenario/active")
+        self.assertEqual(resp_active.status_code, 200)
+        self.assertIsNone(resp_active.get_json()["scenario"])
+
+        # Load scenario via POST
+        scenario_data = {
+            "seed": 999,
+            "params": {"dispatch_model": "hungarian"},
+            "events": [
+                {
+                    "type": "RAIN_ADDED",
+                    "data": {"lat": 21.0, "lon": 105.0, "radius": 150},
+                    "sim_time": 50.0,
+                }
+            ],
+        }
+        resp_load = self.client.post("/api/scenario/load", json=scenario_data)
+        self.assertEqual(resp_load.status_code, 200)
+        self.assertEqual(resp_load.get_json()["status"], "ok")
+        self.assertEqual(resp_load.get_json()["seed"], 999)
+
+        # Active scenario should now be populated
+        resp_active = self.client.get("/api/scenario/active")
+        self.assertEqual(resp_active.status_code, 200)
+        active_data = resp_active.get_json()["scenario"]
+        self.assertIsNotNone(active_data)
+        self.assertEqual(active_data["seed"], 999)
+        self.assertEqual(active_data["params"]["dispatch_model"], "hungarian")
+        self.assertEqual(len(active_data["events"]), 1)
+        self.assertEqual(active_data["events"][0]["type"], "RAIN_ADDED")
+
+        # Check that parameter was applied to app state
+        self.assertEqual(appcore._app_state["dispatch_model"], "hungarian")
+
 
 if __name__ == "__main__":
     unittest.main()

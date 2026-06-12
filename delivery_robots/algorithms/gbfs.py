@@ -10,6 +10,8 @@ from .base import (
     AlgoResult,
     get_ordered_neighbors,
 )
+from .. import config
+from .exceptions import NoPathError, RoutingTimeoutError
 from ..utils.geo import haversine_distance
 from ..utils import intercept_measure
 
@@ -32,7 +34,8 @@ class GBFSSearch(SearchContract[SearchInput, AlgoResult]):
                 planned cost, and planning time snapshot.
 
         Raises:
-            nx.NetworkXNoPath: If no path exists between the start and end nodes.
+            RoutingTimeoutError: If the search query times out.
+            NoPathError: If no path exists between the start and end nodes.
         """
         graph: nx.MultiDiGraph = context.graph
         start_node: int = context.start_node
@@ -55,6 +58,11 @@ class GBFSSearch(SearchContract[SearchInput, AlgoResult]):
         open_set: List[Tuple[float, int]] = [(start_h, start_node)]
 
         while open_set:
+            if (time.perf_counter() - start_time) * 1000.0 > config.ROUTING_TIMEOUT_MS:
+                raise RoutingTimeoutError(
+                    "GBFS search timed out", nodes_explored=nodes_explored
+                )
+
             _, current = heapq.heappop(open_set)
             if current in visited:
                 continue
@@ -101,7 +109,7 @@ class GBFSSearch(SearchContract[SearchInput, AlgoResult]):
                 )
                 heapq.heappush(open_set, (h_neighbor, neighbor))
 
-        raise nx.NetworkXNoPath
+        raise NoPathError("No path found by GBFS", nodes_explored=nodes_explored)
 
 
 def gbfs_search(

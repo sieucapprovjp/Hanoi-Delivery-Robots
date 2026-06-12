@@ -17,6 +17,7 @@ class MetricsInterceptor:
     """Class responsible for managing metrics callbacks and logging."""
 
     _callbacks: List[Callable[..., None]] = []
+    _failure_callbacks: List[Callable[..., None]] = []
     log_dir: str = "logs"
     log_file: str = os.path.join(log_dir, "interceptor.log")
 
@@ -30,6 +31,16 @@ class MetricsInterceptor:
                 graph, path).
         """
         cls._callbacks.append(callback)
+
+    @classmethod
+    def register_failure_callback(cls, callback: Callable[..., None]) -> None:
+        """Registers a callback function to receive search failure metrics.
+
+        Args:
+            callback: A callable taking (calc_time_ms, memory_bytes, algo_name,
+                error, graph, start_node, end_node, nodes_explored).
+        """
+        cls._failure_callbacks.append(callback)
 
     @classmethod
     def notify(
@@ -138,6 +149,61 @@ class MetricsInterceptor:
         except Exception:
             pass
 
+    @classmethod
+    def notify_failure(
+        cls,
+        calc_time_ms: float,
+        memory_bytes: int,
+        algo_name: str,
+        error: Exception,
+        graph: Any = None,
+        start_node: int | None = None,
+        end_node: int | None = None,
+        nodes_explored: int = 0,
+    ) -> None:
+        """Notifies all registered failure callbacks and logs the error.
+
+        Args:
+            calc_time_ms (float): Time spent during routing computation in ms.
+            memory_bytes (int): Memory used during search.
+            algo_name (str): The routing algorithm name.
+            error (Exception): The exception encountered.
+            graph: The network graph. Defaults to None.
+            start_node: The start node ID. Defaults to None.
+            end_node: The target node ID. Defaults to None.
+            nodes_explored: Number of nodes explored. Defaults to 0.
+        """
+        for cb in cls._failure_callbacks:
+            try:
+                cb(
+                    calc_time_ms,
+                    memory_bytes,
+                    algo_name,
+                    error,
+                    graph,
+                    start_node,
+                    end_node,
+                    nodes_explored,
+                )
+            except Exception:
+                pass
+
+        try:
+            if not os.path.exists(cls.log_dir):
+                os.makedirs(cls.log_dir)
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            log_line = (
+                f"[{timestamp}] [{algo_name}] FAILURE | "
+                f"Nodes Explored: {nodes_explored} | "
+                f"Time: {calc_time_ms:.2f} ms | "
+                f"Memory: {memory_bytes} bytes | "
+                f"Error: {type(error).__name__}: {error}\n"
+            )
+            with open(cls.log_file, "a") as f:
+                f.write(log_line)
+        except Exception:
+            pass
+
 
 def intercept_measure(func: Callable[..., T]) -> Callable[..., T]:
     """Decorator to intercept and measure search algorithm metrics non-invasively.
@@ -158,8 +224,43 @@ def intercept_measure(func: Callable[..., T]) -> Callable[..., T]:
         start_time = time.perf_counter()
         start_mem, _ = tracemalloc.get_traced_memory()
 
-        # Run the search algorithm
-        result = func(*args, **kwargs)
+        # Derive algorithm name from class/function name
+        algo_name = func.__name__
+        if args and hasattr(args[0], "__class__"):
+            algo_name = args[0].__class__.__name__
+
+        # Extract context to get start and end nodes
+        context = None
+        if len(args) >= 2 and hasattr(args[1], "graph"):
+            context = args[1]
+        elif "context" in kwargs:
+            context = kwargs["context"]
+
+        graph = context.graph if context else None
+        start_node = getattr(context, "start_node", None) if context else None
+        end_node = getattr(context, "end_node", None) if context else None
+
+        try:
+            # Run the search algorithm
+            result = func(*args, **kwargs)
+        except Exception as exc:
+            end_time = time.perf_counter()
+            _, peak_mem = tracemalloc.get_traced_memory()
+            calc_time_ms = (end_time - start_time) * 1000.0
+            memory_bytes = max(0, peak_mem - start_mem)
+            nodes_explored = getattr(exc, "nodes_explored", 0)
+
+            MetricsInterceptor.notify_failure(
+                calc_time_ms=calc_time_ms,
+                memory_bytes=memory_bytes,
+                algo_name=algo_name,
+                error=exc,
+                graph=graph,
+                start_node=start_node,
+                end_node=end_node,
+                nodes_explored=nodes_explored,
+            )
+            raise exc
 
         end_time = time.perf_counter()
         _, peak_mem = tracemalloc.get_traced_memory()
@@ -193,19 +294,6 @@ def intercept_measure(func: Callable[..., T]) -> Callable[..., T]:
         if hasattr(result, "heuristic_effectiveness"):
             heuristic_effectiveness = getattr(result, "heuristic_effectiveness")
 
-        # Derive algorithm name from class/function name
-        algo_name = func.__name__
-        if args and hasattr(args[0], "__class__"):
-            algo_name = args[0].__class__.__name__
-
-        # Extract graph and path from context
-        context = None
-        if len(args) >= 2 and hasattr(args[1], "graph"):
-            context = args[1]
-        elif "context" in kwargs:
-            context = kwargs["context"]
-
-        graph = context.graph if context else None
         path = getattr(result, "path", None)
 
         MetricsInterceptor.notify(
