@@ -223,6 +223,7 @@ class SnapFactory:
             "snapshot_time": real_time_val,
             "obstacles_lock": threading.Lock(),
             "dynamic_traffic_lock": threading.Lock(),
+            "neighbor_ordering_policy": state.get("neighbor_ordering_policy", "id"),
         }
 
         return GraphSnapshot(graph_copy, sim_time, snap_state)

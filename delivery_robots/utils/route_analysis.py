@@ -1,3 +1,4 @@
+from typing import Any, List
 import numpy as np
 
 from ..config import (
@@ -153,3 +154,92 @@ def build_route_response(
             "estimatedMinutes": round(total_cost / SPEED_METERS_PER_SECOND / 60.0, 1),
         }
     return response
+
+
+def classify_query_difficulty(graph: Any, path: List[int]) -> str:
+    """Classifies the difficulty of a query path into one of the four strata.
+
+    Args:
+        graph: The road network graph (networkx.MultiDiGraph).
+        path (List[int]): List of node IDs representing the path.
+
+    Returns:
+        str: One of "short", "medium", "long", or "topologically_hard".
+    """
+    import networkx as nx
+    from ..config import (
+        DIFFICULTY_SHORT_MAX_METERS,
+        DIFFICULTY_MEDIUM_MAX_METERS,
+        DIFFICULTY_ONE_WAY_THRESHOLD,
+        DEFAULT_EDGE_LENGTH,
+    )
+
+    if not path or len(path) < 2:
+        return "short"
+
+    # 1. Topological Hardness Checks
+    # Cache largest SCC on the graph object for efficiency, validating by node/edge counts
+    if (
+        "largest_scc" not in graph.graph
+        or graph.graph.get("largest_scc_nodes_count") != graph.number_of_nodes()
+        or graph.graph.get("largest_scc_edges_count") != graph.number_of_edges()
+    ):
+        sccs = list(nx.strongly_connected_components(graph))
+        graph.graph["largest_scc"] = max(sccs, key=len) if sccs else set()
+        graph.graph["largest_scc_nodes_count"] = graph.number_of_nodes()
+        graph.graph["largest_scc_edges_count"] = graph.number_of_edges()
+    largest_scc = graph.graph["largest_scc"]
+
+    # Check for nodes outside largest SCC
+    has_node_outside_largest_scc = any(node not in largest_scc for node in path)
+
+    # Check for dead-ends (out_degree == 0) on the path or 1-hop neighbors
+    has_dead_end_nearby = False
+    for node in path:
+        if graph.out_degree(node) == 0:
+            has_dead_end_nearby = True
+            break
+        for neighbor in graph.neighbors(node):
+            if graph.out_degree(neighbor) == 0:
+                has_dead_end_nearby = True
+                break
+        if has_dead_end_nearby:
+            break
+
+    # Check one-way streets ratio
+    one_way_count = 0
+    for idx in range(len(path) - 1):
+        u = path[idx]
+        v = path[idx + 1]
+        # Structurally one-way if there is no reverse edge
+        if not graph.has_edge(v, u):
+            one_way_count += 1
+    one_way_ratio = one_way_count / (len(path) - 1)
+
+    if (
+        has_node_outside_largest_scc
+        or has_dead_end_nearby
+        or one_way_ratio >= DIFFICULTY_ONE_WAY_THRESHOLD
+    ):
+        return "topologically_hard"
+
+    # 2. Distance-based classification
+    # Calculate path length in meters
+    route_distance = 0.0
+    for idx in range(len(path) - 1):
+        u = path[idx]
+        v = path[idx + 1]
+        edge_options = graph.get_edge_data(u, v)
+        if edge_options:
+            edge_data = min(
+                edge_options.values(),
+                key=lambda item: item.get("length", float("inf")),
+            )
+            route_distance += edge_data.get("length", DEFAULT_EDGE_LENGTH)
+
+    if route_distance < DIFFICULTY_SHORT_MAX_METERS:
+        return "short"
+    elif route_distance <= DIFFICULTY_MEDIUM_MAX_METERS:
+        return "medium"
+    else:
+        return "long"

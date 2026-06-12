@@ -21,7 +21,8 @@
                     dispatch: false,
                     computing: false,
                     weather: false,
-                    decision: false
+                    decision: false,
+                    insights: false
                 },
                 metrics: {
                     totalCalculations: 0,
@@ -37,7 +38,13 @@
                     trafficCount: 0,
                     obstacleCount: 0,
                     fleetAlgo: 'A*',
-                    speed: '1x'
+                    speed: '1x',
+                    strata: {
+                        short: { total_calculations: 0, avg_calculation_time: 0, avg_nodes_explored: 0, avg_optimality_ratio: 1.0, avg_heuristic_effectiveness: 1.0, avg_memory_used_bytes: 0 },
+                        medium: { total_calculations: 0, avg_calculation_time: 0, avg_nodes_explored: 0, avg_optimality_ratio: 1.0, avg_heuristic_effectiveness: 1.0, avg_memory_used_bytes: 0 },
+                        long: { total_calculations: 0, avg_calculation_time: 0, avg_nodes_explored: 0, avg_optimality_ratio: 1.0, avg_heuristic_effectiveness: 1.0, avg_memory_used_bytes: 0 },
+                        topologically_hard: { total_calculations: 0, avg_calculation_time: 0, avg_nodes_explored: 0, avg_optimality_ratio: 1.0, avg_heuristic_effectiveness: 1.0, avg_memory_used_bytes: 0 }
+                    }
                 },
                 weather: {
                     mode: 'rain',
@@ -70,6 +77,10 @@
                     this.metrics.rainCount = d.active_factors.rain_zones;
                     this.metrics.trafficCount = d.active_factors.traffic_routes;
                     this.metrics.obstacleCount = d.active_factors.obstacles;
+
+                    if (d.strata) {
+                        this.metrics.strata = d.strata;
+                    }
                 }
             });
         });
@@ -106,6 +117,8 @@
             :class="$store.sim.panels.weather ? 'fab-active' : ''">🌦️</button>
         <button class="fab" title="Dispatch Engine" @click="$store.sim.panels.dispatch = !$store.sim.panels.dispatch"
             :class="$store.sim.panels.dispatch ? 'fab-active' : ''">📋</button>
+        <button class="fab" title="Routing Insights" @click="$store.sim.panels.insights = !$store.sim.panels.insights"
+            :class="$store.sim.panels.insights ? 'fab-active' : ''">📊</button>
     </div>
 
     <!-- Control Panel -->
@@ -249,6 +262,140 @@
                 <div class="summary-title">Dispatch Insights</div>
                 <div id="dispatch-insights" class="list-container" style="max-height: 250px; overflow-y: auto;">
                     <p class="info-text fs-12 color-secondary-text">No dispatch logs available yet.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Insights Panel -->
+    <div class="insights-panel" x-show="$store.sim.panels.insights" x-transition x-cloak>
+        <div class="panel-header">
+            <h3>Routing Insights</h3>
+            <button class="close-panel" @click="$store.sim.panels.insights = false">×</button>
+        </div>
+        <div class="panel-content">
+            <div class="compact-summary" style="margin-bottom: 20px;">
+                <div class="summary-title">Performance by Difficulty</div>
+                <div class="summary-hint" style="margin-top: 0; margin-bottom: 12px; line-height: 1.4;">
+                    Evaluates routing efficiency across different distance strata and topological complexity.
+                </div>
+            </div>
+
+            <div class="strata-grid">
+                <!-- Short Strata -->
+                <div class="stratum-card short">
+                    <div class="stratum-header">
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <span class="stratum-badge short">🟢 Short</span>
+                            <span class="stratum-desc">&lt; 500m</span>
+                        </div>
+                        <span class="stratum-count" x-text="$store.sim.metrics.strata.short.total_calculations + ' runs'">0 runs</span>
+                    </div>
+                    <div class="stratum-stats">
+                        <div class="stratum-stat-row">
+                            <span>Avg Time</span>
+                            <strong x-text="($store.sim.metrics.strata.short.avg_calculation_time || 0).toFixed(1) + ' ms'">0 ms</strong>
+                        </div>
+                        <div class="stratum-stat-row">
+                            <span>Nodes Explored</span>
+                            <strong x-text="($store.sim.metrics.strata.short.avg_nodes_explored || 0).toFixed(1)">0</strong>
+                        </div>
+                        <div class="stratum-stat-row">
+                            <span>Optimality Ratio</span>
+                            <strong x-text="($store.sim.metrics.strata.short.avg_optimality_ratio || 1).toFixed(3)">1.000</strong>
+                        </div>
+                        <div class="stratum-stat-row">
+                            <span>Heuristic Effect.</span>
+                            <strong x-text="($store.sim.metrics.strata.short.avg_heuristic_effectiveness || 1).toFixed(3)">1.000</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Medium Strata -->
+                <div class="stratum-card medium">
+                    <div class="stratum-header">
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <span class="stratum-badge medium">🟡 Medium</span>
+                            <span class="stratum-desc">500m - 2km</span>
+                        </div>
+                        <span class="stratum-count" x-text="$store.sim.metrics.strata.medium.total_calculations + ' runs'">0 runs</span>
+                    </div>
+                    <div class="stratum-stats">
+                        <div class="stratum-stat-row">
+                            <span>Avg Time</span>
+                            <strong x-text="($store.sim.metrics.strata.medium.avg_calculation_time || 0).toFixed(1) + ' ms'">0 ms</strong>
+                        </div>
+                        <div class="stratum-stat-row">
+                            <span>Nodes Explored</span>
+                            <strong x-text="($store.sim.metrics.strata.medium.avg_nodes_explored || 0).toFixed(1)">0</strong>
+                        </div>
+                        <div class="stratum-stat-row">
+                            <span>Optimality Ratio</span>
+                            <strong x-text="($store.sim.metrics.strata.medium.avg_optimality_ratio || 1).toFixed(3)">1.000</strong>
+                        </div>
+                        <div class="stratum-stat-row">
+                            <span>Heuristic Effect.</span>
+                            <strong x-text="($store.sim.metrics.strata.medium.avg_heuristic_effectiveness || 1).toFixed(3)">1.000</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Long Strata -->
+                <div class="stratum-card long">
+                    <div class="stratum-header">
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <span class="stratum-badge long">🟠 Long</span>
+                            <span class="stratum-desc">&gt; 2km</span>
+                        </div>
+                        <span class="stratum-count" x-text="$store.sim.metrics.strata.long.total_calculations + ' runs'">0 runs</span>
+                    </div>
+                    <div class="stratum-stats">
+                        <div class="stratum-stat-row">
+                            <span>Avg Time</span>
+                            <strong x-text="($store.sim.metrics.strata.long.avg_calculation_time || 0).toFixed(1) + ' ms'">0 ms</strong>
+                        </div>
+                        <div class="stratum-stat-row">
+                            <span>Nodes Explored</span>
+                            <strong x-text="($store.sim.metrics.strata.long.avg_nodes_explored || 0).toFixed(1)">0</strong>
+                        </div>
+                        <div class="stratum-stat-row">
+                            <span>Optimality Ratio</span>
+                            <strong x-text="($store.sim.metrics.strata.long.avg_optimality_ratio || 1).toFixed(3)">1.000</strong>
+                        </div>
+                        <div class="stratum-stat-row">
+                            <span>Heuristic Effect.</span>
+                            <strong x-text="($store.sim.metrics.strata.long.avg_heuristic_effectiveness || 1).toFixed(3)">1.000</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Topologically Hard Strata -->
+                <div class="stratum-card topologically-hard">
+                    <div class="stratum-header">
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <span class="stratum-badge topologically-hard">🔴 Topo Hard</span>
+                            <span class="stratum-desc">One-way / Dead-end</span>
+                        </div>
+                        <span class="stratum-count" x-text="$store.sim.metrics.strata.topologically_hard.total_calculations + ' runs'">0 runs</span>
+                    </div>
+                    <div class="stratum-stats">
+                        <div class="stratum-stat-row">
+                            <span>Avg Time</span>
+                            <strong x-text="($store.sim.metrics.strata.topologically_hard.avg_calculation_time || 0).toFixed(1) + ' ms'">0 ms</strong>
+                        </div>
+                        <div class="stratum-stat-row">
+                            <span>Nodes Explored</span>
+                            <strong x-text="($store.sim.metrics.strata.topologically_hard.avg_nodes_explored || 0).toFixed(1)">0</strong>
+                        </div>
+                        <div class="stratum-stat-row">
+                            <span>Optimality Ratio</span>
+                            <strong x-text="($store.sim.metrics.strata.topologically_hard.avg_optimality_ratio || 1).toFixed(3)">1.000</strong>
+                        </div>
+                        <div class="stratum-stat-row">
+                            <span>Heuristic Effect.</span>
+                            <strong x-text="($store.sim.metrics.strata.topologically_hard.avg_heuristic_effectiveness || 1).toFixed(3)">1.000</strong>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

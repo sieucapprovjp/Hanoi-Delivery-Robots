@@ -3,7 +3,13 @@
 import heapq
 from typing import Tuple, List, Dict, Set, Callable, Any
 import networkx as nx
-from .base import SearchContract, SearchInput, reconstruct_node_path, AlgoResult
+from .base import (
+    SearchContract,
+    SearchInput,
+    reconstruct_node_path,
+    AlgoResult,
+    get_ordered_neighbors,
+)
 from ..utils import intercept_measure
 
 
@@ -62,7 +68,8 @@ class DijkstraSearch(SearchContract[SearchInput, AlgoResult]):
                     computation_time=comp_time,
                 )
 
-            for neighbor in graph.neighbors(current):
+            policy = getattr(context, "neighbor_ordering_policy", "id")
+            for neighbor in get_ordered_neighbors(graph, current, end_node, policy):
                 if neighbor in visited:
                     continue
 

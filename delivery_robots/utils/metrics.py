@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, List
 from ..config import METRICS_INITIAL_MIN_CALC_TIME, METRICS_PATH_LENGTHS_MAX_SIZE
 
 
@@ -39,6 +39,22 @@ def create_metrics() -> Dict[str, Any]:
         "total_deliveries": 0,
         "optimality_ratio": 1.0,
         "heuristic_effectiveness": 1.0,
+        "strata": {
+            s: {
+                "total_calculations": 0,
+                "total_calculation_time": 0.0,
+                "total_nodes_explored": 0,
+                "total_optimality_ratio": 0.0,
+                "total_heuristic_effectiveness": 0.0,
+                "total_memory_used": 0,
+                "avg_calculation_time": 0.0,
+                "avg_nodes_explored": 0.0,
+                "avg_optimality_ratio": 1.0,
+                "avg_heuristic_effectiveness": 1.0,
+                "avg_memory_used": 0.0,
+            }
+            for s in ["short", "medium", "long", "topologically_hard"]
+        },
     }
 
 
@@ -50,6 +66,8 @@ def record_route_metrics(
     memory_bytes: int = 0,
     optimality_ratio: float = 1.0,
     heuristic_effectiveness: float = 1.0,
+    graph: Any = None,
+    path: List[int] = None,
 ) -> None:
     """Records the route calculation metrics from a single query execution.
 
@@ -62,6 +80,16 @@ def record_route_metrics(
         optimality_ratio (float): Path optimality ratio. Defaults to 1.0.
         heuristic_effectiveness (float): Heuristic effectiveness ratio. Defaults to 1.0.
     """
+    from ..config import NEIGHBOR_ORDERING_POLICY
+
+    policy = NEIGHBOR_ORDERING_POLICY
+    if graph is not None:
+        if hasattr(graph, "neighbor_ordering_policy"):
+            policy = getattr(graph, "neighbor_ordering_policy")
+        elif hasattr(graph, "snap_state") and graph.snap_state:
+            policy = graph.snap_state.get("neighbor_ordering_policy", policy)
+    metrics["neighbor_ordering_policy"] = policy
+
     metrics["total_calculations"] += 1
     metrics["last_calculation_time"] = calc_time_ms
     metrics["min_calculation_time"] = min(metrics["min_calculation_time"], calc_time_ms)
@@ -120,6 +148,55 @@ def record_route_metrics(
         metrics["total_heuristic_effectiveness"] / metrics["total_calculations"]
     )
 
+    if "strata" not in metrics:
+        metrics["strata"] = {
+            s: {
+                "total_calculations": 0,
+                "total_calculation_time": 0.0,
+                "total_nodes_explored": 0,
+                "total_optimality_ratio": 0.0,
+                "total_heuristic_effectiveness": 0.0,
+                "total_memory_used": 0,
+                "avg_calculation_time": 0.0,
+                "avg_nodes_explored": 0.0,
+                "avg_optimality_ratio": 1.0,
+                "avg_heuristic_effectiveness": 1.0,
+                "avg_memory_used": 0.0,
+            }
+            for s in ["short", "medium", "long", "topologically_hard"]
+        }
+
+    difficulty = "short"
+    if graph is not None and path is not None:
+        from .route_analysis import classify_query_difficulty
+
+        difficulty = classify_query_difficulty(graph, path)
+
+    stratum = metrics["strata"][difficulty]
+    stratum["total_calculations"] += 1
+    stratum["total_calculation_time"] += calc_time_ms
+    stratum["total_nodes_explored"] += nodes_explored
+    stratum["total_optimality_ratio"] += optimality_ratio
+    stratum["total_heuristic_effectiveness"] += heuristic_effectiveness
+    stratum["total_memory_used"] += memory_bytes
+
+    if stratum["total_calculations"] > 0:
+        stratum["avg_calculation_time"] = (
+            stratum["total_calculation_time"] / stratum["total_calculations"]
+        )
+        stratum["avg_nodes_explored"] = (
+            stratum["total_nodes_explored"] / stratum["total_calculations"]
+        )
+        stratum["avg_optimality_ratio"] = (
+            stratum["total_optimality_ratio"] / stratum["total_calculations"]
+        )
+        stratum["avg_heuristic_effectiveness"] = (
+            stratum["total_heuristic_effectiveness"] / stratum["total_calculations"]
+        )
+        stratum["avg_memory_used"] = (
+            stratum["total_memory_used"] / stratum["total_calculations"]
+        )
+
 
 def record_delivery_gap(metrics: Dict[str, Any], gap: float) -> None:
     """Records the plan-execute gap from a completed delivery task.
@@ -161,7 +238,12 @@ def build_metrics_payload(
     failed_orders = metrics.get("failed_orders", 0)
     failure_rate = failed_orders / total_orders if total_orders > 0 else 0.0
 
+    from ..config import NEIGHBOR_ORDERING_POLICY
+
     payload = {
+        "neighbor_ordering_policy": metrics.get(
+            "neighbor_ordering_policy", NEIGHBOR_ORDERING_POLICY
+        ),
         "pathfinding": {
             "total_calculations": metrics.get("total_calculations", 0),
             "avg_calculation_time": round(metrics.get("avg_calculation_time", 0.0), 2),
@@ -214,6 +296,37 @@ def build_metrics_payload(
         "failure_rate": round(failure_rate, 3),
         "suboptimal_rate": round(metrics.get("suboptimal_rate", 0.0), 3),
     }
+
+    if "strata" not in metrics:
+        metrics["strata"] = {
+            s: {
+                "total_calculations": 0,
+                "total_calculation_time": 0.0,
+                "total_nodes_explored": 0,
+                "total_optimality_ratio": 0.0,
+                "total_heuristic_effectiveness": 0.0,
+                "total_memory_used": 0,
+                "avg_calculation_time": 0.0,
+                "avg_nodes_explored": 0.0,
+                "avg_optimality_ratio": 1.0,
+                "avg_heuristic_effectiveness": 1.0,
+                "avg_memory_used": 0.0,
+            }
+            for s in ["short", "medium", "long", "topologically_hard"]
+        }
+
+    payload["strata"] = {}
+    for stratum_name, data in metrics["strata"].items():
+        payload["strata"][stratum_name] = {
+            "total_calculations": data["total_calculations"],
+            "avg_calculation_time": round(data["avg_calculation_time"], 2),
+            "avg_nodes_explored": round(data["avg_nodes_explored"], 1),
+            "avg_optimality_ratio": round(data["avg_optimality_ratio"], 3),
+            "avg_heuristic_effectiveness": round(
+                data["avg_heuristic_effectiveness"], 3
+            ),
+            "avg_memory_used_bytes": round(data["avg_memory_used"], 2),
+        }
 
     if include_static:
         payload["graph"] = {

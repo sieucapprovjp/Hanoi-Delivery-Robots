@@ -16,19 +16,18 @@ T = TypeVar("T")
 class MetricsInterceptor:
     """Class responsible for managing metrics callbacks and logging."""
 
-    _callbacks: List[Callable[[float, int, int, int, str], None]] = []
+    _callbacks: List[Callable[..., None]] = []
     log_dir: str = "logs"
     log_file: str = os.path.join(log_dir, "interceptor.log")
 
     @classmethod
-    def register_callback(
-        cls, callback: Callable[[float, int, int, int, str], None]
-    ) -> None:
+    def register_callback(cls, callback: Callable[..., None]) -> None:
         """Registers a callback function to receive search metrics.
 
         Args:
             callback: A callable taking (calc_time_ms, nodes_explored, path_length,
-                memory_bytes, algo_name, optimality_ratio).
+                memory_bytes, algo_name, optimality_ratio, heuristic_effectiveness,
+                graph, path).
         """
         cls._callbacks.append(callback)
 
@@ -42,6 +41,8 @@ class MetricsInterceptor:
         algo_name: str,
         optimality_ratio: float = 1.0,
         heuristic_effectiveness: float = 1.0,
+        graph: Any = None,
+        path: List[int] = None,
     ) -> None:
         """Notifies all registered callbacks and logs metrics to file.
 
@@ -65,6 +66,8 @@ class MetricsInterceptor:
                     algo_name,
                     optimality_ratio,
                     heuristic_effectiveness,
+                    graph,
+                    path,
                 )
             except TypeError:
                 try:
@@ -75,6 +78,7 @@ class MetricsInterceptor:
                         memory_bytes,
                         algo_name,
                         optimality_ratio,
+                        heuristic_effectiveness,
                     )
                 except TypeError:
                     try:
@@ -84,7 +88,19 @@ class MetricsInterceptor:
                             path_length,
                             memory_bytes,
                             algo_name,
+                            optimality_ratio,
                         )
+                    except TypeError:
+                        try:
+                            cb(
+                                calc_time_ms,
+                                nodes_explored,
+                                path_length,
+                                memory_bytes,
+                                algo_name,
+                            )
+                        except Exception:
+                            pass
                     except Exception:
                         pass
                 except Exception:
@@ -97,9 +113,19 @@ class MetricsInterceptor:
             if not os.path.exists(cls.log_dir):
                 os.makedirs(cls.log_dir)
 
+            from ..config import NEIGHBOR_ORDERING_POLICY
+
+            policy = NEIGHBOR_ORDERING_POLICY
+            if graph is not None:
+                if hasattr(graph, "neighbor_ordering_policy"):
+                    policy = getattr(graph, "neighbor_ordering_policy")
+                elif hasattr(graph, "snap_state") and graph.snap_state:
+                    policy = graph.snap_state.get("neighbor_ordering_policy", policy)
+
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
             log_line = (
                 f"[{timestamp}] [{algo_name}] "
+                f"Neighbor Ordering: {policy} | "
                 f"Path Length: {path_length} | "
                 f"Nodes Explored: {nodes_explored} | "
                 f"Time: {calc_time_ms:.2f} ms | "
@@ -172,6 +198,16 @@ def intercept_measure(func: Callable[..., T]) -> Callable[..., T]:
         if args and hasattr(args[0], "__class__"):
             algo_name = args[0].__class__.__name__
 
+        # Extract graph and path from context
+        context = None
+        if len(args) >= 2 and hasattr(args[1], "graph"):
+            context = args[1]
+        elif "context" in kwargs:
+            context = kwargs["context"]
+
+        graph = context.graph if context else None
+        path = getattr(result, "path", None)
+
         MetricsInterceptor.notify(
             calc_time_ms=calc_time_ms,
             nodes_explored=nodes_explored,
@@ -180,6 +216,8 @@ def intercept_measure(func: Callable[..., T]) -> Callable[..., T]:
             algo_name=algo_name,
             optimality_ratio=optimality_ratio,
             heuristic_effectiveness=heuristic_effectiveness,
+            graph=graph,
+            path=path,
         )
 
         return result

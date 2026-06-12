@@ -135,6 +135,9 @@ class GraphSnapshot(nx.MultiDiGraph):
         super().__init__(graph)
         self.planning_time: float = planning_time
         self.snap_state: dict = snap_state
+        self.neighbor_ordering_policy: str = snap_state.get(
+            "neighbor_ordering_policy", "id"
+        )
 
         from .environment import edge_weight_with_traffic
 

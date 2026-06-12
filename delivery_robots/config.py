@@ -173,3 +173,11 @@ ORDER_STATUS_ASSIGNED = "assigned"
 ORDER_STATUS_IN_TRANSIT = "in_transit"
 ORDER_STATUS_DELIVERED = "delivered"
 ORDER_STATUS_EXPIRED = "expired"
+
+# ── Query Difficulty Stratification ──
+DIFFICULTY_SHORT_MAX_METERS = 500.0
+DIFFICULTY_MEDIUM_MAX_METERS = 2000.0
+DIFFICULTY_ONE_WAY_THRESHOLD = 0.2
+
+# ── Neighbor Ordering ──
+NEIGHBOR_ORDERING_POLICY = "id"  # Default neighbor ordering policy

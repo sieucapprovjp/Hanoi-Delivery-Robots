@@ -18,6 +18,7 @@ from .config import (
     TRAFFIC_ANCHORS,
     TRAFFIC_PERIOD_SECONDS,
     DEFAULT_DISPATCH_MODEL,
+    NEIGHBOR_ORDERING_POLICY,
 )
 
 from .core.data import CHARGING_STATIONS
@@ -90,6 +91,8 @@ def _on_route_search_completed(
     algo_name: str,
     optimality_ratio: float = 1.0,
     heuristic_effectiveness: float = 1.0,
+    graph=None,
+    path=None,
 ) -> None:
     """Callback function triggered when a route search is completed.
 
@@ -101,6 +104,8 @@ def _on_route_search_completed(
         algo_name (str): Name of the pathfinding algorithm.
         optimality_ratio (float): Path optimality ratio. Defaults to 1.0.
         heuristic_effectiveness (float): Heuristic effectiveness ratio. Defaults to 1.0.
+        graph: The road network graph. Defaults to None.
+        path: The path node list. Defaults to None.
     """
     with _metrics_lock:
         record_route_metrics(
@@ -111,6 +116,8 @@ def _on_route_search_completed(
             memory_bytes=memory_bytes,
             optimality_ratio=optimality_ratio,
             heuristic_effectiveness=heuristic_effectiveness,
+            graph=graph,
+            path=path,
         )
 
 
@@ -155,6 +162,7 @@ _app_state = {
     "event_bus": _event_bus,
     "charging_stations": list(CHARGING_STATIONS),
     "dispatch_model": DEFAULT_DISPATCH_MODEL,
+    "neighbor_ordering_policy": NEIGHBOR_ORDERING_POLICY,
     "metrics": _metrics,
     "metrics_lock": _metrics_lock,
 }

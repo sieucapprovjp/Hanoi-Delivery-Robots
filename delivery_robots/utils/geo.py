@@ -39,3 +39,21 @@ def point_to_segment_distance_meters(lat, lon, start_lat, start_lon, end_lat, en
     closest_x = ax + t * abx
     closest_y = ay + t * aby
     return math.hypot(px - closest_x, py - closest_y)
+
+
+def calculate_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculates the geographic bearing from point 1 to point 2 in degrees.
+
+    North is 0 degrees, measured clockwise.
+    """
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_lon = math.radians(lon2 - lon1)
+
+    y = math.sin(delta_lon) * math.cos(phi2)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(
+        delta_lon
+    )
+
+    bearing_rad = math.atan2(y, x)
+    return (math.degrees(bearing_rad) + 360.0) % 360.0

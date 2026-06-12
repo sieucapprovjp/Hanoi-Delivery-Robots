@@ -71,6 +71,7 @@ class SearchInput:
         weight_fn (Callable[[int, int, dict], float]): Function to compute edge weight.
         goal_lat (float): The latitude of the destination coordinate.
         goal_lon (float): The longitude of the destination coordinate.
+        neighbor_ordering_policy (str): The active neighbor ordering policy.
     """
 
     graph: nx.MultiDiGraph
@@ -79,6 +80,7 @@ class SearchInput:
     weight_fn: Callable[[int, int, dict], float]
     goal_lat: float = 0.0
     goal_lon: float = 0.0
+    neighbor_ordering_policy: str = "id"
 
 
 class SearchContract(ABC, Generic[Input, Output]):
@@ -219,3 +221,46 @@ def reconstruct_node_path(came_from: Dict[int, int], current: int) -> List[int]:
         path.append(current)
     path.reverse()
     return path
+
+
+def get_ordered_neighbors(
+    graph: nx.MultiDiGraph, current: int, goal: int, policy: str
+) -> List[int]:
+    """Retrieves neighbors of a node, sorted according to the Neighbor Ordering Policy.
+
+    Args:
+        graph (nx.MultiDiGraph): The graph snapshot.
+        current (int): The current node ID.
+        goal (int): The destination/goal node ID.
+        policy (str): The active Neighbor Ordering Policy ('id' or 'bearing').
+
+    Returns:
+        List[int]: Sorted list of neighbor node IDs.
+    """
+    neighbors = list(graph.neighbors(current))
+    if policy == "bearing":
+        if current not in graph.nodes or goal not in graph.nodes:
+            return sorted(neighbors)
+
+        lat_u = graph.nodes[current].get("y", 0.0)
+        lon_u = graph.nodes[current].get("x", 0.0)
+        lat_goal = graph.nodes[goal].get("y", 0.0)
+        lon_goal = graph.nodes[goal].get("x", 0.0)
+
+        from ..utils.geo import calculate_bearing
+
+        bearing_u_goal = calculate_bearing(lat_u, lon_u, lat_goal, lon_goal)
+
+        def get_neighbor_sort_key(v: int) -> Tuple[float, int]:
+            if v not in graph.nodes:
+                return (360.0, v)
+            lat_v = graph.nodes[v].get("y", 0.0)
+            lon_v = graph.nodes[v].get("x", 0.0)
+            bearing_u_v = calculate_bearing(lat_u, lon_u, lat_v, lon_v)
+            diff = abs(bearing_u_v - bearing_u_goal)
+            angular_diff = min(diff, 360.0 - diff)
+            return (angular_diff, v)
+
+        return sorted(neighbors, key=get_neighbor_sort_key)
+    else:
+        return sorted(neighbors)

@@ -91,6 +91,23 @@ def register_environment_routes(app, ctx):
         app_state["dispatch_model"] = model
         return jsonify({"status": "ok", "model": model}), 200
 
+    @app.route("/api/routing/neighbor-policy", methods=["GET"])
+    def get_neighbor_policy():
+        policy = app_state.get("neighbor_ordering_policy", "id")
+        return jsonify({"policy": policy}), 200
+
+    @app.route("/api/routing/neighbor-policy", methods=["POST"])
+    def set_neighbor_policy():
+        payload = request.get_json(silent=True) or {}
+        policy = payload.get("policy")
+        valid_policies = ["id", "bearing"]
+        if not policy or policy not in valid_policies:
+            return jsonify(
+                {"error": f"Invalid policy. Must be one of {valid_policies}"}
+            ), 400
+        app_state["neighbor_ordering_policy"] = policy
+        return jsonify({"status": "ok", "policy": policy}), 200
+
     @app.route("/api/logs", methods=["GET", "POST"])
     def api_logs_endpoint():
         if request.method == "POST":

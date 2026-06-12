@@ -47,6 +47,14 @@ def run_weighted_route_search(
     Raises:
         nx.NetworkXNoPath: If no path exists.
     """
+    from ..config import NEIGHBOR_ORDERING_POLICY
+
+    policy = NEIGHBOR_ORDERING_POLICY
+    if hasattr(graph, "neighbor_ordering_policy"):
+        policy = getattr(graph, "neighbor_ordering_policy")
+    elif hasattr(graph, "snap_state") and graph.snap_state:
+        policy = graph.snap_state.get("neighbor_ordering_policy", policy)
+
     searcher: SearchContract[SearchInput, AlgoResult] = ALGORITHMS.get(
         algorithm, ALGORITHMS["astar"]
     )
@@ -57,6 +65,7 @@ def run_weighted_route_search(
         weight_fn=weight_fn,
         goal_lat=goal_lat,
         goal_lon=goal_lon,
+        neighbor_ordering_policy=policy,
     )
     algo_result = searcher.execute(context)
 
