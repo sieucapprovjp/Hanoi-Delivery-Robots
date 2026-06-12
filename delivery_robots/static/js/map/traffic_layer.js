@@ -13,7 +13,7 @@ HanoiMap.prototype.refreshTraffic = async function () {
         this.trafficJams = traffic.roads;
         this.renderTraffic();
     } catch (error) {
-        console.error('Traffic refresh failed', error);
+        console.error(CONFIG.UI.TEXT.API_ERRORS.TRAFFIC_REFRESH, error);
     }
 };
 

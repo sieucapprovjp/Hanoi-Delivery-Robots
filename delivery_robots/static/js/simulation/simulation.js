@@ -1,4 +1,4 @@
-// Working simulation
+// Coordinates fleet state, dispatch assignment, and metrics updates.
 let simulation;
 let mapManager;
 let pathfindingManager;
@@ -79,7 +79,7 @@ class Simulation {
             this.generateDelivery();
         }
 
-        logEvent('🚀 Click START to begin!');
+        logEvent(CONFIG.UI.TEXT.LOGS.START_PROMPT);
         addDispatchInsight('Dispatch engine online. Monitoring queue pressure, weather, and traffic.', CONFIG.UI.LOG_LEVELS.NEUTRAL);
         this.updateFleetAlgorithmState();
         this.updateAlgorithmComparison();
@@ -216,12 +216,12 @@ class Simulation {
         };
 
         requestAnimationFrame(loop);
-        logEvent('▶ Started!');
+        logEvent(CONFIG.UI.TEXT.LOGS.STARTED);
     }
 
     pause() {
         this.running = false;
-        logEvent('⏸ Paused');
+        logEvent(CONFIG.UI.TEXT.LOGS.PAUSED);
     }
 
     async reset() {
@@ -267,7 +267,7 @@ class Simulation {
             this.generateDelivery();
         }
 
-        logEvent('🔄 Reset');
+        logEvent(CONFIG.UI.TEXT.LOGS.RESET);
         addDispatchInsight('Dispatch state reset. Queue rebuilt and analytics cleared.', CONFIG.UI.LOG_LEVELS.NEUTRAL);
         this.updateFleetAlgorithmState();
         this.updateRobotStatus();
@@ -275,11 +275,15 @@ class Simulation {
     }
 
     async optimizeHubs() {
-        logEvent('🧠 Optimizing hub locations...');
+        logEvent(CONFIG.UI.TEXT.LOGS.OPTIMIZING_HUBS);
         addDispatchInsight('Running k-means clustering on delivery hotspots to reposition fleet...', CONFIG.UI.LOG_LEVELS.NEUTRAL);
 
         try {
-            const data = await postJson(CONFIG.API.OPTIMIZE_HUBS, undefined, 'Optimization failed');
+            const data = await postJson(
+                CONFIG.API.OPTIMIZE_HUBS,
+                undefined,
+                CONFIG.UI.TEXT.API_ERRORS.HUB_OPTIMIZATION
+            );
 
             const hubs = data.hubs;
 
@@ -295,7 +299,7 @@ class Simulation {
                 }
             });
 
-            logEvent('✅ Hubs optimized!');
+            logEvent(CONFIG.UI.TEXT.LOGS.HUBS_OPTIMIZED);
             addDispatchInsight(`Fleet repositioned to ${hubs.length} optimal centroids. Check map for new starting points.`, CONFIG.UI.LOG_LEVELS.SUCCESS);
 
             if (window.mapManager) {
@@ -304,7 +308,7 @@ class Simulation {
             }
 
         } catch (e) {
-            logEvent('❌ Optimization failed');
+            logEvent(CONFIG.UI.TEXT.LOGS.OPTIMIZATION_FAILED);
             addDispatchInsight(`Hub optimization error: ${e.message}`, CONFIG.UI.LOG_LEVELS.WARN);
         }
     }

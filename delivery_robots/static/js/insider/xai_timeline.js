@@ -23,13 +23,14 @@ function xaiFormatStatus(status) {
 }
 
 function renderXaiConstraintBadges(constraints = {}) {
+    const text = CONFIG.UI.TEXT.XAI.CONSTRAINTS;
     const labels = [
-        ['idle', 'Idle'],
-        ['batteryOk', 'Battery'],
-        ['capacityOk', 'Capacity'],
-        ['pickupDistanceOk', 'Pickup'],
-        ['batteryReserveOk', 'Reserve'],
-        ['routeEtaOk', 'ETA'],
+        ['idle', text.idle],
+        ['batteryOk', text.batteryOk],
+        ['capacityOk', text.capacityOk],
+        ['pickupDistanceOk', text.pickupDistanceOk],
+        ['batteryReserveOk', text.batteryReserveOk],
+        ['routeEtaOk', text.routeEtaOk],
     ].filter(([key]) => Object.prototype.hasOwnProperty.call(constraints, key));
 
     return `
@@ -46,22 +47,23 @@ function renderXaiConstraintBadges(constraints = {}) {
 function renderXaiScoreRows(candidate) {
     const scores = candidate.scores || {};
     const hasFinalScore = scores.totalScore !== undefined || candidate.totalScore !== undefined;
+    const labels = CONFIG.UI.TEXT.XAI.SCORE_LABELS;
 
     if (!hasFinalScore) {
         return `
             <div class="xai-score-grid compact">
-                <div><span>Pre-score</span><strong>${xaiFormatNumber(scores.approximateScore ?? candidate.approximateScore)}</strong></div>
-                <div><span>Pickup</span><strong>${xaiFormatMeters(candidate.pickupDistance)}</strong></div>
+                <div><span>${labels.preScore}</span><strong>${xaiFormatNumber(scores.approximateScore ?? candidate.approximateScore)}</strong></div>
+                <div><span>${labels.pickup}</span><strong>${xaiFormatMeters(candidate.pickupDistance)}</strong></div>
             </div>
         `;
     }
 
     return `
         <div class="xai-score-grid">
-            <div><span>Route</span><strong>${xaiFormatMeters(scores.routeCost ?? candidate.routeCost)}</strong></div>
-            <div><span>Battery risk</span><strong>${xaiFormatNumber(scores.batteryRisk ?? candidate.batteryRisk, 2)}</strong></div>
-            <div><span>Priority</span><strong>${xaiFormatNumber(scores.priorityScore, 1)}</strong></div>
-            <div><span>Total</span><strong>${xaiFormatNumber(scores.totalScore ?? candidate.totalScore, 1)}</strong></div>
+            <div><span>${labels.route}</span><strong>${xaiFormatMeters(scores.routeCost ?? candidate.routeCost)}</strong></div>
+            <div><span>${labels.batteryRisk}</span><strong>${xaiFormatNumber(scores.batteryRisk ?? candidate.batteryRisk, 2)}</strong></div>
+            <div><span>${labels.priority}</span><strong>${xaiFormatNumber(scores.priorityScore, 1)}</strong></div>
+            <div><span>${labels.total}</span><strong>${xaiFormatNumber(scores.totalScore ?? candidate.totalScore, 1)}</strong></div>
         </div>
     `;
 }
@@ -98,6 +100,7 @@ function renderXaiReasons(candidate) {
 function renderXaiCandidate(candidate) {
     const status = candidate.status || 'candidate';
     const isAccepted = candidate.accepted !== false;
+    const labels = CONFIG.UI.TEXT.XAI.META_LABELS;
 
     return `
         <div class="xai-candidate xai-${xaiEscapeHtml(status)}">
@@ -106,9 +109,9 @@ function renderXaiCandidate(candidate) {
                 <span class="${isAccepted ? 'xai-accepted' : 'xai-denied'}">${xaiEscapeHtml(xaiFormatStatus(status))}</span>
             </div>
             <div class="xai-candidate-meta">
-                <span>Battery ${xaiEscapeHtml(candidate.battery)}%</span>
-                <span>Load ${xaiEscapeHtml(candidate.currentLoad ?? 0)}/${xaiEscapeHtml(candidate.capacity ?? '-')}</span>
-                <span>Pickup ${xaiFormatMeters(candidate.pickupDistance)}</span>
+                <span>${labels.battery} ${xaiEscapeHtml(candidate.battery)}%</span>
+                <span>${labels.load} ${xaiEscapeHtml(candidate.currentLoad ?? 0)}/${xaiEscapeHtml(candidate.capacity ?? '-')}</span>
+                <span>${labels.pickup} ${xaiFormatMeters(candidate.pickupDistance)}</span>
             </div>
             ${renderXaiConstraintBadges(candidate.constraints)}
             ${renderXaiScoreRows(candidate)}
@@ -130,8 +133,9 @@ function renderXaiTimelineSteps(explanation) {
 
 function renderDispatchTimeline(explanations) {
     if (!explanations || explanations.length === 0) {
-        return '<div class="xai-empty">No dispatch decision yet.</div>';
+        return `<div class="xai-empty">${CONFIG.UI.TEXT.EMPTY.NO_DISPATCH_DECISION}</div>`;
     }
+    const labels = CONFIG.UI.TEXT.XAI.META_LABELS;
 
     return explanations.slice(-3).reverse().map(explanation => {
         const selected = explanation.selectedRobotName || explanation.selectedRobotId || 'None';
@@ -142,11 +146,11 @@ function renderDispatchTimeline(explanations) {
             <div class="xai-decision">
                 <div class="xai-title">
                     <strong>Order #${xaiEscapeHtml(explanation.orderId ?? explanation.deliveryId)}</strong>
-                    <span>priority ${xaiEscapeHtml(explanation.priorityScore)}</span>
+                    <span>${labels.priority} ${xaiEscapeHtml(explanation.priorityScore)}</span>
                 </div>
                 <div class="xai-route">${xaiEscapeHtml(explanation.pickupName)} -> ${xaiEscapeHtml(explanation.destinationName)}</div>
                 <div class="xai-selected-summary">
-                    <span>Selected</span>
+                    <span>${labels.selected}</span>
                     <strong>${xaiEscapeHtml(selected)}</strong>
                 </div>
                 <div class="xai-objective">${xaiEscapeHtml(explanation.objective)}</div>

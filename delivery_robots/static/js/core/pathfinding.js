@@ -9,20 +9,20 @@ class Pathfinding {
             algo
         });
 
-        return getJson(`${CONFIG.API.ROUTE}?${params.toString()}`, null, 'Route request failed');
+        return getJson(`${CONFIG.API.ROUTE}?${params.toString()}`, null, CONFIG.UI.TEXT.API_ERRORS.ROUTE);
     }
 
     async snapToRoad(lat, lon) {
         const params = new URLSearchParams({ lat, lon });
-        return getJson(`${CONFIG.API.SNAP}?${params.toString()}`, null, 'Snap request failed');
+        return getJson(`${CONFIG.API.SNAP}?${params.toString()}`, null, CONFIG.UI.TEXT.API_ERRORS.SNAP);
     }
 
     async getTraffic() {
-        return getJson(CONFIG.API.TRAFFIC, null, 'Traffic request failed');
+        return getJson(CONFIG.API.TRAFFIC, null, CONFIG.UI.TEXT.API_ERRORS.TRAFFIC);
     }
 
     async getWeather() {
-        return getJson(CONFIG.API.WEATHER, null, 'Weather request failed');
+        return getJson(CONFIG.API.WEATHER, null, CONFIG.UI.TEXT.API_ERRORS.WEATHER);
     }
 
     estimateRouteCost(route) {

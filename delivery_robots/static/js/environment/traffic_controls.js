@@ -6,7 +6,7 @@ function resetTrafficPoints() {
     trafficPointA = null;
     if (trafficPointMarkerA && window.map) window.map.removeLayer(trafficPointMarkerA);
     trafficPointMarkerA = null;
-    logEvent('🔄 Traffic points reset');
+    logEvent(CONFIG.UI.TEXT.ENVIRONMENT.LOG_TRAFFIC_RESET);
 }
 
 function handleTrafficClick(lat, lon) {
@@ -23,8 +23,8 @@ function handleTrafficClick(lat, lon) {
             fillColor: CONFIG.ROBOT.COLORS.error,
             fillOpacity: 1
         }).addTo(window.map);
-        trafficPointMarkerA.bindPopup('<strong>Traffic start</strong><br>Click another point to set the end.');
-        logEvent('🚗 Traffic start set');
+        trafficPointMarkerA.bindPopup(CONFIG.UI.TEXT.ENVIRONMENT.TRAFFIC_START_POPUP);
+        logEvent(CONFIG.UI.TEXT.ENVIRONMENT.LOG_TRAFFIC_START);
         return;
     }
 
@@ -41,7 +41,7 @@ async function addTrafficRoute(start, end, severity) {
             endLat: end.lat,
             endLon: end.lon,
             severity
-        }, 'Traffic add failed');
+        }, CONFIG.UI.TEXT.ENVIRONMENT.ERROR_TRAFFIC_ADD);
     } catch (error) {
         logEvent('❌ Traffic: ' + error.message);
         return;
@@ -56,7 +56,7 @@ async function addTrafficRoute(start, end, severity) {
                 opacity: CONFIG.UI.OPACITY.high
             })
                 .addTo(window.map)
-                .bindPopup(`<strong>${route.name}</strong><br>Severity: ${route.severity.toFixed(2)}`)
+                .bindPopup(`<strong>${route.name}</strong><br>${CONFIG.UI.TEXT.ENVIRONMENT.SEVERITY} ${route.severity.toFixed(2)}`)
         );
     }
     updateTrafficList().catch(() => { });
@@ -65,10 +65,10 @@ async function addTrafficRoute(start, end, severity) {
 }
 
 async function updateTrafficList() {
-    const d = await getJson(CONFIG.API.TRAFFIC_LIST, null, 'Traffic list request failed');
+    const d = await getJson(CONFIG.API.TRAFFIC_LIST, null, CONFIG.UI.TEXT.ENVIRONMENT.ERROR_TRAFFIC_LIST);
     const html = d.routes.length
-        ? d.routes.map((r, i) => `<div class="py-4 border-bottom-standard"><strong>${i + 1}. ${r.name}</strong><br>Severity: ${r.severity.toFixed(2)}</div>`).join('')
-        : 'No traffic routes';
+        ? d.routes.map((r, i) => `<div class="py-4 border-bottom-standard"><strong>${i + 1}. ${r.name}</strong><br>${CONFIG.UI.TEXT.ENVIRONMENT.SEVERITY} ${r.severity.toFixed(2)}</div>`).join('')
+        : CONFIG.UI.TEXT.ENVIRONMENT.NO_TRAFFIC_ROUTES;
     Alpine.store('sim').weather.trafficRoutesHtml = html;
     return d;
 }
@@ -76,7 +76,7 @@ async function updateTrafficList() {
 async function randomizeTraffic() {
     const d = await postJson(CONFIG.API.TRAFFIC_RANDOMIZE, {
         count: CONFIG.SIMULATION.RANDOM_TRAFFIC_COUNT
-    }, 'Traffic randomize failed');
+    }, CONFIG.UI.TEXT.ENVIRONMENT.ERROR_TRAFFIC_RANDOMIZE);
     trafficPolylines = clearMapLayers(trafficPolylines);
     d.routes.forEach(r => {
         trafficPolylines.push(
@@ -89,7 +89,7 @@ async function randomizeTraffic() {
     });
     updateTrafficList();
     refreshMapTraffic().catch(() => { });
-    logEvent('🎲 Traffic');
+    logEvent(CONFIG.UI.TEXT.ENVIRONMENT.LOG_RANDOM_TRAFFIC);
 }
 
 async function clearTraffic() {
@@ -97,5 +97,5 @@ async function clearTraffic() {
     trafficPolylines = clearMapLayers(trafficPolylines);
     updateTrafficList();
     refreshMapTraffic().catch(() => { });
-    logEvent('🗑️ Traffic');
+    logEvent(CONFIG.UI.TEXT.ENVIRONMENT.LOG_CLEAR_TRAFFIC);
 }

@@ -1,4 +1,4 @@
-// Hanoi Map - Simple working version
+// Leaflet map facade for base layers, overlays, and local graph helpers.
 class HanoiMap {
     constructor() {
         this.map = null;
@@ -14,10 +14,8 @@ class HanoiMap {
         this.deliveryMarkers = new Map();
         this.hubLayers = [];
 
-        // Predefined street paths (real Hoan Kiem streets)
         this.streets = CONFIG.DATA.STREETS;
 
-        // Key intersections (connect points)
         this.intersections = CONFIG.DATA.INTERSECTIONS;
 
         this.roadGraph = new Map();
@@ -26,7 +24,7 @@ class HanoiMap {
 
     initializeMap() {
         this.map = L.map('map').setView(CONFIG.MAP.INITIAL_VIEW, CONFIG.MAP.INITIAL_ZOOM);
-        window.map = this.map; // Expose for weather/traffic controls
+        window.map = this.map;
 
         L.tileLayer(CONFIG.MAP.TILE_LAYER_URL, {
             maxZoom: CONFIG.MAP.MAX_ZOOM,
@@ -50,10 +48,9 @@ class HanoiMap {
 
         this.streets.forEach(street => {
             const latlngs = street.points.map(p => [p[0], p[1]]);
-            const colors = CONFIG.MAP.STREET_COLORS;
             L.polyline(latlngs, {
                 color: colors[street.type] || CONFIG.UI.COLORS.background,
-                weight: street.type === 'main' ? CONFIG.UI.WEIGHTS.thick + 1 : CONFIG.UI.WEIGHTS.markerSmall,
+                weight: street.type === 'main' ? CONFIG.UI.WEIGHTS.thick + 1 : CONFIG.UI.WEIGHTS.thin,
                 opacity: CONFIG.UI.OPACITY.full - 0.1
             }).addTo(this.map).bindTooltip(street.name);
         });
@@ -204,7 +201,6 @@ class HanoiMap {
         });
     }
 
-    // Get path between two points using the road graph
     getRoute(fromLat, fromLon, toLat, toLon) {
         const startNode = this.getNearestGraphNode(fromLat, fromLon);
         const endNode = this.getNearestGraphNode(toLat, toLon);

@@ -1,12 +1,12 @@
 HanoiMap.prototype.setupChargingStations = async function () {
     let locations = CONFIG.DATA.CHARGING_STATIONS;
     try {
-        const data = await getJson(CONFIG.API.CHARGING_STATIONS, null, 'Charging stations request failed');
+        const data = await getJson(CONFIG.API.CHARGING_STATIONS, null, CONFIG.UI.TEXT.API_ERRORS.CHARGING_STATIONS);
         if (Array.isArray(data.stations) && data.stations.length > 0) {
             locations = data.stations;
         }
     } catch (error) {
-        console.warn('Failed to load charging stations from API, fallback to static config.', error);
+        console.warn(CONFIG.UI.TEXT.API_ERRORS.CHARGING_STATIONS_FALLBACK, error);
     }
 
     locations.forEach(loc => {
@@ -36,7 +36,11 @@ HanoiMap.prototype.setupChargingStations = async function () {
 
             if (!station.id) return;
             try {
-                await putJson(`${CONFIG.API.CHARGING_STATIONS}/${station.id}`, { lat: nextLat, lon: nextLon }, `Failed to save charging station #${station.id}`);
+                await putJson(
+                    `${CONFIG.API.CHARGING_STATIONS}/${station.id}`,
+                    { lat: nextLat, lon: nextLon },
+                    `${CONFIG.UI.TEXT.API_ERRORS.CHARGING_STATION_SAVE} #${station.id}`
+                );
             } catch (error) {
                 console.error(error);
             }

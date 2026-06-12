@@ -15,7 +15,7 @@ function renderRobotStatusCards(robots) {
 
 function renderDeliveryQueue(deliveries) {
     if (!deliveries.length) {
-        return '<div style="padding:15px;text-align:center;color:#5f6368;font-size:12px;">All orders dispatched. Waiting for new orders...</div>';
+        return `<div style="padding:15px;text-align:center;color:#5f6368;font-size:12px;">${CONFIG.UI.TEXT.EMPTY.ORDERS_DISPATCHED}</div>`;
     }
 
     return deliveries.map(delivery => `
@@ -40,6 +40,7 @@ function calculateAlgorithmEfficiency(stats) {
 }
 
 function renderAlgorithmComparison(algorithmStats, fleetAlgorithm) {
+    const table = CONFIG.UI.TEXT.TABLE;
     const labelMap = {
         astar: 'A*',
         dijkstra: 'Dijkstra',
@@ -71,13 +72,13 @@ function renderAlgorithmComparison(algorithmStats, fleetAlgorithm) {
         <table class="comparison-table">
             <thead>
                 <tr>
-                    <th>Algorithm</th>
-                    <th style="text-align:center;">Done</th>
-                    <th style="text-align:center;">Time</th>
-                    <th style="text-align:center;">Nodes</th>
-                    <th style="text-align:center;">Cost</th>
-                    <th style="text-align:center;">Reroutes</th>
-                    <th style="text-align:center;">Eff.</th>
+                    <th>${table.ALGORITHM}</th>
+                    <th style="text-align:center;">${table.DONE}</th>
+                    <th style="text-align:center;">${table.TIME}</th>
+                    <th style="text-align:center;">${table.NODES}</th>
+                    <th style="text-align:center;">${table.COST}</th>
+                    <th style="text-align:center;">${table.REROUTES}</th>
+                    <th style="text-align:center;">${table.EFFICIENCY}</th>
                 </tr>
             </thead>
             <tbody>${rows}</tbody>

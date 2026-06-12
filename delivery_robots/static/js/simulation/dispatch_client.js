@@ -25,7 +25,7 @@ async function requestDispatchAssignments(robots, deliveries) {
     const data = await postJson(
         CONFIG.API.DISPATCH_ASSIGN,
         buildDispatchRequestPayload(robots, deliveries),
-        'Assignment failed'
+        CONFIG.UI.TEXT.API_ERRORS.DISPATCH_ASSIGNMENT
     );
 
     return {

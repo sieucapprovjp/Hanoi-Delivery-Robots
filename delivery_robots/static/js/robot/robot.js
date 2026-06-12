@@ -1,4 +1,4 @@
-// Simple working robot
+// Robot movement, routing, charging, and local road-memory behavior.
 class DeliveryRobot {
     constructor(id, lat, lon, name, color, routeAlgorithm = 'astar') {
         this.id = id;
@@ -34,7 +34,7 @@ class DeliveryRobot {
         this.routeAlgorithm = routeAlgorithm;
         this.currentDeliveryAlgorithm = null;
 
-        // 🧠 Road memory system (Q-learning lite)
+        // Lightweight road-memory model used to discourage repeatedly slow edges.
         this.roadMemory = {};
         this.memoryDecay = CONFIG.ROBOT.MEMORY_DECAY;
         this._frameCount = 0;
@@ -79,44 +79,37 @@ class DeliveryRobot {
             const ratio = (this.speed * this.speedMultiplier) / dist;
             this.lat += (target.lat - this.lat) * ratio;
             this.lon += (target.lon - this.lon) * ratio;
-            this.totalDistance += this.speed * this.speedMultiplier * CONFIG.ROBOT.METERS_PER_DEGREE; // to meters
+            this.totalDistance += this.speed * this.speedMultiplier * CONFIG.ROBOT.METERS_PER_DEGREE;
         }
 
-        // Battery
         const rainPenalty = mapManager.getRainPenaltyAt(this.lat, this.lon);
         this.battery -= this.batteryDrain * rainPenalty;
 
-        // Check traffic
         const traffic = mapManager.getTrafficAt(this.lat, this.lon);
         this.speedMultiplier = Math.max(
             CONFIG.ROBOT.MIN_SPEED_MULTIPLIER,
             (CONFIG.ROBOT.BASE_SPEED_MULTIPLIER * (1 - traffic * CONFIG.ROBOT.TRAFFIC_IMPACT_FACTOR)) / rainPenalty
         );
 
-        // 🧠 Record road experience for learning
         this._frameCount++;
         if (this.pathIndex + 1 < this.currentPath.length && this._frameCount % CONFIG.ROBOT.FRAME_COUNT_RECORD_MEMORY === 0) {
             const from = this.currentPath[this.pathIndex];
             const to = this.currentPath[this.pathIndex + 1];
             this.recordRoadExperience(from.lat, from.lon, to.lat, to.lon, this.speedMultiplier);
         }
-        // Decay memory every ~5 seconds (300 frames at 60fps)
         if (this._frameCount % CONFIG.ROBOT.FRAME_COUNT_DECAY_MEMORY === 0) this.decayMemory();
 
         this.maybeReroute(traffic, rainPenalty);
 
-        // Update marker
         if (this.marker) {
             this.marker.setLatLng([this.lat, this.lon]);
             if (this.marker.isPopupOpen()) this.updatePopup();
         }
 
-        // Check if need charging
         if (this.battery < CONFIG.ROBOT.BATTERY_LOW_THRESHOLD && this.status === CONFIG.ROBOT.STATUSES.MOVING && !this.isRouting && this.routeMode !== CONFIG.ROBOT.ROUTE_MODES.CHARGING) {
             this.goCharge();
         }
 
-        // Check if arrived at charging
         if (this.status === CONFIG.ROBOT.STATUSES.MOVING && this.chargingStation) {
             const distToCharge = this.distanceTo(this.chargingStation);
             if (distToCharge < CONFIG.ROBOT.CHARGING_ARRIVAL_THRESHOLD) {
@@ -278,12 +271,11 @@ class DeliveryRobot {
             zIndexOffset: 1000
         }).addTo(map);
 
-        this.marker.bindPopup('Loading...');
+        this.marker.bindPopup(CONFIG.UI.TEXT.LOADING.POPUP);
         this.marker.on('click', () => {
             this.updatePopup();
             this.marker.openPopup();
             
-            // Sync with Alpine store for Computing panel
             const store = Alpine.store('sim');
             if (store) {
                 store.computing.robotId = this.id;

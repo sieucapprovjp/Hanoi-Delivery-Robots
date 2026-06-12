@@ -8,7 +8,7 @@ async function init() {
         setupInsiderControls();
         startPolling();
         updateClock();
-        logEvent('✅ Ready');
+        logEvent(CONFIG.UI.TEXT.LOGS.READY);
     } catch (error) {
         console.error('Init error:', error);
         logEvent('❌ ' + error.message);
@@ -42,7 +42,7 @@ function startPolling() {
 
 async function fetchMetrics() {
     try {
-        const d = await getJson(CONFIG.API.METRICS, null, 'Metrics request failed');
+        const d = await getJson(CONFIG.API.METRICS, null, CONFIG.UI.TEXT.API_ERRORS.METRICS);
         Alpine.store('sim').updateMetrics(d);
     } catch (e) {
         console.error('Metrics:', e);
@@ -62,7 +62,7 @@ function refreshComputingPanel() {
 
 async function updateClock() {
     try {
-        const d = await getJson(CONFIG.API.CLOCK, null, 'Clock request failed');
+        const d = await getJson(CONFIG.API.CLOCK, null, CONFIG.UI.TEXT.API_ERRORS.CLOCK);
         const store = Alpine.store('sim');
         store.clock = d.time.display;
         store.rushHour.active = d.rushHour.isActive;
@@ -73,6 +73,6 @@ async function updateClock() {
 window.addEventListener('load', () => {
     init().catch(e => {
         console.error(e);
-        logEvent('❌ Init failed');
+        logEvent(CONFIG.UI.TEXT.LOGS.INIT_FAILED);
     });
 });

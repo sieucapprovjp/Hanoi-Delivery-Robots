@@ -26,7 +26,7 @@ HanoiMap.prototype.loadWeather = async function () {
         this.rainZones = weather.rainZones || [];
         this.renderRainZones();
     } catch (error) {
-        console.error('Weather load failed', error);
+        console.error(CONFIG.UI.TEXT.API_ERRORS.WEATHER_LOAD, error);
     }
 };
 

@@ -2,7 +2,7 @@ let rainCircles = [];
 
 async function addRainZone(lat, lon, radius) {
     try {
-        const d = await postJson(CONFIG.API.RAIN_ADD, { lat, lon, radius }, 'Rain add failed');
+        const d = await postJson(CONFIG.API.RAIN_ADD, { lat, lon, radius }, CONFIG.UI.TEXT.ENVIRONMENT.ERROR_RAIN_ADD);
         updateRainList();
         refreshMapWeather().catch(() => { });
         logEvent('🌧️ ' + d.rainZone.name);
@@ -19,15 +19,15 @@ function displayRainZone(z) {
         fillOpacity: 0.2,
         radius: z.radius
     }).addTo(window.map);
-    c.bindPopup(`<strong>${z.name}</strong><br>Radius: ${Math.round(z.radius)}m`);
+    c.bindPopup(`<strong>${z.name}</strong><br>${CONFIG.UI.TEXT.ENVIRONMENT.RADIUS} ${Math.round(z.radius)}m`);
     rainCircles.push(c);
 }
 
 async function updateRainList() {
-    const d = await getJson(CONFIG.API.RAIN_LIST, null, 'Rain list request failed');
+    const d = await getJson(CONFIG.API.RAIN_LIST, null, CONFIG.UI.TEXT.ENVIRONMENT.ERROR_RAIN_LIST);
     const html = d.rainZones.length
         ? d.rainZones.map((z, i) => `<div class="py-4 border-bottom-standard"><strong>${i + 1}. ${z.name}</strong><br>${z.center.lat.toFixed(4)}, ${z.center.lon.toFixed(4)} | ${Math.round(z.radius)}m</div>`).join('')
-        : 'No rain zones';
+        : CONFIG.UI.TEXT.ENVIRONMENT.NO_RAIN_ZONES;
     Alpine.store('sim').weather.rainZonesHtml = html;
     return d;
 }
@@ -41,7 +41,7 @@ async function randomizeRain() {
     rainCircles = clearMapLayers(rainCircles);
     updateRainList();
     refreshMapWeather().catch(() => { });
-    logEvent('🎲 Rain');
+    logEvent(CONFIG.UI.TEXT.ENVIRONMENT.LOG_RANDOM_RAIN);
 }
 
 async function clearRain() {
@@ -49,5 +49,5 @@ async function clearRain() {
     rainCircles = clearMapLayers(rainCircles);
     updateRainList();
     refreshMapWeather().catch(() => { });
-    logEvent('🗑️ Rain');
+    logEvent(CONFIG.UI.TEXT.ENVIRONMENT.LOG_CLEAR_RAIN);
 }

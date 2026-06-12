@@ -55,11 +55,11 @@ async function showAStarProcess(robotId) {
 
     const robot = simulation.robots.find(r => r.id === robotId);
     if (!robot || !robot.routeTarget) {
-        store.insider.astarSteps = '<div class="p-10 text-center color-secondary-text">Robot has no active route. Wait for it to accept a delivery.</div>';
+        store.insider.astarSteps = `<div class="p-10 text-center color-secondary-text">${CONFIG.UI.TEXT.EMPTY.NO_ACTIVE_ROUTE}</div>`;
         return;
     }
 
-    store.insider.astarSteps = '<div class="p-10 text-center">⏳ Computing A*...</div>';
+    store.insider.astarSteps = `<div class="p-10 text-center">${CONFIG.UI.TEXT.LOADING.ASTAR_COMPUTING}</div>`;
 
     try {
         const d = await getJson(CONFIG.API.ASTEP, {
@@ -67,17 +67,18 @@ async function showAStarProcess(robotId) {
             fromLon: robot.lon,
             toLat: robot.routeTarget.lat,
             toLon: robot.routeTarget.lon
-        }, 'A* process request failed');
+        }, CONFIG.UI.TEXT.API_ERRORS.ASTAR_PROCESS);
 
         if (!d.steps || d.steps.length === 0) {
-            store.insider.astarSteps = '<div class="p-10 text-center color-error">No steps recorded</div>';
+            store.insider.astarSteps = `<div class="p-10 text-center color-error">${CONFIG.UI.TEXT.EMPTY.NO_ASTAR_STEPS}</div>`;
             return;
         }
+        const insiderText = CONFIG.UI.TEXT.INSIDER;
 
         let html = `
             <div class="astar-viz-container">
                 <div class="astar-viz-header">
-                    🔬 A* Step-by-Step Calculation
+                    ${insiderText.ASTAR_STEP_TITLE}
                     <span class="fs-10 color-secondary-text fw-400">(${d.calcTime}ms, ${d.totalSteps} steps)</span>
                 </div>
 
@@ -114,8 +115,8 @@ async function showAStarProcess(robotId) {
                     ... ${d.steps.length - 3} more steps ...
                 </div>
                 <div class="astar-viz-step" style="border-left-color: ${CONFIG.ROBOT.COLORS.good}">
-                    <div class="fs-11 fw-700" style="color:${CONFIG.ROBOT.COLORS.good};">✅ Goal Reached! (Step ${d.totalSteps})</div>
-                    <div class="fs-10" style="color:${CONFIG.UI.COLORS.textLight};">Path reconstructed: ${d.pathLength} nodes</div>
+                    <div class="fs-11 fw-700" style="color:${CONFIG.ROBOT.COLORS.good};">${insiderText.GOAL_REACHED} (Step ${d.totalSteps})</div>
+                    <div class="fs-10" style="color:${CONFIG.UI.COLORS.textLight};">${insiderText.PATH_RECONSTRUCTED} ${d.pathLength} nodes</div>
                 </div>
             `;
         }
@@ -123,7 +124,7 @@ async function showAStarProcess(robotId) {
         const environment = getEnvironmentLayerState();
         html += `
                 <div class="bg-surface br-8 p-8 mt-6">
-                    <div class="fs-10 fw-700 mb-4">⚙️ Penalties Applied:</div>
+                    <div class="fs-10 fw-700 mb-4">${insiderText.PENALTIES_APPLIED}</div>
                     <div class="d-flex gap-6 flex-wrap fs-9">
                         ${environment.hasRain ? `<span class="penalty-badge bg-rain-penalty">🌧️ Rain: ${CONFIG.ROBOT.RAIN_REROUTE_THRESHOLD}×</span>` : ''}
                         ${environment.hasTraffic ? `<span class="penalty-badge bg-traffic-penalty">🚗 Traffic: ${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER}-${CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER * 2.5}×</span>` : ''}
@@ -142,7 +143,7 @@ async function showAStarProcess(robotId) {
 
 async function runInsiderComparison() {
     const store = Alpine.store('sim');
-    store.insider.comparison = '<div class="p-10 text-center">⏳ Running 4 algorithms...</div>';
+    store.insider.comparison = `<div class="p-10 text-center">${CONFIG.UI.TEXT.LOADING.INSIDER_COMPARISON_RUNNING}</div>`;
 
     try {
         const from = CONFIG.DATA.LOCATIONS[0];
@@ -152,7 +153,7 @@ async function runInsiderComparison() {
             fromLon: from.lon,
             toLat: to.lat,
             toLon: to.lon
-        }, 'Insider comparison request failed');
+        }, CONFIG.UI.TEXT.API_ERRORS.INSIDER_COMPARISON);
 
         const algos = d.algorithms;
         const best = d.best_path_length;
@@ -163,17 +164,18 @@ async function runInsiderComparison() {
             { name: "BFS (Blind)", ...algos["BFS"], icon: "🟢" },
         ];
         const bestTime = Math.min(...rows.map(r => r.time_ms));
+        const table = CONFIG.UI.TEXT.TABLE;
 
         let html = `
             <table class="comparison-table">
                 <thead>
                     <tr>
-                        <th>Algorithm</th>
-                        <th class="text-center">Nodes</th>
-                        <th class="text-center">Path</th>
-                        <th class="text-center">Time</th>
-                        <th class="text-center">Optimal?</th>
-                        <th class="text-center">Efficiency</th>
+                        <th>${table.ALGORITHM}</th>
+                        <th class="text-center">${table.NODES}</th>
+                        <th class="text-center">${table.PATH}</th>
+                        <th class="text-center">${table.TIME}</th>
+                        <th class="text-center">${table.OPTIMAL}</th>
+                        <th class="text-center">${table.EFFICIENCY}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -209,7 +211,7 @@ async function runInsiderComparison() {
 
         html += `
             <div class="insight-box">
-                <strong>💡 Key Insight:</strong> A* explored <strong>${astarNodes}</strong> nodes vs Dijkstra's <strong>${dijkstraNodes}</strong> — that's <strong class="color-success">${speedup}% fewer nodes</strong> while finding the same optimal path!
+                <strong>${CONFIG.UI.TEXT.INSIDER.KEY_INSIGHT}</strong> A* explored <strong>${astarNodes}</strong> nodes vs Dijkstra's <strong>${dijkstraNodes}</strong> — that's <strong class="color-success">${speedup}% fewer nodes</strong> while finding the same optimal path!
             </div>
         `;
 
@@ -221,7 +223,7 @@ async function runInsiderComparison() {
 
 async function runAStarVisualization() {
     const store = Alpine.store('sim');
-    store.insider.astarSteps = '<div class="p-10 text-center">⏳ Running A* step-by-step...</div>';
+    store.insider.astarSteps = `<div class="p-10 text-center">${CONFIG.UI.TEXT.LOADING.ASTAR_STEP_RUNNING}</div>`;
 
     try {
         const from = CONFIG.DATA.LOCATIONS[0];
@@ -231,10 +233,10 @@ async function runAStarVisualization() {
             fromLon: from.lon,
             toLat: to.lat,
             toLon: to.lon
-        }, 'A* visualization request failed');
+        }, CONFIG.UI.TEXT.API_ERRORS.ASTAR_VISUALIZATION);
 
         if (!d.steps || d.steps.length === 0) {
-            store.insider.astarSteps = '<div class="p-10 text-center color-error">No steps to visualize</div>';
+            store.insider.astarSteps = `<div class="p-10 text-center color-error">${CONFIG.UI.TEXT.EMPTY.NO_ASTAR_VISUALIZATION_STEPS}</div>`;
             return;
         }
 
@@ -242,7 +244,7 @@ async function runAStarVisualization() {
 
         let html = `
             <div class="astar-viz-header">
-                🔬 A* Expansion (${d.totalSteps} steps, ${d.calcTime}ms)
+                ${CONFIG.UI.TEXT.INSIDER.ASTAR_EXPANSION_TITLE} (${d.totalSteps} steps, ${d.calcTime}ms)
             </div>
 
             <div class="d-flex gap-6 mb-8 fs-9 color-secondary-text">
@@ -283,7 +285,7 @@ async function runAStarVisualization() {
         }
         html += `
             <div class="mt-8 p-8 bg-warn-light br-6 fs-10 color-secondary-text">
-                Blue markers show exploration order on the map, orange shows the latest expanded node, green is the start, red is the goal, and purple is the final chosen path.
+                ${CONFIG.UI.TEXT.INSIDER.MAP_LEGEND}
             </div>
         `;
 
