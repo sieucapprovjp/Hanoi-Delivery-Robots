@@ -46,6 +46,8 @@ function buildLatestDecision(assignment, delivery) {
         orderSequence: assignment.orderSequence || [],
         vrpStats: assignment.vrpStats || null,
         vrpCost: assignment.vrpCost,
+        vrpInitialCost: assignment.vrpInitialCost,
+        vrpImprovementRatio: assignment.vrpImprovementRatio,
         pickupName: delivery.pickup.name,
         destinationName: delivery.destination.name,
         explanation: assignment.explanation || null

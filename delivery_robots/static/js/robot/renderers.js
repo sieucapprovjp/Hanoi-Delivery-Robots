@@ -138,6 +138,31 @@ function renderRobotRouteInfo(robot) {
     `;
 }
 
+function renderRobotVrpInfo(robot) {
+    const vrp = robot.currentVrp;
+    if (!vrp) return '';
+
+    const text = CONFIG.UI.TEXT.ROBOT;
+    const stats = vrp.stats || {};
+    const improvementPct = ((vrp.improvementRatio || 0) * 100).toFixed(1);
+    const sequence = (vrp.sequence || []).join(' -> ');
+
+    return `
+        <div class="insight-box">
+            <div class="insight-title">${text.VRP_BREAKDOWN_TITLE}</div>
+            <div class="breakdown-container">
+                <div class="breakdown-row"><span>${text.ACTIVE_ORDERS}</span><strong>${(vrp.deliveryIds || []).map(id => `#${id}`).join(', ')}</strong></div>
+                <div class="breakdown-row"><span>${text.INITIAL_COST}</span><strong>${Number(vrp.initialCost || 0).toFixed(0)}m</strong></div>
+                <div class="breakdown-row"><span>${text.FINAL_COST}</span><strong>${Number(vrp.finalCost || 0).toFixed(0)}m</strong></div>
+                <div class="breakdown-row"><span>${text.IMPROVEMENT}</span><strong class="color-success">${improvementPct}%</strong></div>
+                <div class="breakdown-row"><span>${text.ITERATIONS}</span><strong>${stats.iterations || 0}</strong></div>
+                <div class="breakdown-row"><span>${text.ACCEPTED_MOVES}</span><strong>${stats.acceptedMoves || 0}</strong></div>
+                ${sequence ? `<div class="breakdown-row"><span>${text.SEQUENCE}</span><strong>${sequence}</strong></div>` : ''}
+            </div>
+        </div>
+    `;
+}
+
 function getRobotCalculationStats(robot) {
     const history = robot._calcHistory || [];
 
@@ -175,6 +200,7 @@ function renderRobotComputingDetails(robot) {
             </div>
 
             ${renderRobotRouteInfo(robot)}
+            ${renderRobotVrpInfo(robot)}
 
             <div class="history-container">
                 <div class="history-title">${text.CALC_HISTORY}</div>

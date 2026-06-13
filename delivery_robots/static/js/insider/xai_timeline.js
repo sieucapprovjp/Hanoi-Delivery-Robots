@@ -131,6 +131,30 @@ function renderXaiTimelineSteps(explanation) {
     `).join('');
 }
 
+function renderXaiVrpSummary(explanation) {
+    const vrp = explanation.vrp;
+    if (!vrp) return '';
+
+    const labels = CONFIG.UI.TEXT.XAI.VRP_LABELS;
+    const stats = vrp.stats || {};
+    const improvementPct = xaiFormatNumber((vrp.improvementRatio || 0) * 100, 1);
+    const sequence = (vrp.sequence || []).join(' -> ');
+
+    return `
+        <div class="xai-route-summary">
+            ${xaiEscapeHtml(labels.title)} · ${xaiEscapeHtml(vrp.orderCount)} ${xaiEscapeHtml(labels.orders)}
+        </div>
+        <div class="xai-score-grid">
+            <div><span>${labels.initialCost}</span><strong>${xaiFormatMeters(vrp.initialCost)}</strong></div>
+            <div><span>${labels.finalCost}</span><strong>${xaiFormatMeters(vrp.finalCost)}</strong></div>
+            <div><span>${labels.improvement}</span><strong>${improvementPct}%</strong></div>
+            <div><span>${labels.iterations}</span><strong>${xaiEscapeHtml(stats.iterations ?? 0)}</strong></div>
+            <div><span>${labels.acceptedMoves}</span><strong>${xaiEscapeHtml(stats.acceptedMoves ?? 0)}</strong></div>
+        </div>
+        ${sequence ? `<div class="xai-formula">${labels.sequence}: ${xaiEscapeHtml(sequence)}</div>` : ''}
+    `;
+}
+
 function xaiHasVrpStep(explanation) {
     return (explanation.timeline || []).some(step => (
         step.stage === 'vrp_sequence' || step.stage === 'vrp_batch'
@@ -157,6 +181,7 @@ function renderDispatchTimeline(explanations) {
         const selected = explanation.selectedRobotName || explanation.selectedRobotId || 'None';
         const candidates = (explanation.candidates || []).map(renderXaiCandidate).join('');
         const timeline = renderXaiTimelineSteps(explanation);
+        const vrpSummary = renderXaiVrpSummary(explanation);
 
         return `
             <div class="xai-decision">
@@ -171,6 +196,7 @@ function renderDispatchTimeline(explanations) {
                 </div>
                 <div class="xai-objective">${xaiEscapeHtml(explanation.objective)}</div>
                 ${explanation.finalExplanation ? `<div class="xai-final">${xaiEscapeHtml(explanation.finalExplanation)}</div>` : ''}
+                ${vrpSummary}
                 <div class="xai-grid">${candidates}</div>
                 <div class="xai-timeline">${timeline}</div>
             </div>

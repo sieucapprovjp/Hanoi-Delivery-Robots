@@ -308,6 +308,16 @@ const CONFIG = {
                     pickup: 'Pickup',
                     selected: 'Selected',
                     priority: 'priority'
+                },
+                VRP_LABELS: {
+                    title: 'VRP / Simulated Annealing',
+                    orders: 'Orders',
+                    initialCost: 'Initial cost',
+                    finalCost: 'Final cost',
+                    improvement: 'Improvement',
+                    iterations: 'Iterations',
+                    acceptedMoves: 'Accepted',
+                    sequence: 'Sequence'
                 }
             },
             ROBOT: {
@@ -323,12 +333,19 @@ const CONFIG = {
                 GOING_PICKUP: '🔵 Going to pickup',
                 GOING_DELIVER: '🔴 Going to deliver',
                 ROUTE_BREAKDOWN_TITLE: '🧠 A* Route Cost Breakdown',
+                VRP_BREAKDOWN_TITLE: '🧩 VRP Batch Optimization',
                 BASE_DISTANCE: '📏 Base Distance:',
                 TRAFFIC_PENALTY: '🚗 Traffic Penalty:',
                 RAIN_PENALTY: '🌧️ Rain Penalty:',
                 OBSTACLE_PENALTY: '🚧 Obstacle Penalty:',
                 TOTAL_COST: '🎯 Total Cost:',
                 SIM_ETA: '⏱ Sim ETA:',
+                INITIAL_COST: 'Initial Cost:',
+                FINAL_COST: 'Final Cost:',
+                IMPROVEMENT: 'Improvement:',
+                ITERATIONS: 'Iterations:',
+                ACCEPTED_MOVES: 'Accepted Moves:',
+                SEQUENCE: 'Sequence:',
                 COMPUTING_ENGINE: 'Computing Engine',
                 STATE: 'State:',
                 CALC_HISTORY: '📊 Calculation History',

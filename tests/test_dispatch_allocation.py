@@ -525,6 +525,12 @@ class DispatchAllocationTests(unittest.TestCase):
             step["stage"] for step in result["explanations"][0]["timeline"]
         ]
         self.assertIn("vrp_sequence", timeline_stages)
+        vrp_explanation = result["explanations"][0]["vrp"]
+        self.assertEqual(vrp_explanation["orderCount"], 3)
+        self.assertEqual(vrp_explanation["deliveryIds"], ["a", "b", "c"])
+        self.assertEqual(len(vrp_explanation["sequence"]), 6)
+        self.assertIn("iterations", vrp_explanation["stats"])
+        self.assertIn("acceptedMoves", vrp_explanation["stats"])
 
     def test_vrp_distance_matrix_tolerates_failed_pair_route(self):
         robot = {"lat": 21.0, "lon": 105.0}

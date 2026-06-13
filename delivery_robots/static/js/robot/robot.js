@@ -19,6 +19,7 @@ class DeliveryRobot {
         this.deliveryQueue = [];
         this.routeSequence = [];
         this.currentSequenceIndex = 0;
+        this.currentVrp = null;
         this.totalDeliveries = 0;
         this.totalDistance = 0;
         this.marker = null;
@@ -148,6 +149,7 @@ class DeliveryRobot {
         this.deliveryQueue = [];
         this.routeSequence = [];
         this.currentSequenceIndex = 0;
+        this.currentVrp = null;
         this.currentLoad = 0;
         this.routeMode = null;
         this.routeDeliveryId = null;
@@ -348,24 +350,38 @@ class DeliveryRobot {
             this.deliveryQueue = [];
             this.routeSequence = [];
             this.currentSequenceIndex = 0;
+            this.currentVrp = null;
             this.isRouting = false;
             return false;
         }
 
         this.currentDelivery = firstStop ? this.getDeliveryById(firstStop.deliveryId) : delivery;
         this.currentDeliveryAlgorithm = this.routeAlgorithm;
+        this.currentVrp = assignment?.vrpStats
+            ? {
+                deliveryIds: assignment.deliveryIds || batch.map(item => item.id),
+                sequence: this.routeSequence.map(stop => stop.stopId),
+                initialCost: assignment.vrpInitialCost,
+                finalCost: assignment.vrpCost,
+                improvementRatio: assignment.vrpImprovementRatio,
+                stats: assignment.vrpStats
+            }
+            : null;
         this.currentLoad += batch.length;
         batch.forEach(item => mapManager.showDeliveryMarkers(item));
 
         try {
             this.setDeliveryStopTarget(firstStop);
             this.lastRerouteAt = Date.now();
-            const routed = await this.buildRouteToTarget(
+            let routed = await this.buildRouteToTarget(
                 firstStop.lat,
                 firstStop.lon,
                 precalculatedRoute,
                 precalculatedBreakdown
             );
+            if (!routed && precalculatedRoute) {
+                routed = await this.buildRouteToTarget(firstStop.lat, firstStop.lon);
+            }
             if (!routed) {
                 throw new Error(`No route to first stop #${firstStop.deliveryId}`);
             }
@@ -383,6 +399,7 @@ class DeliveryRobot {
             this.deliveryQueue = [];
             this.routeSequence = [];
             this.currentSequenceIndex = 0;
+            this.currentVrp = null;
             this.currentLoad = Math.max(0, this.currentLoad - batch.length);
             batch.forEach(item => mapManager.clearDeliveryMarkers(item.id));
             logEvent(`❌ ${this.name} could not route delivery #${delivery.id}`);
@@ -605,8 +622,22 @@ class DeliveryRobot {
         );
         const calcTime = performance.now() - startTime;
         const breakdown = precalculatedBreakdown || pathfindingManager.estimateRouteCost(route);
+        const routeWithPath = this.normalizeRoutePath(route, targetLat, targetLon);
 
-        return this.applyRoute(route, breakdown, calcTime);
+        return this.applyRoute(routeWithPath, breakdown, calcTime);
+    }
+
+    normalizeRoutePath(route, targetLat, targetLon) {
+        if (route?.path?.length) return route;
+
+        return {
+            ...route,
+            path: [
+                { lat: this.lat, lon: this.lon },
+                { lat: targetLat, lon: targetLon }
+            ],
+            distance: route?.distance || 0
+        };
     }
 
     applyRoute(route, breakdown, calcTime) {

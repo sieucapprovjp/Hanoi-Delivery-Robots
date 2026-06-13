@@ -296,6 +296,19 @@ def _safe_log_vrp_result(payload):
         pass
 
 
+def _build_vrp_explanation_payload(best, batch, vrp_result):
+    return {
+        "deliveryIds": best["deliveryIds"],
+        "orderCount": len(batch),
+        "sequence": vrp_result["sequenceLabels"],
+        "initialCost": round(vrp_result["initialCost"], 1),
+        "finalCost": best["vrpCost"],
+        "improvementRatio": best["vrpImprovementRatio"],
+        "usedSimulatedAnnealing": vrp_result["usedSimulatedAnnealing"],
+        "stats": vrp_result["stats"],
+    }
+
+
 def _apply_vrp_batch_to_assignment(
     best,
     robot,
@@ -386,6 +399,7 @@ def _apply_vrp_batch_to_assignment(
         - batch_priority * DISPATCH_PRIORITY_WEIGHT
     )
     best["priorityScore"] = batch_priority
+    explanation["vrp"] = _build_vrp_explanation_payload(best, batch, vrp_result)
 
     labels = " -> ".join(vrp_result["sequenceLabels"])
     improvement_pct = vrp_result["improvementRatio"] * 100

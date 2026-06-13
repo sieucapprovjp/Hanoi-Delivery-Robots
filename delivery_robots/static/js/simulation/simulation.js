@@ -272,6 +272,7 @@ class Simulation {
             robot.deliveryQueue = [];
             robot.routeSequence = [];
             robot.currentSequenceIndex = 0;
+            robot.currentVrp = null;
             robot.currentDeliveryAlgorithm = null;
             robot.isRouting = false;
             robot.routeMode = null;
