@@ -131,13 +131,29 @@ function renderXaiTimelineSteps(explanation) {
     `).join('');
 }
 
+function xaiHasVrpStep(explanation) {
+    return (explanation.timeline || []).some(step => (
+        step.stage === 'vrp_sequence' || step.stage === 'vrp_batch'
+    ));
+}
+
+function selectVisibleDispatchExplanations(explanations) {
+    const recent = explanations.slice(-3);
+    const latestVrp = [...explanations].reverse().find(xaiHasVrpStep);
+    if (!latestVrp || recent.includes(latestVrp)) {
+        return recent.reverse();
+    }
+
+    return [latestVrp, ...recent.slice(-2).reverse()];
+}
+
 function renderDispatchTimeline(explanations) {
     if (!explanations || explanations.length === 0) {
         return `<div class="xai-empty">${CONFIG.UI.TEXT.EMPTY.NO_DISPATCH_DECISION}</div>`;
     }
     const labels = CONFIG.UI.TEXT.XAI.META_LABELS;
 
-    return explanations.slice(-3).reverse().map(explanation => {
+    return selectVisibleDispatchExplanations(explanations).map(explanation => {
         const selected = explanation.selectedRobotName || explanation.selectedRobotId || 'None';
         const candidates = (explanation.candidates || []).map(renderXaiCandidate).join('');
         const timeline = renderXaiTimelineSteps(explanation);

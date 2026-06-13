@@ -1,16 +1,24 @@
 function renderRobotStatusCards(robots) {
-    return robots.map(robot => `
-        <div class="robot-card" style="border-left-color:${robot.color}">
-            <div class="robot-name" style="color:${robot.color}">${robot.name}</div>
-            <div class="robot-detail">${robot.getStatusText()}</div>
-            <div class="robot-detail">📦 ${robot.totalDeliveries} | ${robot.totalDistance.toFixed(0)}m | ⏱ ${robot.getEtaText()}</div>
-            <div class="robot-detail">🎯 ${robot.routeMode || CONFIG.UI.STATE_LABELS.STANDBY} | 🔋 ${robot.battery.toFixed(0)}%</div>
-            <div class="robot-detail">🧠 <strong>${robot.routeAlgorithm.toUpperCase()}</strong></div>
-            <div class="battery-bar">
-                <div class="battery-fill" style="width:${robot.battery}%;background:${robot.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.GOOD ? CONFIG.ROBOT.COLORS.good : robot.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.WARN ? CONFIG.ROBOT.COLORS.warn : CONFIG.ROBOT.COLORS.error}"></div>
+    return robots.map(robot => {
+        const activeOrders = robot.deliveryQueue?.length || (robot.currentDelivery ? 1 : 0);
+        const stopProgress = robot.routeSequence?.length
+            ? `${robot.currentSequenceIndex + 1}/${robot.routeSequence.length}`
+            : '--';
+
+        return `
+            <div class="robot-card" style="border-left-color:${robot.color}">
+                <div class="robot-name" style="color:${robot.color}">${robot.name}</div>
+                <div class="robot-detail">${robot.getStatusText()}</div>
+                <div class="robot-detail">📦 ${robot.totalDeliveries} | ${robot.totalDistance.toFixed(0)}m | ⏱ ${robot.getEtaText()}</div>
+                <div class="robot-detail">🎯 ${robot.routeMode || CONFIG.UI.STATE_LABELS.STANDBY} | 🔋 ${robot.battery.toFixed(0)}%</div>
+                <div class="robot-detail">📚 ${activeOrders}/${CONFIG.VRP.MAX_ORDERS_PER_ROBOT} orders | Stops ${stopProgress}</div>
+                <div class="robot-detail">🧠 <strong>${robot.routeAlgorithm.toUpperCase()}</strong></div>
+                <div class="battery-bar">
+                    <div class="battery-fill" style="width:${robot.battery}%;background:${robot.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.GOOD ? CONFIG.ROBOT.COLORS.good : robot.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.WARN ? CONFIG.ROBOT.COLORS.warn : CONFIG.ROBOT.COLORS.error}"></div>
+                </div>
             </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 function renderDeliveryQueue(deliveries) {

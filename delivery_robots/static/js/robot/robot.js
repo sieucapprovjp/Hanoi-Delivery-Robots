@@ -15,6 +15,10 @@ class DeliveryRobot {
         this.currentPath = [];
         this.pathIndex = 0;
         this.currentDelivery = null;
+        this.currentDeliveryAlgorithm = null;
+        this.deliveryQueue = [];
+        this.routeSequence = [];
+        this.currentSequenceIndex = 0;
         this.totalDeliveries = 0;
         this.totalDistance = 0;
         this.marker = null;
@@ -118,6 +122,91 @@ class DeliveryRobot {
         }
     }
 
+    getDeliveryById(deliveryId) {
+        return this.deliveryQueue.find(delivery => String(delivery.id) === String(deliveryId)) || null;
+    }
+
+    getCurrentRouteStop() {
+        return this.routeSequence[this.currentSequenceIndex] || null;
+    }
+
+    setDeliveryStopTarget(stop) {
+        this.currentDelivery = this.getDeliveryById(stop.deliveryId);
+        this.deliveryPhase = stop.type === 'pickup'
+            ? CONFIG.ROBOT.PHASES.TO_PICKUP
+            : CONFIG.ROBOT.PHASES.TO_DROPOFF;
+        this.routeMode = CONFIG.ROBOT.ROUTE_MODES.DELIVERY;
+        this.routeDeliveryId = stop.deliveryId;
+        this.routeTarget = { lat: stop.lat, lon: stop.lon };
+    }
+
+    finishDeliveryRoute() {
+        this.status = CONFIG.ROBOT.STATUSES.IDLE;
+        this.currentPath = [];
+        this.pathIndex = 0;
+        this.currentDelivery = null;
+        this.deliveryQueue = [];
+        this.routeSequence = [];
+        this.currentSequenceIndex = 0;
+        this.currentLoad = 0;
+        this.routeMode = null;
+        this.routeDeliveryId = null;
+        this.routeTarget = null;
+        this.deliveryPhase = null;
+        this.clearPathLine();
+    }
+
+    async advanceToNextSequenceStop() {
+        const nextStop = this.getCurrentRouteStop();
+        if (!nextStop) {
+            this.finishDeliveryRoute();
+            return;
+        }
+
+        this.setDeliveryStopTarget(nextStop);
+        await this.buildRouteToTarget(nextStop.lat, nextStop.lon);
+    }
+
+    async handleRouteSequenceArrival() {
+        const stop = this.getCurrentRouteStop();
+        if (!stop) {
+            this.finishDeliveryRoute();
+            return;
+        }
+
+        const delivery = this.getDeliveryById(stop.deliveryId);
+        if (stop.type === 'pickup') {
+            logEvent(`📍 ${this.name} picked up order #${stop.deliveryId}`);
+            addDispatchInsight(
+                `${this.name} reached pickup #${stop.deliveryId} in its VRP sequence.`,
+                CONFIG.UI.LOG_LEVELS.SUCCESS
+            );
+        }
+
+        if (stop.type === 'dropoff') {
+            this.currentLoad = Math.max(0, this.currentLoad - 1);
+            this.totalDeliveries++;
+            if (typeof simulation !== 'undefined' && simulation && typeof simulation.recordDeliveryCompleted === 'function') {
+                simulation.recordDeliveryCompleted(this.currentDeliveryAlgorithm || this.routeAlgorithm);
+            }
+            logEvent(`✅ ${this.name} completed delivery #${stop.deliveryId}`);
+            mapManager.clearDeliveryMarkers(stop.deliveryId);
+            this.deliveryQueue = this.deliveryQueue.filter(item => String(item.id) !== String(stop.deliveryId));
+        }
+
+        this.currentSequenceIndex++;
+        if (this.currentSequenceIndex < this.routeSequence.length) {
+            await this.advanceToNextSequenceStop();
+            return;
+        }
+
+        if (delivery) {
+            this.currentDelivery = delivery;
+        }
+        this.currentDeliveryAlgorithm = null;
+        this.finishDeliveryRoute();
+    }
+
     async arriveAtWaypoint() {
         if (this.isRouting) return;
         this.isRouting = true;
@@ -125,6 +214,11 @@ class DeliveryRobot {
         try {
             if (this.routeMode === CONFIG.ROBOT.ROUTE_MODES.CHARGING && this.chargingStation) {
                 this.startCharging();
+                return;
+            }
+
+            if (this.routeMode === CONFIG.ROBOT.ROUTE_MODES.DELIVERY && this.routeSequence.length > 0) {
+                await this.handleRouteSequenceArrival();
                 return;
             }
 
@@ -173,7 +267,10 @@ class DeliveryRobot {
         if (this.isRouting) return;
 
         this.isRouting = true;
-        this.resumeAfterCharge = this.routeMode === CONFIG.ROBOT.ROUTE_MODES.DELIVERY && !!this.currentDelivery;
+        this.resumeAfterCharge = (
+            this.routeMode === CONFIG.ROBOT.ROUTE_MODES.DELIVERY
+            && (this.routeSequence.length > 0 || !!this.currentDelivery)
+        );
         this.chargingStation = station;
         mapManager.occupyChargingSpot(station);
 
@@ -213,31 +310,81 @@ class DeliveryRobot {
         }, CONFIG.ROBOT.CHARGING_INTERVAL_MS);
     }
 
-    async assignDelivery(delivery, precalculatedRoute = null, precalculatedBreakdown = null) {
+    buildDefaultRouteSequence(delivery) {
+        return [
+            {
+                stopId: `P${delivery.id}`,
+                type: 'pickup',
+                deliveryId: delivery.id,
+                lat: delivery.pickup.lat,
+                lon: delivery.pickup.lon,
+                name: delivery.pickup.name,
+                category: delivery.pickup.category
+            },
+            {
+                stopId: `D${delivery.id}`,
+                type: 'dropoff',
+                deliveryId: delivery.id,
+                lat: delivery.destination.lat,
+                lon: delivery.destination.lon,
+                name: delivery.destination.name,
+                category: delivery.destination.category
+            }
+        ];
+    }
+
+    async assignDelivery(delivery, precalculatedRoute = null, precalculatedBreakdown = null, assignment = null, deliveryBatch = null) {
         if (this.isRouting) return false;
 
         this.isRouting = true;
-        this.currentDelivery = delivery;
+        const batch = deliveryBatch?.length ? deliveryBatch : [delivery];
+        this.deliveryQueue = batch;
+        this.routeSequence = assignment?.orderSequence?.length
+            ? assignment.orderSequence
+            : this.buildDefaultRouteSequence(delivery);
+        this.currentSequenceIndex = 0;
+        const firstStop = this.getCurrentRouteStop();
+        if (!firstStop) {
+            this.deliveryQueue = [];
+            this.routeSequence = [];
+            this.currentSequenceIndex = 0;
+            this.isRouting = false;
+            return false;
+        }
+
+        this.currentDelivery = firstStop ? this.getDeliveryById(firstStop.deliveryId) : delivery;
         this.currentDeliveryAlgorithm = this.routeAlgorithm;
-        this.currentLoad++;
-        this.deliveryPhase = CONFIG.ROBOT.PHASES.TO_PICKUP;
-        mapManager.showDeliveryMarkers(delivery);
+        this.currentLoad += batch.length;
+        batch.forEach(item => mapManager.showDeliveryMarkers(item));
 
         try {
-            this.routeMode = CONFIG.ROBOT.ROUTE_MODES.DELIVERY;
-            this.routeDeliveryId = delivery.id;
-            this.routeTarget = { lat: delivery.pickup.lat, lon: delivery.pickup.lon };
+            this.setDeliveryStopTarget(firstStop);
             this.lastRerouteAt = Date.now();
-            await this.buildRouteToTarget(delivery.pickup.lat, delivery.pickup.lon, precalculatedRoute, precalculatedBreakdown);
+            const routed = await this.buildRouteToTarget(
+                firstStop.lat,
+                firstStop.lon,
+                precalculatedRoute,
+                precalculatedBreakdown
+            );
+            if (!routed) {
+                throw new Error(`No route to first stop #${firstStop.deliveryId}`);
+            }
 
-            logEvent(`📦 ${this.name} → ${delivery.pickup.name} → ${delivery.destination.name}`);
-            addDispatchInsight(`${this.name} selected a low-cost route that balances distance with current rain and congestion exposure.`, CONFIG.UI.LOG_LEVELS.NEUTRAL);
+            const orderList = batch.map(item => `#${item.id}`).join(', ');
+            logEvent(`📦 ${this.name} accepted ${batch.length} order(s): ${orderList}`);
+            addDispatchInsight(
+                `${this.name} accepted ${batch.length} order(s) with ${this.routeSequence.length} VRP stops.`,
+                CONFIG.UI.LOG_LEVELS.NEUTRAL
+            );
             return true;
         } catch (error) {
             this.currentDelivery = null;
             this.currentDeliveryAlgorithm = null;
-            this.currentLoad = Math.max(0, this.currentLoad - 1);
-            mapManager.clearDeliveryMarkers(delivery.id);
+            this.deliveryQueue = [];
+            this.routeSequence = [];
+            this.currentSequenceIndex = 0;
+            this.currentLoad = Math.max(0, this.currentLoad - batch.length);
+            batch.forEach(item => mapManager.clearDeliveryMarkers(item.id));
             logEvent(`❌ ${this.name} could not route delivery #${delivery.id}`);
             console.error(error);
             return false;
@@ -463,7 +610,7 @@ class DeliveryRobot {
     }
 
     applyRoute(route, breakdown, calcTime) {
-        if (!route.path || route.path.length <= 1) return false;
+        if (!route.path || route.path.length === 0) return false;
 
         this.currentPath = route.path;
         this.lastRouteBreakdown = breakdown;
@@ -489,6 +636,21 @@ class DeliveryRobot {
     }
 
     async finishCharging() {
+        if (this.resumeAfterCharge && this.routeSequence.length > 0) {
+            this.resumeAfterCharge = false;
+            this.routeMode = CONFIG.ROBOT.ROUTE_MODES.DELIVERY;
+            const nextStop = this.getCurrentRouteStop();
+            if (nextStop) {
+                this.setDeliveryStopTarget(nextStop);
+                addDispatchInsight(
+                    `${this.name} resumed VRP stop ${this.currentSequenceIndex + 1}/${this.routeSequence.length} after charging.`,
+                    CONFIG.UI.LOG_LEVELS.SUCCESS
+                );
+                await this.buildRouteToTarget(nextStop.lat, nextStop.lon);
+                return;
+            }
+        }
+
         if (this.resumeAfterCharge && this.currentDelivery) {
             this.resumeAfterCharge = false;
             this.routeMode = CONFIG.ROBOT.ROUTE_MODES.DELIVERY;

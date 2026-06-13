@@ -173,6 +173,12 @@ const CONFIG = {
         }
     },
 
+    // VRP Settings
+    VRP: {
+        ENABLED: true,
+        MAX_ORDERS_PER_ROBOT: 3
+    },
+
     // API Endpoints
     API: {
         LOGS: '/api/logs',
@@ -311,6 +317,9 @@ const CONFIG = {
                 COMPLETED: 'Completed',
                 DISTANCE: 'Distance',
                 WAYPOINTS_LEFT: 'waypoints left',
+                ACTIVE_ORDERS: 'Active orders',
+                NEXT_STOP: 'Next',
+                STOPS_PROGRESS: 'Stops',
                 GOING_PICKUP: '🔵 Going to pickup',
                 GOING_DELIVER: '🔴 Going to deliver',
                 ROUTE_BREAKDOWN_TITLE: '🧠 A* Route Cost Breakdown',

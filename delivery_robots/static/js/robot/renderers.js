@@ -35,6 +35,40 @@ function getRobotStatusBadgeClass(robot) {
     return 'status-neutral';
 }
 
+function getRobotActiveOrders(robot) {
+    if (robot.deliveryQueue?.length) return robot.deliveryQueue;
+    return robot.currentDelivery ? [robot.currentDelivery] : [];
+}
+
+function getRobotNextStopLabel(robot) {
+    const stop = robot.routeSequence?.[robot.currentSequenceIndex];
+    if (!stop) return null;
+    const type = stop.type === 'pickup' ? 'Pickup' : 'Dropoff';
+    return `${type} #${stop.deliveryId}`;
+}
+
+function renderRobotBatchInfo(robot) {
+    const orders = getRobotActiveOrders(robot);
+    if (!orders.length) {
+        return `<div class="popup-info-box status-neutral">${CONFIG.UI.TEXT.EMPTY.NO_DELIVERY}</div>`;
+    }
+
+    const text = CONFIG.UI.TEXT.ROBOT;
+    const orderList = orders.map(delivery => `#${delivery.id}`).join(', ');
+    const nextStop = getRobotNextStopLabel(robot) || CONFIG.UI.STATE_LABELS.WAITING;
+    const stopProgress = robot.routeSequence?.length
+        ? `${robot.currentSequenceIndex + 1}/${robot.routeSequence.length}`
+        : '1/2';
+
+    return `
+        <div class="popup-info-box status-neutral">
+            <div class="item-label">${text.ACTIVE_ORDERS}: ${orderList}</div>
+            <div class="item-value">${text.NEXT_STOP}: ${nextStop}</div>
+            <div class="item-value">${text.STOPS_PROGRESS}: ${stopProgress}</div>
+        </div>
+    `;
+}
+
 function renderRobotPopup(robot) {
     const batteryClass = getRobotBatteryClass(robot);
     const decisionState = getRobotDecisionState(robot, { useRouteLabels: true });
@@ -61,7 +95,7 @@ function renderRobotPopup(robot) {
 
             ${robot.routeTarget ? `<div class="popup-info-box status-success">🎯 ${robot.routeTarget.lat.toFixed(4)}, ${robot.routeTarget.lon.toFixed(4)}<br>${robot.currentPath.length - robot.pathIndex} ${text.WAYPOINTS_LEFT}<br>⏱ ETA ${robot.getEtaText()}</div>` : ''}
 
-            ${robot.currentDelivery ? `<div class="popup-info-box status-neutral"><div class="item-label">📦 Order #${robot.currentDelivery.id}</div><div class="item-value">${robot.deliveryPhase === CONFIG.ROBOT.PHASES.TO_PICKUP ? text.GOING_PICKUP : text.GOING_DELIVER}</div></div>` : `<div class="popup-info-box status-neutral">${CONFIG.UI.TEXT.EMPTY.NO_DELIVERY}</div>`}
+            ${renderRobotBatchInfo(robot)}
         </div>
     `;
 }

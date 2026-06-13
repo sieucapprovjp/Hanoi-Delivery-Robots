@@ -97,7 +97,7 @@ class Simulation {
 
         this.robots.forEach(robot => {
             robot.routeAlgorithm = normalized;
-            if (robot.currentDelivery && robot.status === CONFIG.ROBOT.STATUSES.MOVING) {
+            if ((robot.currentDelivery || robot.routeSequence?.length) && robot.status === CONFIG.ROBOT.STATUSES.MOVING) {
                 robot.currentDeliveryAlgorithm = normalized;
             }
         });
@@ -134,7 +134,11 @@ class Simulation {
     async assignDeliveries() {
         if (this.isAssigning) return;
 
-        const hasAvailableRobot = this.robots.some(r => r.status === CONFIG.ROBOT.STATUSES.IDLE && r.currentLoad < r.capacity && !r.isRouting);
+        const hasAvailableRobot = this.robots.some(r => (
+            r.status === CONFIG.ROBOT.STATUSES.IDLE
+            && r.currentLoad < Math.min(r.capacity, CONFIG.VRP.MAX_ORDERS_PER_ROBOT)
+            && !r.isRouting
+        ));
         if (!hasAvailableRobot || this.pendingDeliveries.length === 0) return;
 
         this.isAssigning = true;
@@ -143,9 +147,12 @@ class Simulation {
             this.updateDispatchTimeline(explanations);
 
             for (const best of assignments) {
-                const deliveryIndex = this.pendingDeliveries.findIndex(d => d.id === best.deliveryId);
-                if (deliveryIndex === -1) continue;
-                const delivery = this.pendingDeliveries[deliveryIndex];
+                const deliveryIds = best.deliveryIds || [best.deliveryId];
+                const deliveryBatch = deliveryIds
+                    .map(id => this.pendingDeliveries.find(d => String(d.id) === String(id)))
+                    .filter(Boolean);
+                if (!deliveryBatch.length) continue;
+                const delivery = deliveryBatch[0];
 
                 const robot = this.robots.find(r => r.id === best.robotId);
                 if (!robot) continue;
@@ -155,13 +162,22 @@ class Simulation {
                 this.latestDecision = buildLatestDecision(best, delivery);
 
                 addDispatchInsight(
-                    `${robot.name} assigned to order #${delivery.id} with priority ${best.priorityScore.toFixed(1)}.`,
+                    `${robot.name} assigned ${deliveryBatch.length} order(s): ${deliveryBatch.map(item => `#${item.id}`).join(', ')}.`,
                     CONFIG.UI.LOG_LEVELS.SUCCESS
                 );
 
-                const assigned = await robot.assignDelivery(delivery, best.route, best.breakdown);
+                const assigned = await robot.assignDelivery(
+                    delivery,
+                    best.route,
+                    best.breakdown,
+                    best,
+                    deliveryBatch
+                );
                 if (assigned) {
-                    this.pendingDeliveries.splice(deliveryIndex, 1);
+                    const assignedIds = new Set(deliveryBatch.map(item => String(item.id)));
+                    this.pendingDeliveries = this.pendingDeliveries.filter(
+                        item => !assignedIds.has(String(item.id))
+                    );
                 }
             }
         } catch (e) {
@@ -253,8 +269,16 @@ class Simulation {
             robot.currentPath = [];
             robot.pathIndex = 0;
             robot.currentDelivery = null;
+            robot.deliveryQueue = [];
+            robot.routeSequence = [];
+            robot.currentSequenceIndex = 0;
             robot.currentDeliveryAlgorithm = null;
             robot.isRouting = false;
+            robot.routeMode = null;
+            robot.routeDeliveryId = null;
+            robot.routeTarget = null;
+            robot.deliveryPhase = null;
+            robot.resumeAfterCharge = false;
             robot.lastRouteEtaMinutes = 0;
             robot.lastRouteBreakdown = null;
             robot.routeAlgorithm = this.fleetAlgorithm;

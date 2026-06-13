@@ -42,6 +42,10 @@ function buildLatestDecision(assignment, delivery) {
         batteryRisk: assignment.batteryRisk,
         totalScore: assignment.totalScore,
         breakdown: assignment.breakdown,
+        deliveryIds: assignment.deliveryIds || [delivery.id],
+        orderSequence: assignment.orderSequence || [],
+        vrpStats: assignment.vrpStats || null,
+        vrpCost: assignment.vrpCost,
         pickupName: delivery.pickup.name,
         destinationName: delivery.destination.name,
         explanation: assignment.explanation || null
