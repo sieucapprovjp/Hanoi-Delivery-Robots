@@ -152,6 +152,23 @@
   - `delivery_robots/static/css/style.css`
   - `tests/test_dispatch_allocation.py`
 
+### VRP/PDP Batch Routing
+- Dispatch can batch multiple pending deliveries onto one robot when queue pressure exceeds available idle robots.
+- Each robot is capped by both physical capacity and `VRP_MAX_ORDERS_PER_ROBOT`; the current demo cap is 3 active orders per robot.
+- The backend solves pickup/dropoff sequencing with a Simulated Annealing VRP/PDP helper while enforcing pickup-before-dropoff precedence.
+- VRP distance matrices use the same weighted routing stack as production dispatch, so rain, traffic, obstacles, and road memory affect batch costs.
+- Dispatch responses can include `deliveryIds`, `orderSequence`, `routeSequence`, `vrpStats`, `vrpCost`, and initial/final improvement metrics.
+- The frontend supports multi-stop robot execution, charging resume, active order display, next-stop/stop-progress display, and VRP XAI timeline visibility.
+- Related files:
+  - `delivery_robots/algorithms/dispatch/vrp_solver.py`
+  - `delivery_robots/algorithms/dispatch/allocation.py`
+  - `delivery_robots/static/js/robot/robot.js`
+  - `delivery_robots/static/js/robot/renderers.js`
+  - `delivery_robots/static/js/simulation/simulation.js`
+  - `delivery_robots/static/js/insider/xai_timeline.js`
+  - `tests/test_vrp.py`
+  - `tests/test_dispatch_allocation.py`
+
 ### K-means Hub Optimization
 - The app records pickup/dropoff coordinates from generated deliveries.
 - `/api/optimize-hubs` runs K-means with a default of 5 clusters.
@@ -188,9 +205,12 @@
   Deliveries / (Distance_Km + 0.02*Time_ms + 0.005*Nodes_Explored + 0.5*Reroutes + 1)
   ```
 - `/api/logs` stores UI and dispatch events in an in-memory bounded queue.
+- UI events and delivery history are also appended to JSONL files under ignored `logs/` for lightweight persistent analysis without a database.
 - Related files:
   - `delivery_robots/utils/metrics.py`
+  - `delivery_robots/utils/persistent_log.py`
   - `delivery_robots/routes/environment_routes.py`
+  - `delivery_robots/routes/main_routes.py`
   - `delivery_robots/static/js/simulation/simulation.js`
   - `delivery_robots/static/js/core/app.js`
 
@@ -256,10 +276,8 @@
 - `docs/codex.md`: current concise memory file for Codex sessions.
 
 ## Current Not-Implemented Items
-- VRP/PDP multi-order routing with Simulated Annealing is researched and planned but not implemented.
-- Robots currently receive one delivery at a time from dispatch.
 - Advanced K-means controls such as manual `K`, Auto-K/Elbow, and before/after empty-distance metrics are not implemented.
-- Persistent database storage is not implemented; logs and delivery history are in-memory runtime state.
+- Persistent database storage is not implemented; lightweight JSONL logs are used instead.
 
 ## Demo Narrative For Intro AI
 - Start with routing: show A*, Dijkstra, and GBFS on the same road graph.
