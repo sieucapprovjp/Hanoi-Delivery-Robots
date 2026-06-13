@@ -1,3 +1,4 @@
+import math
 import unittest
 from unittest.mock import patch
 
@@ -14,6 +15,27 @@ def build_dispatch_graph():
     graph.add_node(3, y=21.0010, x=105.0000)
     graph.add_edge(2, 1, length=80.0)
     graph.add_edge(3, 1, length=100.0)
+    return graph
+
+
+def build_vrp_graph():
+    graph = nx.MultiDiGraph()
+    coords = {
+        0: (21.0000, 105.0000),
+        1: (21.0001, 105.0000),
+        2: (21.0002, 105.0000),
+        3: (21.0003, 105.0000),
+        4: (21.0004, 105.0000),
+        5: (21.0005, 105.0000),
+        6: (21.0006, 105.0000),
+    }
+    for node_id, (lat, lon) in coords.items():
+        graph.add_node(node_id, y=lat, x=lon)
+    for from_id in coords:
+        for to_id in coords:
+            if from_id == to_id:
+                continue
+            graph.add_edge(from_id, to_id, length=10.0 + abs(from_id - to_id))
     return graph
 
 
@@ -43,6 +65,26 @@ def build_delivery():
         "id": "delivery-1",
         "pickup": {"lat": 21.0000, "lon": 105.0000, "name": "Pickup"},
         "destination": {"lat": 21.0020, "lon": 105.0000, "name": "Dropoff"},
+        "createdAt": 0,
+        "theme": {"pickupCategory": "restaurant", "dropoffCategory": "residential"},
+    }
+
+
+def build_vrp_delivery(delivery_id, pickup_node, dropoff_node, graph):
+    pickup = graph.nodes[pickup_node]
+    dropoff = graph.nodes[dropoff_node]
+    return {
+        "id": delivery_id,
+        "pickup": {
+            "lat": pickup["y"],
+            "lon": pickup["x"],
+            "name": f"Pickup {delivery_id}",
+        },
+        "destination": {
+            "lat": dropoff["y"],
+            "lon": dropoff["x"],
+            "name": f"Dropoff {delivery_id}",
+        },
         "createdAt": 0,
         "theme": {"pickupCategory": "restaurant", "dropoffCategory": "residential"},
     }
@@ -427,6 +469,110 @@ class DispatchAllocationTests(unittest.TestCase):
             slow_candidate["route"]["etaMinutes"],
             DISPATCH_MAX_ROUTE_ETA_MINUTES,
         )
+
+    def test_assign_deliveries_batches_with_vrp_when_backlog_exceeds_robots(self):
+        graph = build_vrp_graph()
+        robots = [
+            {
+                "id": "vrp-robot",
+                "name": "VRP Robot",
+                "lat": graph.nodes[0]["y"],
+                "lon": graph.nodes[0]["x"],
+                "battery": 100,
+                "status": "idle",
+                "currentLoad": 0,
+                "capacity": 10,
+                "routeAlgorithm": "astar",
+            }
+        ]
+        deliveries = [
+            build_vrp_delivery("a", 1, 4, graph),
+            build_vrp_delivery("b", 2, 5, graph),
+            build_vrp_delivery("c", 3, 6, graph),
+        ]
+
+        with patch.object(allocation, "append_app_event") as log_mock:
+            result = allocation.assign_deliveries(
+                {"ox": None},
+                graph,
+                robots,
+                deliveries,
+                0,
+                nearest_node_id,
+                lambda from_node, to_node, edge_data: edge_weight(
+                    graph, from_node, to_node, edge_data
+                ),
+                flat_penalty,
+                flat_penalty,
+                flat_penalty,
+                noop_record_metrics,
+                {},
+                return_explanations=True,
+            )
+
+        assignments = result["assignments"]
+        self.assertEqual(len(assignments), 1)
+        self.assertEqual(assignments[0]["robotId"], "vrp-robot")
+        self.assertEqual(assignments[0]["deliveryIds"], ["a", "b", "c"])
+        self.assertEqual(len(assignments[0]["orderSequence"]), 6)
+        self.assertIn("vrpStats", assignments[0])
+        self.assertIn("vrpCost", assignments[0])
+        self.assertTrue(assignments[0]["route"]["path"])
+        log_mock.assert_called_once()
+        self.assertEqual(log_mock.call_args.args[0]["type"], "vrp_result")
+
+        timeline_stages = [
+            step["stage"] for step in result["explanations"][0]["timeline"]
+        ]
+        self.assertIn("vrp_sequence", timeline_stages)
+
+    def test_vrp_distance_matrix_tolerates_failed_pair_route(self):
+        robot = {"lat": 21.0, "lon": 105.0}
+        stops = [
+            {
+                "stopId": "P1",
+                "type": "pickup",
+                "deliveryId": 1,
+                "lat": 21.001,
+                "lon": 105.0,
+            },
+            {
+                "stopId": "D1",
+                "type": "dropoff",
+                "deliveryId": 1,
+                "lat": 21.002,
+                "lon": 105.0,
+            },
+        ]
+
+        def fake_route(*args):
+            from_point = args[1]
+            to_point = args[2]
+            if from_point["stopId"] == "P1" and to_point["stopId"] == "D1":
+                raise RuntimeError("no path")
+            return {
+                "distance": 12.0,
+                "path": [[from_point["lat"], from_point["lon"]]],
+                "costBreakdown": {"totalCost": 15.0},
+            }
+
+        with patch.object(allocation, "_route_between_points", side_effect=fake_route):
+            matrix, route_cache = allocation._build_vrp_distance_matrix(
+                None,
+                robot,
+                stops,
+                nearest_node_id,
+                {"ox": None},
+                None,
+                "astar",
+                flat_penalty,
+                flat_penalty,
+                flat_penalty,
+            )
+
+        self.assertTrue(math.isinf(matrix["P1"]["D1"]))
+        self.assertNotIn(("P1", "D1"), route_cache)
+        self.assertEqual(matrix[allocation.START_NODE_ID]["P1"], 15.0)
 
 
 if __name__ == "__main__":
