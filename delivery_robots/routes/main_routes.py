@@ -19,6 +19,7 @@ from ..core.environment import (
 )
 from ..core.hubs import append_delivery_points, compute_optimized_hubs
 from ..utils.geo import haversine_distance
+from ..utils.persistent_log import append_delivery_history
 from ..utils.route_analysis import attach_route_metadata, build_memory_weight_fn
 from ..config import (
     CLASSICAL_COMPARE_NOTE,
@@ -201,6 +202,24 @@ def register_main_routes(app, ctx):
             dropoff_lon = validate_coordinate(data.get("dropoffLon"), "dropoffLon")
             append_delivery_points(
                 app_state, pickup_lat, pickup_lon, dropoff_lat, dropoff_lon
+            )
+            append_delivery_history(
+                {
+                    "deliveryId": data.get("deliveryId"),
+                    "pickup": {
+                        "lat": pickup_lat,
+                        "lon": pickup_lon,
+                        "name": data.get("pickupName"),
+                        "category": data.get("pickupCategory"),
+                    },
+                    "dropoff": {
+                        "lat": dropoff_lat,
+                        "lon": dropoff_lon,
+                        "name": data.get("dropoffName"),
+                        "category": data.get("dropoffCategory"),
+                    },
+                    "createdAt": data.get("createdAt"),
+                }
             )
             return jsonify({"status": "success"}), 200
         except Exception as exc:

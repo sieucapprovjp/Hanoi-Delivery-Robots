@@ -48,6 +48,7 @@ from ..config import (
     TRAFFIC_SEVERITY_CLAMP_MAX,
     TRAFFIC_SEVERITY_CLAMP_MIN,
 )
+from ..utils.persistent_log import append_app_event
 
 
 def serialize_center_item(item):
@@ -236,6 +237,7 @@ def register_environment_routes(app, ctx):
             }
             with api_logs_lock:
                 api_logs.append(entry)
+            append_app_event(entry)
             return jsonify({"status": "ok"}), 200
 
         limit = request.args.get("limit", default=DEFAULT_LOGS_LIMIT, type=int) or DEFAULT_LOGS_LIMIT

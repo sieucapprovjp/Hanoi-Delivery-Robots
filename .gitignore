@@ -32,6 +32,7 @@ Thumbs.db
 cache/
 *.cache
 *.log
+logs/*.jsonl
 
 # Environment variables
 .env

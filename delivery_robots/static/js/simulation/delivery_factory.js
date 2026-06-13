@@ -45,9 +45,15 @@ function createDelivery(locations, id) {
 
 function buildDeliveryLogPayload(delivery) {
     return {
+        deliveryId: delivery.id,
         pickupLat: delivery.pickup.lat,
         pickupLon: delivery.pickup.lon,
+        pickupName: delivery.pickup.name,
+        pickupCategory: delivery.pickup.category,
         dropoffLat: delivery.destination.lat,
-        dropoffLon: delivery.destination.lon
+        dropoffLon: delivery.destination.lon,
+        dropoffName: delivery.destination.name,
+        dropoffCategory: delivery.destination.category,
+        createdAt: delivery.createdAt
     };
 }
