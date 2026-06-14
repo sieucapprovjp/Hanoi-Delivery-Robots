@@ -21,6 +21,9 @@ class DeliveryRobot {
         this.lastUpdateTime = null;
         this.segmentDuration = 0;
         this._lastPathIndex = -1;
+        this.capacity = CONFIG.ROBOT.CAPACITY;
+        this.currentLoad = 0;
+        this.activeOrders = [];
     }
 
     update() {
@@ -320,10 +323,12 @@ class DeliveryRobot {
             }
         }
 
+        const loadLabel = `${this.currentLoad || 0}/${this.capacity || CONFIG.ROBOT.CAPACITY}`;
         let gridHtml = `
-            <div class="popup-grid-2">
+            <div class="popup-grid-3">
                 <div class="grid-item"><div class="item-label">Status</div><div class="item-value">${this.status.toUpperCase()}</div></div>
                 <div class="grid-item"><div class="item-label">Battery</div><div class="item-value">${(this.battery || 100).toFixed(1)}%</div></div>
+                <div class="grid-item"><div class="item-label">Orders</div><div class="item-value">${loadLabel}</div></div>
             </div>
         `;
 
@@ -347,6 +352,19 @@ class DeliveryRobot {
             }
         }
 
+        const orderHtml = this.activeOrders && this.activeOrders.length > 0
+            ? `
+                <div class="popup-orders">
+                    ${this.activeOrders.map(order => `
+                        <div class="popup-order-row">
+                            <strong>${order.id || 'ORDER'}</strong>
+                            <span>${order.status || 'active'}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `
+            : '';
+
         const content = `
             <div class="robot-popup">
                 <div class="popup-title" style="--robot-color: ${this.color}">🤖 ${this.name}</div>
@@ -357,6 +375,7 @@ class DeliveryRobot {
 
                 ${gridHtml}
                 ${targetHtml}
+                ${orderHtml}
             </div>
         `;
 

@@ -60,4 +60,10 @@ class BackendAPI {
         return response.json();
     }
 
+    async getDispatchExplanations(limit = 10) {
+        const response = await fetch(`${CONFIG.API.DISPATCH_EXPLANATIONS}?limit=${limit}`);
+        if (!response.ok) throw new Error(`Dispatch explanations request failed: ${response.status}`);
+        return response.json();
+    }
+
 }

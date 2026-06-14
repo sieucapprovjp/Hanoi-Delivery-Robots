@@ -3,30 +3,27 @@ let mapManager;
 let pathfindingManager;
 let environmentManager;
 
-function logEvent(message) {
+function postUiLog(message, level, source) {
+    if (!CONFIG.UI.SERVER_LOGS_ENABLED) return;
+
     fetch(CONFIG.API.LOGS, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             message,
-            level: CONFIG.UI.LOG_LEVELS.INFO,
-            source: CONFIG.UI.LOG_SOURCES.UI,
+            level,
+            source,
             ts: Date.now()
         })
     }).catch(() => { });
 }
 
+function logEvent(message) {
+    postUiLog(message, CONFIG.UI.LOG_LEVELS.INFO, CONFIG.UI.LOG_SOURCES.UI);
+}
+
 function addDispatchInsight(message, tone = CONFIG.UI.LOG_LEVELS.NEUTRAL) {
-    fetch(CONFIG.API.LOGS, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            message,
-            level: tone,
-            source: CONFIG.UI.LOG_SOURCES.DISPATCH,
-            ts: Date.now()
-        })
-    }).catch(() => { });
+    postUiLog(message, tone, CONFIG.UI.LOG_SOURCES.DISPATCH);
 }
 
 
@@ -115,6 +112,10 @@ window.appendDispatchInsight = function (message) {
     `;
 
     container.insertBefore(entry, container.firstChild);
+
+    while (container.children.length > CONFIG.UI.DISPATCH_INSIGHTS_MAX_ITEMS) {
+        container.removeChild(container.lastChild);
+    }
 };
 
 // ===== METRICS =====
