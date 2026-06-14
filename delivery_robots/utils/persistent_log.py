@@ -37,6 +37,25 @@ def append_jsonl(filename, payload, log_dir=PERSISTENT_LOG_DIR):
     return entry
 
 
+def read_jsonl(filename, log_dir=PERSISTENT_LOG_DIR):
+    path = _log_path(filename, log_dir)
+    if not path.exists():
+        return []
+
+    entries = []
+    with _log_lock:
+        with path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    return entries
+
+
 def append_app_event(payload, log_dir=PERSISTENT_LOG_DIR):
     event = {"type": "app_event", **dict(payload)}
     return append_jsonl(APP_EVENTS_LOG_FILENAME, event, log_dir)
@@ -45,3 +64,11 @@ def append_app_event(payload, log_dir=PERSISTENT_LOG_DIR):
 def append_delivery_history(payload, log_dir=PERSISTENT_LOG_DIR):
     event = {"type": "delivery_history", **dict(payload)}
     return append_jsonl(DELIVERY_HISTORY_LOG_FILENAME, event, log_dir)
+
+
+def read_delivery_history(log_dir=PERSISTENT_LOG_DIR):
+    return [
+        entry
+        for entry in read_jsonl(DELIVERY_HISTORY_LOG_FILENAME, log_dir)
+        if entry.get("type") == "delivery_history"
+    ]
