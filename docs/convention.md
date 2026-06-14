@@ -32,7 +32,7 @@ This document defines the coding standards, naming conventions, formatting rules
 *   **Standard**: ECMAScript 6 (ES6+) syntax.
 *   **Formatter**: Formatted with Prettier or equivalent style rules.
 *   **Classes & Methods**: Classes in PascalCase (e.g., `DisplayEngine`, `RainManager`, `BackendAPI`). Methods and properties in camelCase (e.g., `initialize`, `getTraffic`, `logEvent`).
-*   **Globals & Constants**: Centralized config object named `CONFIG` in `static/js/core/config.js` in UPPER_SNAKE_CASE keys (e.g., `CONFIG.API.LOGS`).
+*   **Globals & Constants**: Centralized config object named `CONFIG` in `delivery_robots/static/js/core/config.js` in UPPER_SNAKE_CASE keys (e.g., `CONFIG.API.LOGS`).
 
 ### HTML & Alpine.js
 *   Use semantic HTML5 elements where possible (e.g., `<header>`, `<nav>`, `<button>`).
@@ -55,8 +55,10 @@ This document defines the coding standards, naming conventions, formatting rules
     *   `_dynamic_traffic_lock` for adding or clearing dynamic traffic routes.
     *   `_obstacles_lock` for managing road obstacles.
     *   `_api_logs_lock` for adding frontend logs to the deque.
-*   **Simulation Loop**: Run SimPy simulation in a background thread managed by SocketIO (`socketio.start_background_task`), and push updates to the UI using websockets instead of HTTP polling.
+*   **Simulation Loop**: The active demo simulation loop runs in the browser. The frontend calls Flask REST APIs for route calculation, dispatch, environment state, logs, metrics, and hub optimization.
+*   **Dispatch Scope**: Keep CSP constraints, XAI explanation construction, and VRP/PDP sequencing in backend modules under `delivery_robots/algorithms/dispatch/`.
 
 ### Weighting Function Patterns
 *   Environment metrics (Rain, Traffic, Obstacles) must not directly mutate the underlying graph edge lengths. Instead, they must be computed as dynamic weights via the `edge_weight_with_traffic(state, from_node, to_node, edge_data)` function.
 *   Graph modifications should keep topological geometry intact while updating weights dynamically.
+*   Multi-order routing must preserve pickup-before-dropoff precedence and respect the configured robot capacity.

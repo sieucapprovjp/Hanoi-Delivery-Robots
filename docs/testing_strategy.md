@@ -1,66 +1,55 @@
 # Testing Strategy
 
-This document outlines the testing methodologies, frameworks, test cases, and mocking patterns for the **AI Delivery Robots Simulation** application.
+The project uses Python `unittest` plus syntax checks for Python and frontend
+JavaScript.
 
----
+## Test Commands
 
-## 🧪 Testing Methodologies
+```powershell
+python -m unittest discover -s tests
+python -m compileall -q delivery_robots tests
+Get-ChildItem delivery_robots/static/js -Recurse -Filter *.js | ForEach-Object { node --check $_.FullName }
+```
 
-The codebase employs a automated testing suite categorized into:
-1.  **Unit Tests**: Verify isolated functions such as calculations inside the routing engine, coordinate validators, and route geometry building.
-2.  **Integration Tests**: Verify end-to-end Flask application client flows, validation filters on HTTP routes, and endpoint responses.
+## Test Coverage Areas
 
----
+| File | Main Coverage |
+| :--- | :--- |
+| `tests/test_validation.py` | Coordinate, radius, count, and payload validation |
+| `tests/test_api.py` | Flask API smoke tests and route validation |
+| `tests/test_route_analysis.py` | Route response geometry and cost breakdown |
+| `tests/test_classical_ai.py` | Classical A*, Dijkstra, GBFS, BFS behavior |
+| `tests/test_environment.py` | Traffic, rain, obstacle, and time-based penalties |
+| `tests/test_insider.py` | A* step trace and insider comparison behavior |
+| `tests/test_dispatch_constraints.py` | CSP feasibility checks |
+| `tests/test_dispatch_allocation.py` | Dispatch scoring, candidate filtering, XAI, and batch assignment |
+| `tests/test_vrp.py` | VRP/PDP sequence building, precedence, greedy seed, SA solver |
+| `tests/test_persistent_log.py` | JSONL append behavior |
 
-## 🛠️ Testing Framework & Run Environment
+## Graph Mocking Rules
 
-*   **Framework**: Python's standard `unittest` library.
-*   **Virtualenv Invocation**: Tests must be executed using the virtual environment's Python interpreter to ensure dependencies (like NetworkX and OSMnx) are correctly loaded.
-*   **Command**:
-    ```bash
-    .venv/bin/python -m unittest discover tests
-    ```
+Tests must avoid live OpenStreetMap downloads. Use small `networkx.MultiDiGraph`
+fixtures with:
 
----
+- node `y` and `x` attributes
+- edge `length` attributes
+- predictable connectivity
 
-## 📦 Test Suite Overview
+When nearest-node behavior is relevant, inject or mock lookup helpers so tests do not
+depend on OSMnx network access.
 
-The project maintains three test modules inside the [tests/](file:///home/lan/projects/AI-Intro/tests) folder:
+## Backend Test Expectations
 
-### 1. [test_validation.py](file:///home/lan/projects/AI-Intro/tests/test_validation.py)
-Validates input constraints.
-*   Asserts coordinate errors when latitude is $> 90$ or $<-90$, or longitude is $> 180$ or $<-180$.
-*   Checks that negative counts or non-positive values (like radii) raise correct exceptions.
+- Route tests should check both path shape and cost semantics.
+- Environment tests should verify penalty direction and boundary behavior.
+- Dispatch tests should verify rejected candidates, selected candidates, and returned explanation payloads.
+- VRP tests should verify pickup-before-dropoff precedence and finite fallback behavior when some matrix entries are unreachable.
 
-### 2. [test_route_analysis.py](file:///home/lan/projects/AI-Intro/tests/test_route_analysis.py)
-Tests path cost calculations and geometry processing.
-*   Uses a mocked `FakeGraph` structure.
-*   Verifies that `build_route_response` correctly aggregates environmental penalties into the cost breakdown:
-    $$\text{TotalCost} = \text{BaseDistance} + \text{TrafficCost} + \text{RainCost} + \text{ObstacleCost}$$
+## Frontend Verification
 
-### 3. [test_api.py](file:///home/lan/projects/AI-Intro/tests/test_api.py)
-Tests Flask REST API endpoints using the Flask test client (`app.test_client()`).
-*   Verifies `/api/health` returns status `'ok'`.
-*   Verifies `/api/traffic/add` successfully maps coordinate points to the closest node and creates congestion paths.
-*   Ensures bad coordinate values trigger HTTP 400 validations.
+There is no formal frontend test runner yet. For frontend changes:
 
----
-
-## 🪵 Graph Mocking Patterns
-
-To prevent slow and fragile HTTP requests to OpenStreetMap or live downloads during testing, the graph must be mocked.
-
-### 1. Minimal Graph Setup
-Mocked graphs must be instances of `networkx.MultiDiGraph` or class doubles containing:
-*   Nodes with `y` (latitude) and `x` (longitude) keys:
-    ```python
-    graph.add_node(1, y=21.0000, x=105.0000)
-    ```
-*   Edges containing the `"length"` attribute:
-    ```python
-    graph.add_edge(1, 2, length=100.0)
-    ```
-
-### 2. OSMnx Module Mocking
-*   In API tests, mock `ox` reference to avoid real-world spatial tree construction or CRS exceptions.
-*   Mock out `ox.nearest_nodes` or assign the module attribute `_ox = None` inside `setUp()` to ensure coordinate lookups fall back to fast Haversine loop algorithms in tests.
+- run `node --check` over all JS files
+- start `python main.py`
+- smoke the browser on `http://127.0.0.1:5002`
+- verify map renders, robots move, dispatch works, and XAI/VRP panels render without console errors

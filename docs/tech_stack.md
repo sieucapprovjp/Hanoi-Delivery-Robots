@@ -1,40 +1,55 @@
 # Technology Stack
 
-This document specifies the programming languages, frameworks, libraries, API versions, and tooling configured for the **AI Delivery Robots Simulation** project.
+This document records the current runtime, libraries, and development tools used by
+the AI Delivery Robots simulation.
 
----
+## Backend
 
-## 🐍 Backend (Python Services)
-
-| Component / Library | Version Specified | Purpose |
+| Component | Version / Source | Purpose |
 | :--- | :--- | :--- |
-| **Python** | `3.10+` | Core programming language |
-| **Flask** | `3.0.0` | Micro WSGI web framework exposing REST APIs |
-| **Flask-SocketIO** | *Latest (Implied)* | WebSocket wrapper for real-time simulation updates |
-| **OSMnx** | `2.1.0` | Downloads and constructs spatial street graphs from OpenStreetMap |
-| **NetworkX** | `3.6.1` | Underlying mathematical graph library representing nodes and edges |
-| **SimPy** | *Latest (Implied)* | Discrete event simulation library scheduling asynchronous robot processes |
-| **Scikit-learn** | *Latest (Implied)* | Machine learning package providing KMeans for hub optimization |
-| **NumPy** | *Latest (Implied)* | Performs fast vector math, coordinate scaling, and spatial tree lookups |
-| **Werkzeug** | *Dependency* | Underpins Flask; handles request routing and WSGI debugging |
+| Python | 3.10+ recommended | Main backend language |
+| Flask | `3.0.0` | REST API and web app server |
+| OSMnx | `2.1.0` | OpenStreetMap graph loading |
+| NetworkX | `3.6.1` | Road graph representation and graph search support |
+| scikit-learn | `requirements.txt` | K-means hub optimization and BallTree nearest-node index |
+| NumPy | `requirements.txt` | Numeric arrays and spatial lookup support |
+| unittest | Python stdlib | Test framework |
 
----
+The backend does not currently require Flask-SocketIO or SimPy for the active browser
+simulation path. The live simulation loop is handled in the frontend, while Flask
+serves routing, dispatch, environment, logging, metrics, and optimization APIs.
 
-## 🌐 Frontend (User Interface)
+## Frontend
 
-| Library / Tool | Version Loaded | Purpose |
-| :--- | :--- | :--- |
-| **HTML5 & CSS3** | Native | Semantics structure and stylesheet aesthetics |
-| **Vanilla JavaScript** | ES6+ | Encapsulated client classes (`DisplayEngine`, `RainManager`, etc.) |
-| **Leaflet.js** | `1.9.4` | Renders interactive maps, coordinates polylines, and plots icons |
-| **Alpine.js** | `3.x.x` | Coordinates UI panel toggles, binds clock ticks, and renders log text |
-| **Socket.IO Client** | `4.7.2` | Listens to backend websocket loops, feeding real-time updates to UI |
+| Component | Purpose |
+| :--- | :--- |
+| HTML/CSS | Application shell and dashboard styling |
+| Vanilla JavaScript | Simulation loop, robot state, API client, and map layers |
+| Alpine.js | Lightweight UI state and panel rendering |
+| Leaflet | Interactive Hoan Kiem map, markers, routes, and overlays |
 
----
+Frontend code is split by domain under `delivery_robots/static/js/`:
 
-## 🛠️ Development & Testing Infrastructure
+- `core`
+- `environment`
+- `insider`
+- `map`
+- `robot`
+- `simulation`
 
-*   **Virtual Environments (`.venv`)**: Isolated runtime environment to prevent system package collisions.
-*   **Testing Engine (`unittest`)**: Built-in Python testing suite executing assertions, regression checks, and mocks.
-*   **Graph Construction**: Builds Hanoi's Hoan Kiem district street nodes (`GRAPH_CENTER = (21.0285, 105.8542)`) projected to bike networks using spatial coordinate maps.
-*   **Python Package Installer (`pip`)**: Resolves backend library trees using the defined `requirements.txt`.
+## Runtime Data
+
+- OSM graph cache: `cache/`
+- Persistent event logs: `logs/app-events.jsonl`
+- Persistent delivery history: `logs/delivery-history.jsonl`
+
+`cache/` and `logs/` are runtime artifacts and are ignored by Git.
+
+## Development Commands
+
+```powershell
+python main.py
+python -m unittest discover -s tests
+python -m compileall -q delivery_robots tests
+Get-ChildItem delivery_robots/static/js -Recurse -Filter *.js | ForEach-Object { node --check $_.FullName }
+```

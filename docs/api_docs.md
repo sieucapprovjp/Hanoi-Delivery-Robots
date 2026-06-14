@@ -1,287 +1,286 @@
 # API Documentation
 
-This document describes the REST API endpoints and WebSocket channels exposed by the backend of the **AI Delivery Robots Simulation** application.
+The backend exposes REST APIs from a Flask server. The frontend simulation uses these
+endpoints for routing, dispatch, environment controls, metrics, logs, XAI, and hub
+optimization.
 
----
+Base local URL:
 
-## 🌐 REST API Endpoints
+```text
+http://127.0.0.1:5002
+```
 
-### 1. General & System
+## System
 
-#### `GET /api/health`
-*   **Description**: Basic service check.
-*   **Response (200 OK)**:
-    ```json
-    { "status": "ok" }
-    ```
+### `GET /api/health`
 
-#### `GET /api/logs`
-*   **Description**: Retrieves recent client and backend log history.
-*   **Query Parameters**:
-    *   `limit` (integer, optional, default: 200, bounds: 1 to 1000)
-*   **Response (200 OK)**:
-    ```json
+Returns service health.
+
+```json
+{ "status": "ok" }
+```
+
+### `GET /api/clock`
+
+Returns simulated clock and rush-hour information.
+
+### `GET /api/metrics`
+
+Returns pathfinding metrics and active environment factor counts.
+
+Optional query:
+
+- `static=true`: include graph node/edge counts when available.
+
+## Logs
+
+### `GET /api/logs`
+
+Returns recent in-memory logs.
+
+Query:
+
+- `limit`: optional, default `200`, bounded by the backend.
+
+### `POST /api/logs`
+
+Appends an app event to in-memory logs and persistent JSONL logs.
+
+```json
+{
+  "message": "Simulation started",
+  "level": "info",
+  "source": "ui",
+  "ts": 1716382093000
+}
+```
+
+### `POST /api/log_delivery`
+
+Records delivery points in memory and appends them to persistent K-means delivery history.
+
+Typical payload:
+
+```json
+{
+  "pickup": { "lat": 21.0355, "lon": 105.8516 },
+  "dropoff": { "lat": 21.0240, "lon": 105.8480 },
+  "deliveryId": 12
+}
+```
+
+## Routing
+
+### `GET /api/route`
+
+Calculates a weighted route between two coordinates.
+
+Query:
+
+- `fromLat`
+- `fromLon`
+- `toLat`
+- `toLon`
+- `algo`: optional, `astar`, `dijkstra`, `gbfs`, or `greedy` alias
+
+Response includes route geometry, distance/cost, explored node count, timing, and a
+cost breakdown.
+
+```json
+{
+  "algorithm": "astar",
+  "path": [{ "lat": 21.0285, "lon": 105.8542 }],
+  "distance": 9165.0,
+  "nodesExplored": 120,
+  "calculationTime": 4.2,
+  "costBreakdown": {
+    "baseDistance": 7000.0,
+    "trafficPenalty": 900.0,
+    "rainPenalty": 800.0,
+    "obstaclePenalty": 0.0,
+    "totalCost": 8700.0,
+    "estimatedMinutes": 18.4
+  }
+}
+```
+
+### `GET /api/snap`
+
+Snaps a coordinate to the nearest road node.
+
+Query:
+
+- `lat`
+- `lon`
+
+## Dispatch, CSP, XAI, and VRP
+
+### `POST /api/dispatch/assign`
+
+Assigns pending deliveries to feasible robots.
+
+Dispatch flow:
+
+1. Score delivery priority.
+2. Apply CSP filters: robot status, battery, capacity, pickup distance.
+3. Expand the best route candidates.
+4. Batch deliveries when queue pressure warrants it.
+5. Solve pickup/dropoff order with VRP/PDP Simulated Annealing for multi-order batches.
+6. Return assignment payloads and optional explanations.
+
+Payload shape:
+
+```json
+{
+  "robots": [
     {
-      "count": 2,
-      "logs": [
-        {
-          "ts": 1716382092100,
-          "message": "Robot 1 assigned to order",
-          "level": "info",
-          "source": "dispatch"
-        },
-        {
-          "ts": 1716382091000,
-          "message": "✅ Display Ready",
-          "level": "info",
-          "source": "ui"
-        }
-      ]
+      "id": 5,
+      "lat": 21.0303,
+      "lon": 105.8539,
+      "status": "idle",
+      "battery": 80,
+      "capacity": 3,
+      "currentLoad": 0,
+      "roadMemory": {}
     }
-    ```
-
-#### `POST /api/logs`
-*   **Description**: Appends a log entry to the in-memory log deque.
-*   **Request Payload**:
-    ```json
+  ],
+  "deliveries": [
     {
-      "message": "Simulation speed adjusted to 2x",
-      "level": "info",
-      "source": "ui",
-      "ts": 1716382093000
+      "id": 12,
+      "pickup": { "lat": 21.0355, "lon": 105.8516, "category": "market" },
+      "dropoff": { "lat": 21.0240, "lon": 105.8480, "category": "retail" },
+      "createdAt": 1716382093000
     }
-    ```
-*   **Response (200 OK / 400 Bad Request)**:
-    *   `200 OK`: `{"status": "ok"}`
-    *   `400 Bad Request`: `{"error": "message is required"}`
+  ],
+  "algorithm": "astar",
+  "return_explanations": true
+}
+```
 
----
+Response shape:
 
-### 2. Environment & Routing Factors
-
-#### `GET /api/weather`
-*   **Description**: Fetches active rain storm zones and multipliers.
-*   **Response (200 OK)**:
-    ```json
+```json
+{
+  "assignments": [
     {
-      "rainZones": [
-        {
-          "name": "Rain 1",
-          "center": { "lat": 21.0285, "lon": 105.8542 },
-          "radius": 150.0,
-          "multiplier": 2.0
-        }
-      ]
+      "robotId": 5,
+      "deliveryId": 12,
+      "deliveryIds": [12, 14, 16],
+      "route": {},
+      "orderSequence": [],
+      "routeSequence": [],
+      "vrpStats": {
+        "iterations": 5000,
+        "acceptedMoves": 312,
+        "improvements": 18
+      },
+      "vrpCost": 10300.0,
+      "vrpInitialCost": 12400.0,
+      "vrpImprovementRatio": 0.169,
+      "explanation": {}
     }
-    ```
+  ],
+  "explanations": []
+}
+```
 
-#### `POST /api/rain/add`
-*   **Description**: Places a custom rain storm zone.
-*   **Request Payload**:
-    ```json
-    {
-      "lat": 21.0312,
-      "lon": 105.8510,
-      "radius": 120.0
-    }
-    ```
-*   **Response (200 OK / 400 Bad Request)**:
-    *   `200 OK`:
-        ```json
-        {
-          "message": "Added",
-          "rainZone": {
-            "name": "Rain 2",
-            "center": { "lat": 21.0312, "lon": 105.851 },
-            "radius": 120.0
-          }
-        }
-        ```
+Capacity is currently `3` active orders per robot.
 
-#### `POST /api/rain/randomize`
-*   **Description**: Clears rain zones and populates random coordinates within Hanoi bounds.
-*   **Request Payload**:
-    ```json
-    {
-      "count": 3,
-      "minRadius": 100,
-      "maxRadius": 200
-    }
-    ```
-*   **Response (200 OK)**: list of generated zones.
+## K-means Hubs
 
-#### `POST /api/rain/clear`
-*   **Description**: Erases all active rain zones.
-*   **Response (200 OK)**: `{"message": "Cleared"}`
+### `POST /api/optimize-hubs`
 
----
+Runs K-means on recorded delivery coordinates and returns optimized hub locations. The optimizer prefers `logs/delivery-history.jsonl` and falls back to in-memory history when the log file does not contain enough valid points.
 
-#### `GET /api/traffic`
-*   **Description**: Fetches congestion segments under current time intervals.
-*   **Response (200 OK)**:
-    ```json
-    {
-      "roads": [
-        {
-          "name": "Traffic 1",
-          "segments": [
-            {
-              "points": [[21.02, 105.84], [21.021, 105.841]],
-              "severity": 0.52
-            }
-          ]
-        }
-      ],
-      "updatedAt": 1716382092.42
-    }
-    ```
+```json
+{
+  "hubs": [
+    { "id": 0, "lat": 21.025, "lon": 105.851, "name": "AI Hub A" }
+  ]
+}
+```
 
-#### `POST /api/traffic/add`
-*   **Description**: Commences a congestion zone path between closest nodes.
-*   **Request Payload**:
-    ```json
-    {
-      "startLat": 21.0240,
-      "startLon": 105.8480,
-      "endLat": 21.0285,
-      "endLon": 105.8542,
-      "severity": 0.8
-    }
-    ```
-*   **Response (200 OK / 400 Bad Request)**: Returns route layout and path segments.
+If there are not enough points, the API returns `400`.
 
-#### `POST /api/traffic/clear`
-*   **Description**: Resets dynamic traffic segments.
-*   **Response (200 OK)**: `{"message": "Cleared"}`
+## Insider and Classical AI
 
----
+### `GET /api/astep`
 
-#### `GET /api/route`
-*   **Description**: Calculates a path between two coordinates, returning the route geometry and cost breakdown (base distance + traffic, rain, and obstacle penalties).
-*   **Query Parameters**:
-    *   `fromLat` (float, required)
-    *   `fromLon` (float, required)
-    *   `toLat` (float, required)
-    *   `toLon` (float, required)
-*   **Response (200 OK)**:
-    ```json
-    {
-      "path": [{"lat": 21.0000, "lon": 105.0000}, {"lat": 21.0020, "lon": 105.0020}],
-      "distance": 100.0,
-      "costBreakdown": {
-        "baseDistance": 100.0,
-        "trafficPenalty": 0.0,
-        "rainPenalty": 0.0,
-        "obstaclePenalty": 0.0,
-        "totalCost": 100.0,
-        "estimatedMinutes": 0.8
-      }
-    }
-    ```
-*   **Response (400 Bad Request / 404 Not Found)**:
-    *   `400 Bad Request`: `{"error": "Invalid coordinates"}`
-    *   `404 Not Found`: `{"error": "No path found between the specified coordinates"}`
+Runs an A* expansion demo and returns recorded steps: selected node, `g`, `h`, `f`,
+open set size, closed set size, and final path data.
 
----
+### `GET /api/insider`
 
-#### `GET /api/obstacle/list`
-*   **Description**: Retrieves currently placed roadblock incidents.
-*   **Response (200 OK)**: List of obstacle objects with center, radius, severity, type.
+Compares A*, Dijkstra, GBFS, and BFS with environment-aware weights for explainability.
 
-#### `POST /api/obstacle/add`
-*   **Description**: Adds a roadblock, construction zone, or accident.
-*   **Request Payload**:
-    ```json
-    {
-      "lat": 21.0275,
-      "lon": 105.8520,
-      "radius": 80.0,
-      "severity": 20.0,
-      "type": "construction"
-    }
-    ```
-*   **Response (200 OK)**: Confirms added obstacle details.
+### `GET /api/classical/compare`
 
-#### `POST /api/obstacle/clear`
-*   **Description**: Clears active roadblock incidents.
-*   **Response (200 OK)**: `{"message": "Cleared"}`
+Compares A*, Dijkstra, GBFS, and BFS with base physical edge length only. This is for
+academic comparison and intentionally ignores rain/traffic/obstacle penalties.
 
----
+## Environment
 
-### 3. Analytics & Optimizations
+### Rain
 
-#### `GET /api/metrics`
-*   **Description**: Fetches execution speed metrics, nodes explored, and factors counts.
-*   **Query Parameters**:
-    *   `static` (boolean, optional, default: `false`. Includes graph node/edge counts if `true`).
-*   **Response (200 OK)**:
-    ```json
-    {
-      "activeFactors": { "rainZones": 2, "trafficRoutes": 1, "obstacles": 0 },
-      "pathfinding": {
-        "avgCalculationTime": 1.25,
-        "avgNodesExplored": 86.4,
-        "avgPathLength": 1240.2,
-        "lastCalculationTime": 1.1,
-        "maxCalculationTime": 8.4,
-        "minCalculationTime": 0.2,
-        "totalCalculations": 45
-      }
-    }
-    ```
+- `GET /api/weather`
+- `GET /api/rain/list`
+- `POST /api/rain/add`
+- `POST /api/rain/randomize`
+- `POST /api/rain/clear`
 
-#### `POST /api/optimize-hubs`
-*   **Description**: Applies KMeans on historical successful delivery coordinates to locate new central depots.
-*   **Response (200 OK / 400 Bad Request)**:
-    *   `200 OK`:
-        ```json
-        {
-          "hubs": [
-            { "id": 0, "lat": 21.025, "lon": 105.851, "name": "AI Hub A" }
-          ]
-        }
-        ```
-    *   `400 Bad Request`: `{"error": "Not enough delivery data to optimize hubs. Need at least 5 points."}`
+`POST /api/rain/add` example:
 
----
+```json
+{
+  "lat": 21.0312,
+  "lon": 105.8510,
+  "radius": 120.0,
+  "severity": 1.0
+}
+```
 
-## 🔌 WebSockets (Flask-SocketIO Channel Events)
+### Traffic
 
-### Client-to-Server Events (Action Triggers)
-*   **`start_simulation`**: Instructs backend to begin simulator execution thread.
-*   **`pause_simulation`**: Pauses SimPy clock progression.
-*   **`reset_simulation`**: Erases active queues, re-aligns robots to default hubs, and updates coordinate statuses.
+- `GET /api/traffic`
+- `GET /api/traffic/list`
+- `POST /api/traffic/add`
+- `POST /api/traffic/randomize`
+- `POST /api/traffic/clear`
 
-### Server-to-Client Events (State Broadcasts)
-*   **`clock_update`**: Real-time simulated time ticks.
-    ```json
-    {
-      "time": { "display": "06:14:32" },
-      "rushHour": { "isActive": false, "multiplier": 1.0 },
-      "simulationSpeed": 1.5
-    }
-    ```
-*   **`robot_state_update`**: Broadcasts specific coordinate positions, battery, status strings.
-    ```json
-    {
-      "id": 1,
-      "name": "Robot 2",
-      "color": "#34a853",
-      "lat": 21.0285,
-      "lon": 105.8542,
-      "status": "moving_to_pickup",
-      "path_index": 4,
-      "route_target": "Pickup",
-      "battery": 98.4,
-      "current_path_length": 12,
-      "segment_duration": 1.2,
-      "geometry_path": [{"lat": 21.028, "lon": 105.85}, ...],
-      "segment_geometry": [[{"lat": 21.028, "lon": 105.85}, ...]]
-    }
-    ```
-*   **`system_event`**: Broad-spectrum simulation status updates.
-    ```json
-    {
-      "message": "New order ORDER-120 generated from Trang Tien Plaza to Melia Hanoi"
-    }
-    ```
+`POST /api/traffic/add` example:
+
+```json
+{
+  "startLat": 21.0240,
+  "startLon": 105.8480,
+  "endLat": 21.0285,
+  "endLon": 105.8542,
+  "severity": 0.8
+}
+```
+
+### Obstacles
+
+- `GET /api/obstacle/list`
+- `POST /api/obstacle/add`
+- `POST /api/obstacle/randomize`
+- `POST /api/obstacle/clear`
+
+`POST /api/obstacle/add` example:
+
+```json
+{
+  "lat": 21.0275,
+  "lon": 105.8520,
+  "radius": 80.0,
+  "severity": 20.0,
+  "type": "construction"
+}
+```
+
+## Charging Stations
+
+- `GET /api/charging-stations`
+- `PUT /api/charging-stations/<station_id>`
+
+These endpoints expose and update charging station/hub coordinates used by the frontend.

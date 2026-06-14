@@ -1,82 +1,87 @@
 # Error Handling & Logging Strategy
 
-This document describes the validation rules, HTTP status codes, exception handling practices, and logging strategy configured for the **AI Delivery Robots Simulation** application.
+This document describes validation, HTTP error responses, route failure behavior, and
+logging in the current application.
 
----
+## Validation
 
-## 🛡️ Input Validation & Business Rules
+Input validation lives primarily in `delivery_robots/utils/validation.py` and route
+handlers.
 
-Inputs to the system (coordinates, radii, counts) are validated in [validation.py](file:///home/lan/projects/AI-Intro/delivery_robots/utils/validation.py). The validation rules are:
+| Input | Rule |
+| :--- | :--- |
+| Latitude | `-90 <= lat <= 90` |
+| Longitude | `-180 <= lon <= 180` |
+| Radius | positive number |
+| Count | non-negative integer |
+| Traffic severity | bounded numeric value |
+| Obstacle severity | bounded numeric value |
+| K-means history | enough recorded points for requested cluster count |
+| Dispatch payload | robots and deliveries must be lists with usable coordinates |
 
-| Parameter | Domain Constraint | Exception Thrown |
-| :--- | :--- | :--- |
-| **Latitude** | Must lie within range `[-90, 90]` | `ValueError` |
-| **Longitude** | Must lie within range `[-180, 180]` | `ValueError` |
-| **Radius** | Must be a positive float ($> 0.0$) | `ValueError` |
-| **Count** | Must be a non-negative integer ($\ge 0$) | `ValueError` |
-| **KMeans History**| Must have $\ge 5$ coordinates | `ValueError` |
+## HTTP Errors
 
----
+Validation and business rule failures return JSON:
 
-## 📋 Standardized HTTP API Responses
+```json
+{ "error": "Latitude must be between -90 and 90" }
+```
 
-If validation fails or a logical constraint is violated, the backend intercepts the request and responds with a standard error JSON format.
+Common statuses:
 
-### 400 Bad Request (Validation Errors)
-*   **Trigger**: Coordinates out of bounds, or radius is negative.
-*   **Payload**:
-    ```json
-    { "error": "Latitude must be between -90 and 90" }
-    ```
+- `400`: invalid input or unmet business rule
+- `404`: no route/path found where the endpoint contract expects a route
+- `500`: uncaught server-side exception
 
-### 400 Bad Request (Business Logic Violations)
-*   **Trigger**: Optimization invoked with insufficient history.
-*   **Payload**:
-    ```json
-    { "error": "Not enough delivery data to optimize hubs. Need at least 5 points." }
-    ```
+## Route and Dispatch Failures
 
-### 500 Internal Server Error
-*   **Trigger**: Uncaught Python runtime exception.
-*   **Payload**:
-    ```json
-    { "error": "Exception message detail string" }
-    ```
+Route search can fail when graph connectivity or dynamic constraints make a path
+unavailable. Dispatch handles this by:
 
----
+- rejecting or skipping unreachable candidates
+- preserving explanation records when `return_explanations` is enabled
+- using finite fallback logic inside VRP where a partial distance matrix contains
+  unreachable pairs
+- returning no assignment rather than crashing the full dispatch request when all
+  candidates are infeasible
 
-## 🔌 WebSocket Simulation Error Handling
+## Logging
 
-During simulation runs (which happen asynchronously in background threads), errors cannot be returned via normal HTTP cycles:
-*   **Search Failures (`NetworkXNoPath`)**: If an obstacle blocks all routes between a robot and its target, the search throws an exception.
-*   **Graceful Recovery**: The simulation manager intercepts the exception, emits a `"system_event"` WebSocket message (e.g., `"Routing failed for ORDER-120, retrying later"`), and appends the order back to the queue to avoid dropping tasks.
+### In-Memory Logs
 
----
+`GET /api/logs` reads recent entries from the in-memory deque. `POST /api/logs`
+appends a new entry.
 
-## 🪵 Logging Architecture
+Example:
 
-### 1. In-Memory Logs Queue
-Logs from both the frontend (user actions) and backend (dispatcher events) are collected in a centralized deque (`_api_logs`) inside `app.py`:
-*   **Data Structure**: Thread-safe `collections.deque(maxlen=500)`.
-*   **Retention**: Logs are kept in-memory and are cleared when the server is restarted.
-
-### 2. Log Schema
-Each log entry contains the following properties:
 ```json
 {
   "ts": 1716382092100,
-  "message": "New order ORDER-12 generated...",
+  "message": "Robot 1 assigned to order",
   "level": "info",
   "source": "dispatch"
 }
 ```
 
-### 3. Log Levels & Sources
-*   **Levels**:
-    *   `info`: Standard events (e.g., displaying loaded layers, pathfinding completion).
-    *   `warning`: Intermediate errors or retries (e.g., routing timeouts, battery alerts).
-    *   `error`: Major failures (e.g., invalid coordinates, uncaught routing failures).
-    *   `neutral`: Secondary events or system logs.
-*   **Sources**:
-    *   `ui` / `frontend`: Log events originating from Leaflet clicks or button triggers.
-    *   `dispatch`: System logs originating from the background dispatcher thread.
+### Persistent JSONL Logs
+
+The project also writes lightweight persistent logs without a database:
+
+- `logs/app-events.jsonl`
+- `logs/delivery-history.jsonl`
+
+These files are suitable for later analysis, debugging, and K-means/VRP research
+without introducing database setup cost.
+
+### Log Sources
+
+- `ui`: frontend actions and simulation events
+- `dispatch`: assignment and VRP events
+- `backend`: route/environment/system events
+
+### Log Levels
+
+- `info`
+- `warning`
+- `error`
+- `neutral`

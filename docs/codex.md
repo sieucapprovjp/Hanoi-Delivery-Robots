@@ -34,7 +34,7 @@
   - Unsupervised learning: K-means hub optimization.
   - CSP: dispatch constraints for robot status, battery, capacity, and pickup distance.
   - XAI: readable decision explanations and timelines.
-  - VRP/PDP: multi-order routing and pickup-before-dropoff constraints, if implemented later.
+  - VRP/PDP: multi-order routing and pickup-before-dropoff constraints.
 - When adding an AI feature, expose both the behavior and the explanation/metric needed to present it.
 
 ### Required Change Report
@@ -172,6 +172,7 @@
 ### K-means Hub Optimization
 - The app records pickup/dropoff coordinates from generated deliveries.
 - `/api/optimize-hubs` runs K-means with a default of 5 clusters.
+- K-means prefers pickup/dropoff coordinates from `logs/delivery-history.jsonl` and falls back to in-memory `delivery_history` when the file has too few valid points.
 - Optimized hub centroids are returned as AI hubs and synced into charging stations.
 - The frontend can reposition robots to optimized hubs and draw hub markers/rings on the map.
 - Related files:
@@ -249,7 +250,7 @@
 
 ### Tests
 - Unit/integration tests cover validation, API basics, route analysis cost breakdown, classical AI, and dispatch allocation.
-- Current known full test result after recent optimization work: 17 tests passing with `python -m unittest discover -s tests`.
+- Current known full test result after recent optimization work: 48 tests passing with `python -m unittest discover -s tests`.
 - Related files:
   - `tests/test_validation.py`
   - `tests/test_api.py`
@@ -261,7 +262,7 @@
 - `README.md`: high-level project overview, setup, metric formula, roadmap, and folder structure.
 - `docs/backend_documentation.md`: backend architecture, core modules, algorithms, APIs, and utilities.
 - `docs/ai_instructions.md`: AI-agent coding constraints, testing rules, thread-safety guidance, and performance notes.
-- `docs/api_docs.md`: REST API and planned WebSocket contract reference.
+- `docs/api_docs.md`: REST API contract reference.
 - `docs/architecture.md`: high-level architecture, data flow, component layout, and dynamic weighting math.
 - `docs/convention.md`: backend/frontend coding standards, naming conventions, lock usage, and styling conventions.
 - `docs/database_schema.md`: in-memory app state, robot/task/environment models, and lock map.
@@ -272,7 +273,7 @@
 - `docs/tech_stack.md`: documented backend/frontend stack and development tooling.
 - `docs/testing_strategy.md`: unittest strategy, graph mocking rules, and endpoint test expectations.
 - `docs/vrp_research.md`: research notes for TSP, VRP, PDP, Simulated Annealing, precedence constraints, and how they map onto this project.
-- `docs/vrp_implementation_plan.md`: detailed implementation plan for future VRP/TSP with Simulated Annealing.
+- `docs/vrp_implementation_plan.md`: VRP/TSP Simulated Annealing implementation plan and current completion reference.
 - `docs/codex.md`: current concise memory file for Codex sessions.
 
 ## Current Not-Implemented Items

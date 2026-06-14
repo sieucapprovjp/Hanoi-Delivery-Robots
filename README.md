@@ -87,13 +87,13 @@ Một luồng demo ngắn, đủ bao phủ các phần AI chính:
 ### K-means Hub Optimization
 
 - App lưu tọa độ pickup/dropoff từ các đơn phát sinh.
-- `/api/optimize-hubs` chạy K-means để tìm centroids.
+- `/api/optimize-hubs` chạy K-means để tìm centroids, ưu tiên dữ liệu từ `logs/delivery-history.jsonl` và fallback RAM nếu file chưa đủ điểm.
 - Frontend vẽ hub mới và có thể reposition robot/trụ sạc theo cụm nhu cầu.
 
 ### Logs
 
 - `/api/logs` lưu event UI/dispatch trong bộ nhớ và append ra JSONL.
-- `/api/log_delivery` lưu pickup/dropoff history cho K-means.
+- `/api/log_delivery` lưu pickup/dropoff history cho K-means vào RAM và `logs/delivery-history.jsonl`.
 - File runtime:
   - `logs/app-events.jsonl`
   - `logs/delivery-history.jsonl`
