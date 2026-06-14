@@ -3,9 +3,9 @@ import random
 import threading
 from typing import Generator
 from .robot_agent import RobotAgent
-from ...algorithms import run_assignment
 from ...algorithms.assignment import compute_battery_cost
 from ...algorithms.base import AssignmentInput
+from ...algorithms.dispatch import run_assignment_with_csp_xai
 from ..event_bus import Event, EventType
 from ..data import LOCATIONS, INITIAL_ROBOTS
 from ..environment import get_simulation_time, get_rush_hour_multiplier, SnapFactory
@@ -107,6 +107,65 @@ class SimulatorManager:
 
     def emit_system_event(self, message):
         self.socketio.emit("system_event", {"message": message})
+
+    def record_dispatch_explanations(self, explanations):
+        if not explanations:
+            return
+
+        explanations_log = self.app_state.get("dispatch_explanations")
+        explanations_lock = self.app_state.get("dispatch_explanations_lock")
+        if explanations_log is not None:
+            if explanations_lock is not None:
+                with explanations_lock:
+                    explanations_log.extend(explanations)
+            else:
+                explanations_log.extend(explanations)
+
+        self.socketio.emit(
+            "dispatch_explanations_update",
+            {"explanations": explanations},
+        )
+
+    def prepare_vrp_batch_task(self, snap_graph, robot, task):
+        sequence = task.get("vrp_sequence") or []
+        if not sequence:
+            return
+
+        def weight_fn(u, v, d):
+            return snap_graph.get_edge_weight(u, v, d)
+
+        current_node = self.nearest_node_id(snap_graph, robot.lat, robot.lon)
+        segments = []
+        total_cost = 0.0
+
+        for stop in sequence:
+            stop_node = self.nearest_node_id(snap_graph, stop["lat"], stop["lon"])
+            route_result = self.run_weighted_route_search(
+                snap_graph,
+                current_node,
+                stop_node,
+                stop["lat"],
+                stop["lon"],
+                weight_fn,
+                "astar",
+            )
+            geometry_path, segment_geometry = self.build_route_geometry(
+                snap_graph, route_result.path
+            )
+            segments.append(
+                {
+                    "stop": stop,
+                    "path": route_result.path,
+                    "planned_cost": route_result.planned_cost,
+                    "geometry_path": geometry_path,
+                    "segment_geometry": segment_geometry,
+                }
+            )
+            total_cost += route_result.planned_cost
+            current_node = stop_node
+
+        task["vrp_segments"] = segments
+        task["planned_cost"] = total_cost
 
     def emit_clock_update(self):
         hours, minutes, seconds = get_simulation_time(self.app_state)
@@ -503,7 +562,13 @@ class SimulatorManager:
             )
 
             try:
-                result = run_assignment(dispatch_model_name, context)
+                result, explanations = run_assignment_with_csp_xai(
+                    dispatch_model_name,
+                    context,
+                    app_state=self.app_state,
+                    current_time=self.env.now,
+                )
+                self.record_dispatch_explanations(explanations)
             except Exception as e:
                 self.emit_system_event(f"Assignment execution failed: {e}")
                 continue
@@ -514,6 +579,21 @@ class SimulatorManager:
                 robot = assignment.robot
 
                 try:
+                    batch_orders = task.get("vrp_batch_orders")
+                    if batch_orders:
+                        for batch_order in batch_orders:
+                            if batch_order in self.order_queue:
+                                self.order_queue.remove(batch_order)
+                            batch_order["robot_name"] = robot.name
+                            self.order_manager.mark_assigned(batch_order)
+
+                        self.prepare_vrp_batch_task(snap_graph, robot, task)
+                        self.emit_system_event(
+                            f"VRP batch assigned {len(batch_orders)} order(s) to {robot.name}"
+                        )
+                        robot.assign_task(task)
+                        continue
+
                     # Remove from pending queue and mark assigned
                     if task in self.order_queue:
                         self.order_queue.remove(task)

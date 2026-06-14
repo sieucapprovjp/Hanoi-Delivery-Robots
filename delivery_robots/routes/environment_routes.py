@@ -74,6 +74,28 @@ def register_environment_routes(app, ctx):
         model = app_state.get("dispatch_model", "nearest_idle")
         return jsonify({"model": model}), 200
 
+    @app.route("/api/dispatch/explanations", methods=["GET"])
+    def get_dispatch_explanations():
+        limit = (
+            request.args.get("limit", default=20, type=int)
+            or 20
+        )
+        limit = max(1, min(limit, 100))
+        explanations_log = app_state.get("dispatch_explanations", [])
+        explanations_lock = app_state.get("dispatch_explanations_lock")
+        if explanations_lock:
+            with explanations_lock:
+                explanations = list(explanations_log)
+        else:
+            explanations = list(explanations_log)
+        explanations.reverse()
+        return jsonify(
+            {
+                "explanations": explanations[:limit],
+                "count": min(limit, len(explanations)),
+            }
+        ), 200
+
     @app.route("/api/dispatch/select", methods=["POST"])
     def set_dispatch_model():
         payload = request.get_json(silent=True) or {}
