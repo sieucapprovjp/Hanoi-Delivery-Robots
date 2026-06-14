@@ -154,7 +154,7 @@
 
 ### VRP/PDP Batch Routing
 - Dispatch can batch multiple pending deliveries onto one robot when queue pressure exceeds available idle robots.
-- Each robot is capped by both physical capacity and `VRP_MAX_ORDERS_PER_ROBOT`; the current demo cap is 3 active orders per robot.
+- Each robot has a default capacity of 3 active orders, matching `VRP_MAX_ORDERS_PER_ROBOT` for the demo.
 - The backend solves pickup/dropoff sequencing with a Simulated Annealing VRP/PDP helper while enforcing pickup-before-dropoff precedence.
 - VRP distance matrices use the same weighted routing stack as production dispatch, so rain, traffic, obstacles, and road memory affect batch costs.
 - Dispatch responses can include `deliveryIds`, `orderSequence`, `routeSequence`, `vrpStats`, `vrpCost`, and initial/final improvement metrics.

@@ -40,6 +40,14 @@ function getRobotActiveOrders(robot) {
     return robot.currentDelivery ? [robot.currentDelivery] : [];
 }
 
+function getRobotCapacityInfo(robot) {
+    const capacity = robot.capacity || CONFIG.ROBOT.CAPACITY;
+    return {
+        capacity,
+        load: robot.currentLoad || 0
+    };
+}
+
 function getRobotNextStopLabel(robot) {
     const stop = robot.routeSequence?.[robot.currentSequenceIndex];
     if (!stop) return null;
@@ -49,11 +57,19 @@ function getRobotNextStopLabel(robot) {
 
 function renderRobotBatchInfo(robot) {
     const orders = getRobotActiveOrders(robot);
+    const capacityInfo = getRobotCapacityInfo(robot);
+    const text = CONFIG.UI.TEXT.ROBOT;
+    const capacityLine = `${text.LOAD}: ${capacityInfo.load}/${capacityInfo.capacity}`;
+
     if (!orders.length) {
-        return `<div class="popup-info-box status-neutral">${CONFIG.UI.TEXT.EMPTY.NO_DELIVERY}</div>`;
+        return `
+            <div class="popup-info-box status-neutral">
+                <div>${CONFIG.UI.TEXT.EMPTY.NO_DELIVERY}</div>
+                <div class="item-value">${capacityLine}</div>
+            </div>
+        `;
     }
 
-    const text = CONFIG.UI.TEXT.ROBOT;
     const orderList = orders.map(delivery => `#${delivery.id}`).join(', ');
     const nextStop = getRobotNextStopLabel(robot) || CONFIG.UI.STATE_LABELS.WAITING;
     const stopProgress = robot.routeSequence?.length
@@ -63,6 +79,7 @@ function renderRobotBatchInfo(robot) {
     return `
         <div class="popup-info-box status-neutral">
             <div class="item-label">${text.ACTIVE_ORDERS}: ${orderList}</div>
+            <div class="item-value">${capacityLine}</div>
             <div class="item-value">${text.NEXT_STOP}: ${nextStop}</div>
             <div class="item-value">${text.STOPS_PROGRESS}: ${stopProgress}</div>
         </div>
@@ -181,6 +198,7 @@ function renderRobotComputingDetails(robot) {
     const batteryClass = getRobotBatteryClass(robot);
     const decisionState = getRobotDecisionState(robot, { lowBatteryWhileCharging: true });
     const { avgTime, fastest, slowest } = getRobotCalculationStats(robot);
+    const capacityInfo = getRobotCapacityInfo(robot);
     const text = CONFIG.UI.TEXT.ROBOT;
 
     return `
@@ -196,7 +214,14 @@ function renderRobotComputingDetails(robot) {
             <div class="stats-grid-3">
                 <div class="stat-card"><div class="stat-label">${text.SPEED}</div><div class="stat-value">${(robot.speedMultiplier * 100).toFixed(0)}%</div></div>
                 <div class="stat-card"><div class="stat-label">${text.BATTERY}</div><div class="stat-value ${batteryClass}">${robot.battery.toFixed(1)}%</div></div>
-                <div class="stat-card"><div class="stat-label">Drain/s</div><div class="stat-value">${robot.batteryDrain.toFixed(3)}</div></div>
+                <div class="stat-card"><div class="stat-label">${text.LOAD}</div><div class="stat-value">${capacityInfo.load}/${capacityInfo.capacity}</div></div>
+            </div>
+
+            <div class="insight-box">
+                <div class="breakdown-container">
+                    <div class="breakdown-row"><span>${text.CAPACITY}</span><strong>${capacityInfo.capacity}</strong></div>
+                    <div class="breakdown-row"><span>${text.DRAIN}</span><strong>${robot.batteryDrain.toFixed(3)}/s</strong></div>
+                </div>
             </div>
 
             ${renderRobotRouteInfo(robot)}
