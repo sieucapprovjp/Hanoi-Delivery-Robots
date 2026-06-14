@@ -26,6 +26,7 @@ class DeliveryRobot {
         this._calcHistory = [];
         this.pathLine = null;
         this.chargingStation = null;
+        this.chargingTimer = null;
         this.speedMultiplier = 1;
         this.isRouting = false;
         this.routeMode = null;
@@ -43,6 +44,57 @@ class DeliveryRobot {
         this.roadMemory = {};
         this.memoryDecay = CONFIG.ROBOT.MEMORY_DECAY;
         this._frameCount = 0;
+    }
+
+    resetOperationalState(lat, lon, options = {}) {
+        const { resetStats = false, resetBattery = false } = options;
+
+        if (this.chargingTimer) {
+            clearInterval(this.chargingTimer);
+            this.chargingTimer = null;
+        }
+        if (this.chargingStation && typeof mapManager !== 'undefined' && mapManager) {
+            mapManager.releaseChargingSpot(this.chargingStation);
+        }
+
+        this.lat = lat;
+        this.lon = lon;
+        if (resetBattery) this.battery = CONFIG.ROBOT.INITIAL_BATTERY;
+        this.status = CONFIG.ROBOT.STATUSES.IDLE;
+        this.currentLoad = 0;
+        this.currentPath = [];
+        this.pathIndex = 0;
+        this.currentDelivery = null;
+        this.currentDeliveryAlgorithm = null;
+        this.deliveryQueue = [];
+        this.routeSequence = [];
+        this.currentSequenceIndex = 0;
+        this.currentVrp = null;
+        this.chargingStation = null;
+        this.isRouting = false;
+        this.routeMode = null;
+        this.routeDeliveryId = null;
+        this.routeTarget = null;
+        this.lastRerouteAt = 0;
+        this.deliveryPhase = null;
+        this.resumeAfterCharge = false;
+        this.lastRouteBreakdown = null;
+        this.lastRouteEtaMinutes = 0;
+        this.speedMultiplier = 1;
+        this._frameCount = 0;
+        this.clearPathLine();
+
+        if (resetStats) {
+            this.totalDeliveries = 0;
+            this.totalDistance = 0;
+            this._calcHistory = [];
+            this.roadMemory = {};
+        }
+
+        if (this.marker) {
+            this.marker.setLatLng([this.lat, this.lon]);
+            if (this.marker.isPopupOpen()) this.updatePopup();
+        }
     }
 
     recordRoadExperience(fromLat, fromLon, toLat, toLon, speedMultiplier) {
@@ -297,11 +349,14 @@ class DeliveryRobot {
         this.status = CONFIG.ROBOT.STATUSES.CHARGING;
         logEvent(`🔌 ${this.name} charging`);
 
-        const charge = setInterval(() => {
+        if (this.chargingTimer) clearInterval(this.chargingTimer);
+
+        this.chargingTimer = setInterval(() => {
             this.battery += CONFIG.ROBOT.BATTERY_CHARGE_INCREMENT;
             if (this.battery >= CONFIG.ROBOT.BATTERY_CHARGE_TARGET) {
                 this.battery = CONFIG.ROBOT.BATTERY_CHARGE_TARGET;
-                clearInterval(charge);
+                clearInterval(this.chargingTimer);
+                this.chargingTimer = null;
                 if (this.chargingStation) {
                     mapManager.releaseChargingSpot(this.chargingStation);
                     this.chargingStation = null;

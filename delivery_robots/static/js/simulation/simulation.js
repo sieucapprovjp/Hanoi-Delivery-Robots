@@ -19,6 +19,7 @@ class Simulation {
         this.lastDecisionCost = 0;
         this.latestDecision = null;
         this.fleetAlgorithm = CONFIG.SIMULATION.DEFAULT_ALGORITHM;
+        this.dispatchVersion = 0;
         this.algorithmStats = {};
         CONFIG.SIMULATION.ALGORITHMS.forEach(algo => {
             this.algorithmStats[algo] = this.createAlgoStats();
@@ -142,11 +143,14 @@ class Simulation {
         if (!hasAvailableRobot || this.pendingDeliveries.length === 0) return;
 
         this.isAssigning = true;
+        const dispatchVersion = this.dispatchVersion;
         try {
             const { assignments, explanations } = await requestDispatchAssignments(this.robots, this.pendingDeliveries);
+            if (dispatchVersion !== this.dispatchVersion) return;
             this.updateDispatchTimeline(explanations);
 
             for (const best of assignments) {
+                if (dispatchVersion !== this.dispatchVersion) return;
                 const deliveryIds = best.deliveryIds || [best.deliveryId];
                 const deliveryBatch = deliveryIds
                     .map(id => this.pendingDeliveries.find(d => String(d.id) === String(id)))
@@ -241,6 +245,7 @@ class Simulation {
     }
 
     async reset() {
+        this.dispatchVersion++;
         this.pause();
         this.totalDeliveries = 0;
         this.totalDistance = 0;
@@ -259,32 +264,11 @@ class Simulation {
         const starts = this.snappedLocations.slice(0, 5);
         this.robots.forEach((robot, i) => {
             const start = starts[i] || starts[0];
-            robot.lat = start.lat;
-            robot.lon = start.lon;
-            robot.battery = CONFIG.ROBOT.INITIAL_BATTERY;
-            robot.status = CONFIG.ROBOT.STATUSES.IDLE;
-            robot.currentLoad = 0;
-            robot.totalDeliveries = 0;
-            robot.totalDistance = 0;
-            robot.currentPath = [];
-            robot.pathIndex = 0;
-            robot.currentDelivery = null;
-            robot.deliveryQueue = [];
-            robot.routeSequence = [];
-            robot.currentSequenceIndex = 0;
-            robot.currentVrp = null;
-            robot.currentDeliveryAlgorithm = null;
-            robot.isRouting = false;
-            robot.routeMode = null;
-            robot.routeDeliveryId = null;
-            robot.routeTarget = null;
-            robot.deliveryPhase = null;
-            robot.resumeAfterCharge = false;
-            robot.lastRouteEtaMinutes = 0;
-            robot.lastRouteBreakdown = null;
+            robot.resetOperationalState(start.lat, start.lon, {
+                resetBattery: true,
+                resetStats: true
+            });
             robot.routeAlgorithm = this.fleetAlgorithm;
-            robot.clearPathLine();
-            if (robot.marker) robot.marker.setLatLng([robot.lat, robot.lon]);
         });
 
 
@@ -300,6 +284,8 @@ class Simulation {
     }
 
     async optimizeHubs() {
+        this.dispatchVersion++;
+        this.isAssigning = true;
         logEvent(CONFIG.UI.TEXT.LOGS.OPTIMIZING_HUBS);
         addDispatchInsight('Running k-means clustering on delivery hotspots to reposition fleet...', CONFIG.UI.LOG_LEVELS.NEUTRAL);
 
@@ -311,19 +297,35 @@ class Simulation {
             );
 
             const hubs = data.hubs;
+            const returnedDeliveries = [];
+            const returnedIds = new Set(this.pendingDeliveries.map(item => String(item.id)));
 
             this.robots.forEach((robot, i) => {
-                if (i < hubs.length) {
-                    const hub = hubs[i];
-                    robot.lat = hub.lat;
-                    robot.lon = hub.lon;
-                    robot.status = CONFIG.ROBOT.STATUSES.IDLE;
-                    robot.currentPath = [];
-                    robot.clearPathLine();
-                    if (robot.marker) robot.marker.setLatLng([robot.lat, robot.lon]);
+                robot.deliveryQueue.forEach(delivery => {
+                    const key = String(delivery.id);
+                    if (!returnedIds.has(key)) {
+                        returnedDeliveries.push(delivery);
+                        returnedIds.add(key);
+                    }
+                });
+
+                const hub = hubs[i] || hubs[i % hubs.length];
+                if (hub) {
+                    robot.resetOperationalState(hub.lat, hub.lon);
                 }
             });
 
+            if (returnedDeliveries.length > 0) {
+                this.pendingDeliveries.unshift(...returnedDeliveries);
+                returnedDeliveries.forEach(delivery => mapManager.clearDeliveryMarkers(delivery.id));
+                addDispatchInsight(
+                    `${returnedDeliveries.length} active order(s) were returned to the queue before hub relocation.`,
+                    CONFIG.UI.LOG_LEVELS.NEUTRAL
+                );
+            }
+
+            this.isAssigning = false;
+            this.lastDeliveryTime = Date.now();
             logEvent(CONFIG.UI.TEXT.LOGS.HUBS_OPTIMIZED);
             addDispatchInsight(`Fleet repositioned to ${hubs.length} optimal centroids. Check map for new starting points.`, CONFIG.UI.LOG_LEVELS.SUCCESS);
 
@@ -332,9 +334,12 @@ class Simulation {
                 await window.mapManager.reloadChargingStations();
             }
 
+            this.updateRobotStatus();
         } catch (e) {
             logEvent(CONFIG.UI.TEXT.LOGS.OPTIMIZATION_FAILED);
             addDispatchInsight(`Hub optimization error: ${e.message}`, CONFIG.UI.LOG_LEVELS.WARN);
+        } finally {
+            this.isAssigning = false;
         }
     }
 
