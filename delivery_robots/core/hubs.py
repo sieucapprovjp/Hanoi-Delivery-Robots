@@ -80,3 +80,19 @@ def compute_optimized_hubs(state, cluster_count=DEFAULT_HUB_CLUSTER_COUNT, log_d
             }
         )
     return hubs
+
+
+def snap_hubs_to_graph(hubs, graph, nearest_node_id_fn, ox=None):
+    snapped_hubs = []
+    for hub in hubs:
+        node_id = nearest_node_id_fn(graph, hub["lat"], hub["lon"], ox)
+        node = graph.nodes[node_id]
+        snapped = dict(hub)
+        snapped["centroidLat"] = hub["lat"]
+        snapped["centroidLon"] = hub["lon"]
+        snapped["lat"] = float(node["y"])
+        snapped["lon"] = float(node["x"])
+        snapped["snappedToRoad"] = True
+        snapped["roadNodeId"] = node_id
+        snapped_hubs.append(snapped)
+    return snapped_hubs
