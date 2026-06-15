@@ -1,6 +1,6 @@
 /**
  * Configuration constants for the Delivery Robots project.
- * Centralized store for hardcoded values to improve maintainability.
+ * Centralized store for runtime constants and UI copy.
  */
 const CONFIG = {
     // Map Settings
@@ -49,13 +49,15 @@ const CONFIG = {
         MIN_SPEED_MULTIPLIER: 0.08,
         TRAFFIC_IMPACT_FACTOR: 0.65,
         BATTERY_DRAIN: 0.0065,
-        CAPACITY: 10,
+        CAPACITY: 3,
         HISTORY_SIZE_LIMIT: 20,
         BATTERY_LOW_THRESHOLD: 20,
         BATTERY_CHARGE_INCREMENT: 8,
         BATTERY_CHARGE_TARGET: 90,
         CHARGING_INTERVAL_MS: 700,
         REROUTE_INTERVAL_MS: 5500,
+        REROUTE_MIN_IMPROVEMENT_RATIO: 0.12,
+        REROUTE_BACKTRACK_DISTANCE_METERS: 35,
         TRAFFIC_REROUTE_THRESHOLD: 0.45,
         RAIN_REROUTE_THRESHOLD: 2,
         MEMORY_DECAY: 0.995,
@@ -171,6 +173,12 @@ const CONFIG = {
         }
     },
 
+    // VRP Settings
+    VRP: {
+        ENABLED: true,
+        MAX_ORDERS_PER_ROBOT: 3
+    },
+
     // API Endpoints
     API: {
         LOGS: '/api/logs',
@@ -207,7 +215,8 @@ const CONFIG = {
         TRAFFIC_REFRESH_INTERVAL_MS: 3500,
         WEATHER_MODES: {
             RAIN: 'rain',
-            TRAFFIC: 'traffic'
+            TRAFFIC: 'traffic',
+            OBSTACLE: 'obstacle'
         },
         INITIAL_WEATHER: 'rain',
         LOG_LEVELS: {
@@ -230,6 +239,168 @@ const CONFIG = {
             PICKUP: '📦 To Pickup',
             DROPOFF: '🚚 To Dropoff',
             WAITING: 'Waiting...'
+        },
+        TEXT: {
+            EMPTY: {
+                NO_ACTIVE_ROUTE: 'Robot has no active route. Wait for it to accept a delivery.',
+                NO_ASTAR_STEPS: 'No steps recorded',
+                NO_ASTAR_VISUALIZATION_STEPS: 'No steps to visualize',
+                NO_DELIVERY: 'No delivery',
+                NO_DISPATCH_DECISION: 'No dispatch decision yet.',
+                ROUTE_PENDING: 'Waiting for route calculation...',
+                ORDERS_DISPATCHED: 'All orders dispatched. Waiting for new orders...'
+            },
+            LOADING: {
+                ASTAR_COMPUTING: '⏳ Computing A*...',
+                ASTAR_STEP_RUNNING: '⏳ Running A* step-by-step...',
+                INSIDER_COMPARISON_RUNNING: '⏳ Running 4 algorithms...',
+                POPUP: 'Loading...'
+            },
+            LOGS: {
+                READY: '✅ Ready',
+                INIT_FAILED: '❌ Init failed',
+                START_PROMPT: '🚀 Click START to begin!',
+                STARTED: '▶ Started!',
+                PAUSED: '⏸ Paused',
+                RESET: '🔄 Reset',
+                OPTIMIZING_HUBS: '🧠 Optimizing hub locations...',
+                HUBS_OPTIMIZED: '✅ Hubs optimized!',
+                OPTIMIZATION_FAILED: '❌ Optimization failed'
+            },
+            API_ERRORS: {
+                METRICS: 'Metrics request failed',
+                CLOCK: 'Clock request failed',
+                ASTAR_PROCESS: 'A* process request failed',
+                ASTAR_VISUALIZATION: 'A* visualization request failed',
+                INSIDER_COMPARISON: 'Insider comparison request failed',
+                DISPATCH_ASSIGNMENT: 'Assignment failed',
+                HUB_OPTIMIZATION: 'Optimization failed',
+                ROUTE: 'Route request failed',
+                SNAP: 'Snap request failed',
+                TRAFFIC: 'Traffic request failed',
+                WEATHER: 'Weather request failed',
+                CHARGING_STATIONS: 'Charging stations request failed',
+                CHARGING_STATIONS_FALLBACK: 'Failed to load charging stations from API, fallback to static config.',
+                CHARGING_STATION_SAVE: 'Failed to save charging station',
+                WEATHER_LOAD: 'Weather load failed',
+                TRAFFIC_REFRESH: 'Traffic refresh failed'
+            },
+            XAI: {
+                CONSTRAINTS: {
+                    idle: 'Idle',
+                    batteryOk: 'Battery',
+                    capacityOk: 'Capacity',
+                    pickupDistanceOk: 'Pickup',
+                    batteryReserveOk: 'Reserve',
+                    routeEtaOk: 'ETA'
+                },
+                SCORE_LABELS: {
+                    preScore: 'Pre-score',
+                    pickup: 'Pickup',
+                    route: 'Route',
+                    batteryRisk: 'Battery risk',
+                    priority: 'Priority',
+                    total: 'Total'
+                },
+                META_LABELS: {
+                    battery: 'Battery',
+                    load: 'Load',
+                    pickup: 'Pickup',
+                    selected: 'Selected',
+                    priority: 'priority'
+                },
+                VRP_LABELS: {
+                    title: 'VRP / Simulated Annealing',
+                    orders: 'Orders',
+                    initialCost: 'Initial cost',
+                    finalCost: 'Final cost',
+                    improvement: 'Improvement',
+                    iterations: 'Iterations',
+                    acceptedMoves: 'Accepted',
+                    sequence: 'Sequence'
+                }
+            },
+            ROBOT: {
+                SPEED: 'Speed',
+                BATTERY: 'Battery',
+                DRAIN: 'Drain',
+                COMPLETED: 'Completed',
+                DISTANCE: 'Distance',
+                WAYPOINTS_LEFT: 'waypoints left',
+                ACTIVE_ORDERS: 'Active orders',
+                CAPACITY: 'Capacity',
+                LOAD: 'Load',
+                NEXT_STOP: 'Next',
+                STOPS_PROGRESS: 'Stops',
+                GOING_PICKUP: '🔵 Going to pickup',
+                GOING_DELIVER: '🔴 Going to deliver',
+                ROUTE_BREAKDOWN_TITLE: '🧠 A* Route Cost Breakdown',
+                VRP_BREAKDOWN_TITLE: '🧩 VRP Batch Optimization',
+                BASE_DISTANCE: '📏 Base Distance:',
+                TRAFFIC_PENALTY: '🚗 Traffic Penalty:',
+                RAIN_PENALTY: '🌧️ Rain Penalty:',
+                OBSTACLE_PENALTY: '🚧 Obstacle Penalty:',
+                TOTAL_COST: '🎯 Total Cost:',
+                SIM_ETA: '⏱ Sim ETA:',
+                INITIAL_COST: 'Initial Cost:',
+                FINAL_COST: 'Final Cost:',
+                IMPROVEMENT: 'Improvement:',
+                ITERATIONS: 'Iterations:',
+                ACCEPTED_MOVES: 'Accepted Moves:',
+                SEQUENCE: 'Sequence:',
+                COMPUTING_ENGINE: 'Computing Engine',
+                STATE: 'State:',
+                CALC_HISTORY: '📊 Calculation History',
+                LIFETIME_PERFORMANCE: '📈 Lifetime Performance',
+                DELIVERIES: 'Deliveries',
+                CALCULATIONS: 'Calculations',
+                SHOW_ASTAR_PROCESS: '🔬 Show Full A* Calculation Process'
+            },
+            TABLE: {
+                ALGORITHM: 'Algorithm',
+                DONE: 'Done',
+                TIME: 'Time',
+                NODES: 'Nodes',
+                COST: 'Cost',
+                REROUTES: 'Reroutes',
+                EFFICIENCY: 'Eff.',
+                PATH: 'Path',
+                OPTIMAL: 'Optimal?'
+            },
+            INSIDER: {
+                ASTAR_STEP_TITLE: '🔬 A* Step-by-Step Calculation',
+                ASTAR_EXPANSION_TITLE: '🔬 A* Expansion',
+                GOAL_REACHED: '✅ Goal Reached!',
+                PATH_RECONSTRUCTED: 'Path reconstructed:',
+                PENALTIES_APPLIED: '⚙️ Penalties Applied:',
+                KEY_INSIGHT: '💡 Key Insight:',
+                MAP_LEGEND: 'Blue markers show exploration order on the map, orange shows the latest expanded node, green is the start, red is the goal, and purple is the final chosen path.'
+            },
+            ENVIRONMENT: {
+                RADIUS: 'Radius:',
+                SEVERITY: 'Severity:',
+                SEVERITY_SHORT: 'Sev:',
+                NO_RAIN_ZONES: 'No rain zones',
+                NO_TRAFFIC_ROUTES: 'No traffic routes',
+                NO_OBSTACLES: 'No obstacles',
+                TRAFFIC_START_POPUP: '<strong>Traffic start</strong><br>Click another point to set the end.',
+                LOG_TRAFFIC_RESET: '🔄 Traffic points reset',
+                LOG_TRAFFIC_START: '🚗 Traffic start set',
+                LOG_RANDOM_RAIN: '🎲 Rain',
+                LOG_CLEAR_RAIN: '🗑️ Rain',
+                LOG_RANDOM_TRAFFIC: '🎲 Traffic',
+                LOG_CLEAR_TRAFFIC: '🗑️ Traffic',
+                LOG_RANDOM_OBSTACLES: '🎲 Obstacles',
+                LOG_CLEAR_OBSTACLES: '🗑️ Obstacles',
+                ERROR_RAIN_ADD: 'Rain add failed',
+                ERROR_RAIN_LIST: 'Rain list request failed',
+                ERROR_TRAFFIC_ADD: 'Traffic add failed',
+                ERROR_TRAFFIC_LIST: 'Traffic list request failed',
+                ERROR_TRAFFIC_RANDOMIZE: 'Traffic randomize failed',
+                ERROR_OBSTACLE_ADD: 'Obstacle add failed',
+                ERROR_OBSTACLE_LIST: 'Obstacle list request failed',
+                ERROR_OBSTACLE_RANDOMIZE: 'Obstacle randomize failed'
+            }
         },
         LOG_SOURCES: {
             UI: 'ui',

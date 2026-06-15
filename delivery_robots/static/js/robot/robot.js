@@ -1,4 +1,4 @@
-// Simple working robot
+// Robot movement, routing, charging, and local road-memory behavior.
 class DeliveryRobot {
     constructor(id, lat, lon, name, color, routeAlgorithm = 'astar') {
         this.id = id;
@@ -15,12 +15,18 @@ class DeliveryRobot {
         this.currentPath = [];
         this.pathIndex = 0;
         this.currentDelivery = null;
+        this.currentDeliveryAlgorithm = null;
+        this.deliveryQueue = [];
+        this.routeSequence = [];
+        this.currentSequenceIndex = 0;
+        this.currentVrp = null;
         this.totalDeliveries = 0;
         this.totalDistance = 0;
         this.marker = null;
         this._calcHistory = [];
         this.pathLine = null;
         this.chargingStation = null;
+        this.chargingTimer = null;
         this.speedMultiplier = 1;
         this.isRouting = false;
         this.routeMode = null;
@@ -34,10 +40,61 @@ class DeliveryRobot {
         this.routeAlgorithm = routeAlgorithm;
         this.currentDeliveryAlgorithm = null;
 
-        // 🧠 Road memory system (Q-learning lite)
+        // Lightweight road-memory model used to discourage repeatedly slow edges.
         this.roadMemory = {};
         this.memoryDecay = CONFIG.ROBOT.MEMORY_DECAY;
         this._frameCount = 0;
+    }
+
+    resetOperationalState(lat, lon, options = {}) {
+        const { resetStats = false, resetBattery = false } = options;
+
+        if (this.chargingTimer) {
+            clearInterval(this.chargingTimer);
+            this.chargingTimer = null;
+        }
+        if (this.chargingStation && typeof mapManager !== 'undefined' && mapManager) {
+            mapManager.releaseChargingSpot(this.chargingStation);
+        }
+
+        this.lat = lat;
+        this.lon = lon;
+        if (resetBattery) this.battery = CONFIG.ROBOT.INITIAL_BATTERY;
+        this.status = CONFIG.ROBOT.STATUSES.IDLE;
+        this.currentLoad = 0;
+        this.currentPath = [];
+        this.pathIndex = 0;
+        this.currentDelivery = null;
+        this.currentDeliveryAlgorithm = null;
+        this.deliveryQueue = [];
+        this.routeSequence = [];
+        this.currentSequenceIndex = 0;
+        this.currentVrp = null;
+        this.chargingStation = null;
+        this.isRouting = false;
+        this.routeMode = null;
+        this.routeDeliveryId = null;
+        this.routeTarget = null;
+        this.lastRerouteAt = 0;
+        this.deliveryPhase = null;
+        this.resumeAfterCharge = false;
+        this.lastRouteBreakdown = null;
+        this.lastRouteEtaMinutes = 0;
+        this.speedMultiplier = 1;
+        this._frameCount = 0;
+        this.clearPathLine();
+
+        if (resetStats) {
+            this.totalDeliveries = 0;
+            this.totalDistance = 0;
+            this._calcHistory = [];
+            this.roadMemory = {};
+        }
+
+        if (this.marker) {
+            this.marker.setLatLng([this.lat, this.lon]);
+            if (this.marker.isPopupOpen()) this.updatePopup();
+        }
     }
 
     recordRoadExperience(fromLat, fromLon, toLat, toLon, speedMultiplier) {
@@ -79,50 +136,129 @@ class DeliveryRobot {
             const ratio = (this.speed * this.speedMultiplier) / dist;
             this.lat += (target.lat - this.lat) * ratio;
             this.lon += (target.lon - this.lon) * ratio;
-            this.totalDistance += this.speed * this.speedMultiplier * CONFIG.ROBOT.METERS_PER_DEGREE; // to meters
+            this.totalDistance += this.speed * this.speedMultiplier * CONFIG.ROBOT.METERS_PER_DEGREE;
         }
 
-        // Battery
         const rainPenalty = mapManager.getRainPenaltyAt(this.lat, this.lon);
         this.battery -= this.batteryDrain * rainPenalty;
 
-        // Check traffic
         const traffic = mapManager.getTrafficAt(this.lat, this.lon);
         this.speedMultiplier = Math.max(
             CONFIG.ROBOT.MIN_SPEED_MULTIPLIER,
             (CONFIG.ROBOT.BASE_SPEED_MULTIPLIER * (1 - traffic * CONFIG.ROBOT.TRAFFIC_IMPACT_FACTOR)) / rainPenalty
         );
 
-        // 🧠 Record road experience for learning
         this._frameCount++;
         if (this.pathIndex + 1 < this.currentPath.length && this._frameCount % CONFIG.ROBOT.FRAME_COUNT_RECORD_MEMORY === 0) {
             const from = this.currentPath[this.pathIndex];
             const to = this.currentPath[this.pathIndex + 1];
             this.recordRoadExperience(from.lat, from.lon, to.lat, to.lon, this.speedMultiplier);
         }
-        // Decay memory every ~5 seconds (300 frames at 60fps)
         if (this._frameCount % CONFIG.ROBOT.FRAME_COUNT_DECAY_MEMORY === 0) this.decayMemory();
 
         this.maybeReroute(traffic, rainPenalty);
 
-        // Update marker
         if (this.marker) {
             this.marker.setLatLng([this.lat, this.lon]);
             if (this.marker.isPopupOpen()) this.updatePopup();
         }
 
-        // Check if need charging
         if (this.battery < CONFIG.ROBOT.BATTERY_LOW_THRESHOLD && this.status === CONFIG.ROBOT.STATUSES.MOVING && !this.isRouting && this.routeMode !== CONFIG.ROBOT.ROUTE_MODES.CHARGING) {
             this.goCharge();
         }
 
-        // Check if arrived at charging
         if (this.status === CONFIG.ROBOT.STATUSES.MOVING && this.chargingStation) {
             const distToCharge = this.distanceTo(this.chargingStation);
             if (distToCharge < CONFIG.ROBOT.CHARGING_ARRIVAL_THRESHOLD) {
                 this.startCharging();
             }
         }
+    }
+
+    getDeliveryById(deliveryId) {
+        return this.deliveryQueue.find(delivery => String(delivery.id) === String(deliveryId)) || null;
+    }
+
+    getCurrentRouteStop() {
+        return this.routeSequence[this.currentSequenceIndex] || null;
+    }
+
+    setDeliveryStopTarget(stop) {
+        this.currentDelivery = this.getDeliveryById(stop.deliveryId);
+        this.deliveryPhase = stop.type === 'pickup'
+            ? CONFIG.ROBOT.PHASES.TO_PICKUP
+            : CONFIG.ROBOT.PHASES.TO_DROPOFF;
+        this.routeMode = CONFIG.ROBOT.ROUTE_MODES.DELIVERY;
+        this.routeDeliveryId = stop.deliveryId;
+        this.routeTarget = { lat: stop.lat, lon: stop.lon };
+    }
+
+    finishDeliveryRoute() {
+        this.status = CONFIG.ROBOT.STATUSES.IDLE;
+        this.currentPath = [];
+        this.pathIndex = 0;
+        this.currentDelivery = null;
+        this.deliveryQueue = [];
+        this.routeSequence = [];
+        this.currentSequenceIndex = 0;
+        this.currentVrp = null;
+        this.currentLoad = 0;
+        this.routeMode = null;
+        this.routeDeliveryId = null;
+        this.routeTarget = null;
+        this.deliveryPhase = null;
+        this.clearPathLine();
+    }
+
+    async advanceToNextSequenceStop() {
+        const nextStop = this.getCurrentRouteStop();
+        if (!nextStop) {
+            this.finishDeliveryRoute();
+            return;
+        }
+
+        this.setDeliveryStopTarget(nextStop);
+        await this.buildRouteToTarget(nextStop.lat, nextStop.lon);
+    }
+
+    async handleRouteSequenceArrival() {
+        const stop = this.getCurrentRouteStop();
+        if (!stop) {
+            this.finishDeliveryRoute();
+            return;
+        }
+
+        const delivery = this.getDeliveryById(stop.deliveryId);
+        if (stop.type === 'pickup') {
+            logEvent(`📍 ${this.name} picked up order #${stop.deliveryId}`);
+            addDispatchInsight(
+                `${this.name} reached pickup #${stop.deliveryId} in its VRP sequence.`,
+                CONFIG.UI.LOG_LEVELS.SUCCESS
+            );
+        }
+
+        if (stop.type === 'dropoff') {
+            this.currentLoad = Math.max(0, this.currentLoad - 1);
+            this.totalDeliveries++;
+            if (typeof simulation !== 'undefined' && simulation && typeof simulation.recordDeliveryCompleted === 'function') {
+                simulation.recordDeliveryCompleted(this.currentDeliveryAlgorithm || this.routeAlgorithm);
+            }
+            logEvent(`✅ ${this.name} completed delivery #${stop.deliveryId}`);
+            mapManager.clearDeliveryMarkers(stop.deliveryId);
+            this.deliveryQueue = this.deliveryQueue.filter(item => String(item.id) !== String(stop.deliveryId));
+        }
+
+        this.currentSequenceIndex++;
+        if (this.currentSequenceIndex < this.routeSequence.length) {
+            await this.advanceToNextSequenceStop();
+            return;
+        }
+
+        if (delivery) {
+            this.currentDelivery = delivery;
+        }
+        this.currentDeliveryAlgorithm = null;
+        this.finishDeliveryRoute();
     }
 
     async arriveAtWaypoint() {
@@ -132,6 +268,11 @@ class DeliveryRobot {
         try {
             if (this.routeMode === CONFIG.ROBOT.ROUTE_MODES.CHARGING && this.chargingStation) {
                 this.startCharging();
+                return;
+            }
+
+            if (this.routeMode === CONFIG.ROBOT.ROUTE_MODES.DELIVERY && this.routeSequence.length > 0) {
+                await this.handleRouteSequenceArrival();
                 return;
             }
 
@@ -180,7 +321,10 @@ class DeliveryRobot {
         if (this.isRouting) return;
 
         this.isRouting = true;
-        this.resumeAfterCharge = this.routeMode === CONFIG.ROBOT.ROUTE_MODES.DELIVERY && !!this.currentDelivery;
+        this.resumeAfterCharge = (
+            this.routeMode === CONFIG.ROBOT.ROUTE_MODES.DELIVERY
+            && (this.routeSequence.length > 0 || !!this.currentDelivery)
+        );
         this.chargingStation = station;
         mapManager.occupyChargingSpot(station);
 
@@ -205,11 +349,14 @@ class DeliveryRobot {
         this.status = CONFIG.ROBOT.STATUSES.CHARGING;
         logEvent(`🔌 ${this.name} charging`);
 
-        const charge = setInterval(() => {
+        if (this.chargingTimer) clearInterval(this.chargingTimer);
+
+        this.chargingTimer = setInterval(() => {
             this.battery += CONFIG.ROBOT.BATTERY_CHARGE_INCREMENT;
             if (this.battery >= CONFIG.ROBOT.BATTERY_CHARGE_TARGET) {
                 this.battery = CONFIG.ROBOT.BATTERY_CHARGE_TARGET;
-                clearInterval(charge);
+                clearInterval(this.chargingTimer);
+                this.chargingTimer = null;
                 if (this.chargingStation) {
                     mapManager.releaseChargingSpot(this.chargingStation);
                     this.chargingStation = null;
@@ -220,31 +367,96 @@ class DeliveryRobot {
         }, CONFIG.ROBOT.CHARGING_INTERVAL_MS);
     }
 
-    async assignDelivery(delivery, precalculatedRoute = null, precalculatedBreakdown = null) {
+    buildDefaultRouteSequence(delivery) {
+        return [
+            {
+                stopId: `P${delivery.id}`,
+                type: 'pickup',
+                deliveryId: delivery.id,
+                lat: delivery.pickup.lat,
+                lon: delivery.pickup.lon,
+                name: delivery.pickup.name,
+                category: delivery.pickup.category
+            },
+            {
+                stopId: `D${delivery.id}`,
+                type: 'dropoff',
+                deliveryId: delivery.id,
+                lat: delivery.destination.lat,
+                lon: delivery.destination.lon,
+                name: delivery.destination.name,
+                category: delivery.destination.category
+            }
+        ];
+    }
+
+    async assignDelivery(delivery, precalculatedRoute = null, precalculatedBreakdown = null, assignment = null, deliveryBatch = null) {
         if (this.isRouting) return false;
 
         this.isRouting = true;
-        this.currentDelivery = delivery;
+        const batch = deliveryBatch?.length ? deliveryBatch : [delivery];
+        this.deliveryQueue = batch;
+        this.routeSequence = assignment?.orderSequence?.length
+            ? assignment.orderSequence
+            : this.buildDefaultRouteSequence(delivery);
+        this.currentSequenceIndex = 0;
+        const firstStop = this.getCurrentRouteStop();
+        if (!firstStop) {
+            this.deliveryQueue = [];
+            this.routeSequence = [];
+            this.currentSequenceIndex = 0;
+            this.currentVrp = null;
+            this.isRouting = false;
+            return false;
+        }
+
+        this.currentDelivery = firstStop ? this.getDeliveryById(firstStop.deliveryId) : delivery;
         this.currentDeliveryAlgorithm = this.routeAlgorithm;
-        this.currentLoad++;
-        this.deliveryPhase = CONFIG.ROBOT.PHASES.TO_PICKUP;
-        mapManager.showDeliveryMarkers(delivery);
+        this.currentVrp = assignment?.vrpStats
+            ? {
+                deliveryIds: assignment.deliveryIds || batch.map(item => item.id),
+                sequence: this.routeSequence.map(stop => stop.stopId),
+                initialCost: assignment.vrpInitialCost,
+                finalCost: assignment.vrpCost,
+                improvementRatio: assignment.vrpImprovementRatio,
+                stats: assignment.vrpStats
+            }
+            : null;
+        this.currentLoad += batch.length;
+        batch.forEach(item => mapManager.showDeliveryMarkers(item));
 
         try {
-            this.routeMode = CONFIG.ROBOT.ROUTE_MODES.DELIVERY;
-            this.routeDeliveryId = delivery.id;
-            this.routeTarget = { lat: delivery.pickup.lat, lon: delivery.pickup.lon };
+            this.setDeliveryStopTarget(firstStop);
             this.lastRerouteAt = Date.now();
-            await this.buildRouteToTarget(delivery.pickup.lat, delivery.pickup.lon, precalculatedRoute, precalculatedBreakdown);
+            let routed = await this.buildRouteToTarget(
+                firstStop.lat,
+                firstStop.lon,
+                precalculatedRoute,
+                precalculatedBreakdown
+            );
+            if (!routed && precalculatedRoute) {
+                routed = await this.buildRouteToTarget(firstStop.lat, firstStop.lon);
+            }
+            if (!routed) {
+                throw new Error(`No route to first stop #${firstStop.deliveryId}`);
+            }
 
-            logEvent(`📦 ${this.name} → ${delivery.pickup.name} → ${delivery.destination.name}`);
-            addDispatchInsight(`${this.name} selected a low-cost route that balances distance with current rain and congestion exposure.`, CONFIG.UI.LOG_LEVELS.NEUTRAL);
+            const orderList = batch.map(item => `#${item.id}`).join(', ');
+            logEvent(`📦 ${this.name} accepted ${batch.length} order(s): ${orderList}`);
+            addDispatchInsight(
+                `${this.name} accepted ${batch.length} order(s) with ${this.routeSequence.length} VRP stops.`,
+                CONFIG.UI.LOG_LEVELS.NEUTRAL
+            );
             return true;
         } catch (error) {
             this.currentDelivery = null;
             this.currentDeliveryAlgorithm = null;
-            this.currentLoad = Math.max(0, this.currentLoad - 1);
-            mapManager.clearDeliveryMarkers(delivery.id);
+            this.deliveryQueue = [];
+            this.routeSequence = [];
+            this.currentSequenceIndex = 0;
+            this.currentVrp = null;
+            this.currentLoad = Math.max(0, this.currentLoad - batch.length);
+            batch.forEach(item => mapManager.clearDeliveryMarkers(item.id));
             logEvent(`❌ ${this.name} could not route delivery #${delivery.id}`);
             console.error(error);
             return false;
@@ -278,12 +490,11 @@ class DeliveryRobot {
             zIndexOffset: 1000
         }).addTo(map);
 
-        this.marker.bindPopup('Loading...');
+        this.marker.bindPopup(CONFIG.UI.TEXT.LOADING.POPUP);
         this.marker.on('click', () => {
             this.updatePopup();
             this.marker.openPopup();
             
-            // Sync with Alpine store for Computing panel
             const store = Alpine.store('sim');
             if (store) {
                 store.computing.robotId = this.id;
@@ -293,131 +504,12 @@ class DeliveryRobot {
     }
 
     updatePopup() {
-        const batteryClass = this.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.GOOD ? 'battery-good' : this.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.WARN ? 'battery-warn' : 'battery-error';
-
-        let decisionState = CONFIG.UI.STATE_LABELS.IDLE;
-        if (this.status === CONFIG.ROBOT.STATUSES.MOVING) {
-            if (this.routeMode === CONFIG.ROBOT.ROUTE_MODES.CHARGING) decisionState = CONFIG.UI.STATE_LABELS.CHARGING;
-            else if (this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_PICKUP) decisionState = CONFIG.UI.STATE_LABELS.ROUTING_PICKUP;
-            else if (this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_DROPOFF) decisionState = CONFIG.UI.STATE_LABELS.ROUTING_DROPOFF;
-            else decisionState = CONFIG.UI.STATE_LABELS.MOVING;
-        }
-        if (this.isRouting) decisionState = CONFIG.UI.STATE_LABELS.REROUTING;
-        if (this.battery < CONFIG.ROBOT.BATTERY_LOW_THRESHOLD && this.status !== CONFIG.ROBOT.STATUSES.CHARGING) decisionState = CONFIG.UI.STATE_LABELS.LOW_BATTERY;
-
-        const content = `
-            <div class="robot-popup">
-                <div class="popup-title" style="--robot-color: ${this.color}">🤖 ${this.name}</div>
-                
-                <div class="popup-status-badge ${this.isRouting ? 'status-warn' : this.status === CONFIG.ROBOT.STATUSES.MOVING ? 'status-success' : 'status-neutral'}">
-                    ${decisionState}
-                </div>
-
-                <div class="popup-grid-3">
-                    <div class="grid-item"><div class="item-label">Speed</div><div class="item-value">${(this.speedMultiplier * 100).toFixed(0)}%</div></div>
-                    <div class="grid-item"><div class="item-label">Battery</div><div class="item-value ${batteryClass}">${this.battery.toFixed(1)}%</div></div>
-                    <div class="grid-item"><div class="item-label">Drain</div><div class="item-value">${this.batteryDrain.toFixed(3)}/s</div></div>
-                </div>
-
-                <div class="popup-grid-2">
-                    <div class="grid-item"><div class="item-label">Completed</div><div class="item-value color-success">${this.totalDeliveries}</div></div>
-                    <div class="grid-item"><div class="item-label">Distance</div><div class="item-value color-primary">${this.totalDistance.toFixed(0)}m</div></div>
-                </div>
-
-                ${this.routeTarget ? `<div class="popup-info-box status-success">🎯 ${this.routeTarget.lat.toFixed(4)}, ${this.routeTarget.lon.toFixed(4)}<br>${this.currentPath.length - this.pathIndex} waypoints left<br>⏱ ETA ${this.getEtaText()}</div>` : ''}
-                
-                ${this.currentDelivery ? `<div class="popup-info-box status-neutral"><div class="item-label">📦 Order #${this.currentDelivery.id}</div><div class="item-value">${this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_PICKUP ? '🔵 Going to pickup' : '🔴 Going to deliver'}</div></div>` : '<div class="popup-info-box status-neutral">No delivery</div>'}
-            </div>
-        `;
-
         const popup = this.marker.getPopup();
-        if (popup) popup.setContent(content);
+        if (popup) popup.setContent(renderRobotPopup(this));
     }
 
     getComputingDetails() {
-        const batteryClass = this.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.GOOD ? 'battery-good' : this.battery > CONFIG.ROBOT.BATTERY_HEALTH_THRESHOLDS.WARN ? 'battery-warn' : 'battery-error';
-
-        let decisionState = CONFIG.UI.STATE_LABELS.IDLE;
-        if (this.status === CONFIG.ROBOT.STATUSES.MOVING) {
-            if (this.routeMode === CONFIG.ROBOT.ROUTE_MODES.CHARGING) decisionState = CONFIG.UI.STATE_LABELS.CHARGING;
-            else if (this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_PICKUP) decisionState = CONFIG.UI.STATE_LABELS.PICKUP;
-            else if (this.deliveryPhase === CONFIG.ROBOT.PHASES.TO_DROPOFF) decisionState = CONFIG.UI.STATE_LABELS.DROPOFF;
-            else decisionState = CONFIG.UI.STATE_LABELS.MOVING;
-        }
-        if (this.isRouting) decisionState = CONFIG.UI.STATE_LABELS.REROUTING;
-        if (this.battery < CONFIG.ROBOT.BATTERY_LOW_THRESHOLD) decisionState = CONFIG.UI.STATE_LABELS.LOW_BATTERY;
-
-        const calcHistory = this._calcHistory && this._calcHistory.length > 0 ?
-            this._calcHistory.slice(-8).reverse().map(c => {
-                const ago = ((Date.now() - c.timestamp) / 1000).toFixed(1);
-                const colorClass = c.time < CONFIG.ROBOT.CALC_TIME_THRESHOLDS.GOOD ? 'color-success' : c.time < CONFIG.ROBOT.CALC_TIME_THRESHOLDS.WARN ? 'color-warning' : 'color-error';
-                return `<tr><td>${ago}s</td><td class="text-center">${c.nodes}</td><td class="text-right fw-600 ${colorClass}">${c.time.toFixed(1)}ms</td></tr>`;
-            }).join('') : `<tr><td colspan="3" class="p-8 text-center">${CONFIG.UI.STATE_LABELS.WAITING}</td></tr>`;
-
-        const routeInfo = this.lastRouteBreakdown ?
-            `<div class="insight-box">
-                <div class="insight-title">🧠 A* Route Cost Breakdown</div>
-                <div class="breakdown-container">
-                    <div class="breakdown-row"><span>📏 Base Distance:</span><strong>${this.lastRouteBreakdown.baseDistance.toFixed(0)}m</strong></div>
-                    <div class="breakdown-row"><span>🚗 Traffic Penalty:</span><span class="color-error">+${this.lastRouteBreakdown.trafficPenalty.toFixed(0)}m</span></div>
-                    <div class="breakdown-row"><span>🌧️ Rain Penalty:</span><span class="color-primary">+${this.lastRouteBreakdown.rainPenalty.toFixed(0)}m</span></div>
-                    <div class="breakdown-row"><span>🚧 Obstacle Penalty:</span><span class="color-warning">+${this.lastRouteBreakdown.obstaclePenalty.toFixed(0)}m</span></div>
-                    <div class="breakdown-total"><span>🎯 Total Cost:</span><strong>${this.lastRouteBreakdown.totalCost.toFixed(0)}m</strong></div>
-                    <div class="breakdown-row"><span>⏱ Sim ETA:</span><strong class="color-success">${this.getEtaText()}</strong></div>
-                </div>
-            </div>` : `<div class="insight-box text-center">Waiting for route calculation...</div>`;
-
-        const avgTime = this._calcHistory?.length > 0 ? (this._calcHistory.reduce((a, b) => a + b.time, 0) / this._calcHistory.length).toFixed(1) : '0';
-        const fastest = this._calcHistory?.length > 0 ? Math.min(...this._calcHistory.map(c => c.time)).toFixed(1) : '0';
-        const slowest = this._calcHistory?.length > 0 ? Math.max(...this._calcHistory.map(c => c.time)).toFixed(1) : '0';
-
-        return `
-            <div class="computing-details">
-                <div class="details-header">
-                    🤖 ${this.name} <span>| Computing Engine</span>
-                </div>
-                
-                <div class="status-badge ${this.isRouting ? 'status-warn' : this.status === CONFIG.ROBOT.STATUSES.MOVING ? 'status-success' : 'status-neutral'}">
-                    State: ${decisionState}
-                </div>
-
-                <div class="stats-grid-3">
-                    <div class="stat-card"><div class="stat-label">Speed</div><div class="stat-value">${(this.speedMultiplier * 100).toFixed(0)}%</div></div>
-                    <div class="stat-card"><div class="stat-label">Battery</div><div class="stat-value ${batteryClass}">${this.battery.toFixed(1)}%</div></div>
-                    <div class="stat-card"><div class="stat-label">Drain/s</div><div class="stat-value">${this.batteryDrain.toFixed(3)}</div></div>
-                </div>
-
-                ${routeInfo}
-
-                <div class="history-container">
-                    <div class="history-title">📊 Calculation History</div>
-                    <table class="history-table">
-                        <thead><tr><th>⏱ When</th><th>🔢 Nodes</th><th>⚡ Time</th></tr></thead>
-                        <tbody>${calcHistory}</tbody>
-                    </table>
-                </div>
-
-                <div class="performance-container">
-                    <div class="perf-title">📈 Lifetime Performance</div>
-                    <div class="perf-grid">
-                        <div class="perf-card"><div class="stat-label">Deliveries</div><div class="stat-value text-success">${this.totalDeliveries}</div></div>
-                        <div class="perf-card"><div class="stat-label">Distance</div><div class="stat-value text-info">${this.totalDistance.toFixed(0)}m</div></div>
-                        <div class="perf-card"><div class="stat-label">Calculations</div><div class="stat-value text-highlight">${this._calcHistory?.length || 0}</div></div>
-                    </div>
-                    <div class="perf-summary">
-                        <div>⚡ Fast: <strong class="text-success">${fastest}ms</strong></div>
-                        <div>🐌 Slow: <strong class="text-error">${slowest}ms</strong></div>
-                        <div>📊 Avg: <strong>${avgTime}ms</strong></div>
-                    </div>
-                </div>
-
-                <div class="action-container">
-                    <button @click="$store.sim.panels.insider = true; showAStarProcess(${this.id})" class="btn-primary-small">
-                        🔬 Show Full A* Calculation Process
-                    </button>
-                </div>
-            </div>
-        `;
+        return renderRobotComputingDetails(this);
     }
 
     drawPathLine() {
@@ -459,6 +551,67 @@ class DeliveryRobot {
         return Math.max(0, projectedDrain - this.battery * CONFIG.ROBOT.BATTERY_SAFETY_MARGIN);
     }
 
+    estimateWeightedPathCost(path) {
+        if (!path || path.length < 2) return Infinity;
+
+        let cost = 0;
+        for (let i = 0; i < path.length - 1; i++) {
+            const from = path[i];
+            const to = path[i + 1];
+            const distance = mapManager.distance(from.lat, from.lon, to.lat, to.lon);
+            const midpoint = {
+                lat: (from.lat + to.lat) / 2,
+                lon: (from.lon + to.lon) / 2
+            };
+            const trafficPenalty = 1 + mapManager.getTrafficAt(midpoint.lat, midpoint.lon) * CONFIG.MAP.TRAFFIC_PENALTY_MULTIPLIER;
+            const rainPenalty = mapManager.getRainPenaltyAt(midpoint.lat, midpoint.lon);
+            cost += distance * trafficPenalty * rainPenalty;
+        }
+        return cost;
+    }
+
+    estimateRemainingRouteCost() {
+        if (!this.currentPath || this.currentPath.length <= this.pathIndex + 1) return Infinity;
+
+        return this.estimateWeightedPathCost([
+            { lat: this.lat, lon: this.lon },
+            ...this.currentPath.slice(this.pathIndex + 1)
+        ]);
+    }
+
+    isBacktrackingRoute(path) {
+        if (!path || path.length < 2 || this.pathIndex <= 0) return false;
+
+        const previousPoint = this.currentPath[this.pathIndex - 1];
+        if (!previousPoint) return false;
+
+        const nextPoint = path[1];
+        return mapManager.distance(
+            nextPoint.lat,
+            nextPoint.lon,
+            previousPoint.lat,
+            previousPoint.lon
+        ) <= CONFIG.ROBOT.REROUTE_BACKTRACK_DISTANCE_METERS;
+    }
+
+    evaluateRerouteCandidate(route, breakdown) {
+        const currentCost = this.estimateRemainingRouteCost();
+        const candidateCost = breakdown.totalCost || this.estimateWeightedPathCost(route.path);
+
+        if (!Number.isFinite(currentCost) || !Number.isFinite(candidateCost)) {
+            return { accepted: true, currentCost, candidateCost, improvementRatio: 1 };
+        }
+
+        const improvementRatio = (currentCost - candidateCost) / currentCost;
+        const isBacktracking = this.isBacktrackingRoute(route.path);
+        const accepted = (
+            improvementRatio >= CONFIG.ROBOT.REROUTE_MIN_IMPROVEMENT_RATIO
+            && !isBacktracking
+        );
+
+        return { accepted, currentCost, candidateCost, improvementRatio, isBacktracking };
+    }
+
     async maybeReroute(traffic, rainPenalty) {
         if (this.isRouting || this.status !== CONFIG.ROBOT.STATUSES.MOVING || !this.routeTarget) return;
         if (this.pathIndex >= this.currentPath.length - 2) return;
@@ -470,7 +623,27 @@ class DeliveryRobot {
         this.lastRerouteAt = Date.now();
 
         try {
-            const rebuilt = await this.buildRouteToTarget(this.routeTarget.lat, this.routeTarget.lon);
+            const startTime = performance.now();
+            const route = await pathfindingManager.getRoute(
+                this.lat,
+                this.lon,
+                this.routeTarget.lat,
+                this.routeTarget.lon,
+                this.roadMemory,
+                this.routeAlgorithm
+            );
+            const breakdown = pathfindingManager.estimateRouteCost(route);
+            const decision = this.evaluateRerouteCandidate(route, breakdown);
+
+            if (!decision.accepted) {
+                addDispatchInsight(
+                    `${this.name} kept current route: alternative was ${decision.isBacktracking ? 'a backtrack' : 'not cheaper enough'} (${decision.candidateCost.toFixed(0)} vs ${decision.currentCost.toFixed(0)} cost).`,
+                    CONFIG.UI.LOG_LEVELS.NEUTRAL
+                );
+                return;
+            }
+
+            const rebuilt = this.applyRoute(route, breakdown, performance.now() - startTime);
 
             if (rebuilt) {
                 if (typeof simulation !== 'undefined' && simulation) {
@@ -503,11 +676,30 @@ class DeliveryRobot {
             this.routeAlgorithm
         );
         const calcTime = performance.now() - startTime;
+        const breakdown = precalculatedBreakdown || pathfindingManager.estimateRouteCost(route);
+        const routeWithPath = this.normalizeRoutePath(route, targetLat, targetLon);
 
-        if (!route.path || route.path.length <= 1) return false;
+        return this.applyRoute(routeWithPath, breakdown, calcTime);
+    }
+
+    normalizeRoutePath(route, targetLat, targetLon) {
+        if (route?.path?.length) return route;
+
+        return {
+            ...route,
+            path: [
+                { lat: this.lat, lon: this.lon },
+                { lat: targetLat, lon: targetLon }
+            ],
+            distance: route?.distance || 0
+        };
+    }
+
+    applyRoute(route, breakdown, calcTime) {
+        if (!route.path || route.path.length === 0) return false;
 
         this.currentPath = route.path;
-        this.lastRouteBreakdown = precalculatedBreakdown || pathfindingManager.estimateRouteCost(route);
+        this.lastRouteBreakdown = breakdown;
         this.lastRouteEtaMinutes = this.lastRouteBreakdown.estimatedMinutes || 0;
         this.pathIndex = 0;
         this.status = CONFIG.ROBOT.STATUSES.MOVING;
@@ -530,6 +722,21 @@ class DeliveryRobot {
     }
 
     async finishCharging() {
+        if (this.resumeAfterCharge && this.routeSequence.length > 0) {
+            this.resumeAfterCharge = false;
+            this.routeMode = CONFIG.ROBOT.ROUTE_MODES.DELIVERY;
+            const nextStop = this.getCurrentRouteStop();
+            if (nextStop) {
+                this.setDeliveryStopTarget(nextStop);
+                addDispatchInsight(
+                    `${this.name} resumed VRP stop ${this.currentSequenceIndex + 1}/${this.routeSequence.length} after charging.`,
+                    CONFIG.UI.LOG_LEVELS.SUCCESS
+                );
+                await this.buildRouteToTarget(nextStop.lat, nextStop.lon);
+                return;
+            }
+        }
+
         if (this.resumeAfterCharge && this.currentDelivery) {
             this.resumeAfterCharge = false;
             this.routeMode = CONFIG.ROBOT.ROUTE_MODES.DELIVERY;

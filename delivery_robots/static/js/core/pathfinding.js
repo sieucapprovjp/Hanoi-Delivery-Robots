@@ -9,43 +9,20 @@ class Pathfinding {
             algo
         });
 
-        const response = await fetch(`${CONFIG.API.ROUTE}?${params.toString()}`);
-        if (!response.ok) {
-            throw new Error(`Route request failed: ${response.status}`);
-        }
-
-        return response.json();
+        return getJson(`${CONFIG.API.ROUTE}?${params.toString()}`, null, CONFIG.UI.TEXT.API_ERRORS.ROUTE);
     }
 
     async snapToRoad(lat, lon) {
         const params = new URLSearchParams({ lat, lon });
-        const response = await fetch(`${CONFIG.API.SNAP}?${params.toString()}`);
-
-        if (!response.ok) {
-            throw new Error(`Snap request failed: ${response.status}`);
-        }
-
-        return response.json();
+        return getJson(`${CONFIG.API.SNAP}?${params.toString()}`, null, CONFIG.UI.TEXT.API_ERRORS.SNAP);
     }
 
     async getTraffic() {
-        const response = await fetch(CONFIG.API.TRAFFIC);
-
-        if (!response.ok) {
-            throw new Error(`Traffic request failed: ${response.status}`);
-        }
-
-        return response.json();
+        return getJson(CONFIG.API.TRAFFIC, null, CONFIG.UI.TEXT.API_ERRORS.TRAFFIC);
     }
 
     async getWeather() {
-        const response = await fetch(CONFIG.API.WEATHER);
-
-        if (!response.ok) {
-            throw new Error(`Weather request failed: ${response.status}`);
-        }
-
-        return response.json();
+        return getJson(CONFIG.API.WEATHER, null, CONFIG.UI.TEXT.API_ERRORS.WEATHER);
     }
 
     estimateRouteCost(route) {

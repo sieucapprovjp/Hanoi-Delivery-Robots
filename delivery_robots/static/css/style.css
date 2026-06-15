@@ -914,6 +914,266 @@ body {
     border-left: 3px solid #34a853;
 }
 
+.xai-empty {
+    padding: 12px;
+    border-radius: 8px;
+    background: #f8f9fa;
+    color: #5f6368;
+    font-size: 12px;
+    text-align: center;
+}
+
+.xai-decision {
+    border: 1px solid #e8eaed;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+    background: #ffffff;
+}
+
+.xai-title {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #202124;
+    margin-bottom: 4px;
+}
+
+.xai-title span {
+    color: #1a73e8;
+    font-size: 11px;
+}
+
+.xai-route,
+.xai-objective {
+    font-size: 11px;
+    color: #5f6368;
+    margin-bottom: 8px;
+}
+
+.xai-selected-summary {
+    display: grid;
+    grid-template-columns: 72px 1fr;
+    gap: 8px;
+    align-items: center;
+    background: #e8f0fe;
+    border-radius: 6px;
+    padding: 7px 8px;
+    margin-bottom: 8px;
+    font-size: 11px;
+}
+
+.xai-selected-summary span {
+    color: #5f6368;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 9px;
+}
+
+.xai-selected-summary strong {
+    color: #174ea6;
+}
+
+.xai-objective {
+    font-family: 'Roboto Mono', monospace;
+    background: #f8f9fa;
+    border-radius: 6px;
+    padding: 6px;
+}
+
+.xai-final {
+    background: #e6f4ea;
+    border-left: 3px solid #34a853;
+    border-radius: 6px;
+    color: #137333;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.35;
+    margin-bottom: 10px;
+    padding: 8px;
+}
+
+.xai-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.xai-candidate {
+    border-left: 3px solid #9aa0a6;
+    background: #f8f9fa;
+    border-radius: 6px;
+    padding: 8px;
+}
+
+.xai-candidate.xai-selected {
+    border-left-color: #34a853;
+    background: #e6f4ea;
+}
+
+.xai-candidate.xai-rejected {
+    border-left-color: #ea4335;
+    background: #fce8e6;
+}
+
+.xai-candidate.xai-pruned {
+    border-left-color: #fbbc04;
+    background: #fff8e1;
+}
+
+.xai-candidate.xai-not_selected {
+    border-left-color: #9aa0a6;
+    background: #f1f3f4;
+}
+
+.xai-candidate-head,
+.xai-candidate-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.xai-candidate-head {
+    font-size: 12px;
+    color: #202124;
+    margin-bottom: 4px;
+}
+
+.xai-candidate-head span {
+    color: #5f6368;
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.xai-candidate-head span.xai-accepted {
+    color: #137333;
+}
+
+.xai-candidate-head span.xai-denied {
+    color: #c5221f;
+}
+
+.xai-candidate-meta,
+.xai-formula,
+.xai-reason {
+    font-size: 10px;
+    color: #5f6368;
+}
+
+.xai-constraints {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 6px 0;
+}
+
+.xai-constraint {
+    border-radius: 999px;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
+}
+
+.xai-constraint.ok {
+    background: #e6f4ea;
+    color: #137333;
+}
+
+.xai-constraint.fail {
+    background: #fce8e6;
+    color: #c5221f;
+}
+
+.xai-score-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+    margin-top: 6px;
+}
+
+.xai-score-grid div {
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(218, 220, 224, 0.8);
+    border-radius: 5px;
+    padding: 5px;
+}
+
+.xai-score-grid span {
+    display: block;
+    color: #5f6368;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.xai-score-grid strong {
+    color: #202124;
+    font-size: 11px;
+}
+
+.xai-score-grid.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.xai-route-summary {
+    color: #3c4043;
+    font-size: 10px;
+    font-weight: 600;
+    margin-top: 6px;
+}
+
+.xai-formula {
+    margin-top: 5px;
+    font-family: 'Roboto Mono', monospace;
+}
+
+.xai-reason,
+.xai-reason-list {
+    margin-top: 5px;
+    font-weight: 700;
+}
+
+.xai-reason-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.xai-reason-list span {
+    background: rgba(255, 255, 255, 0.65);
+    border-radius: 999px;
+    color: #c5221f;
+    font-size: 9px;
+    padding: 2px 6px;
+}
+
+.xai-timeline {
+    margin-top: 10px;
+    border-top: 1px solid #e8eaed;
+    padding-top: 8px;
+}
+
+.xai-step {
+    display: grid;
+    grid-template-columns: 74px 1fr;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 11px;
+    border-bottom: 1px solid #f1f3f4;
+}
+
+.xai-step-stage {
+    color: #1a73e8;
+    font-weight: 700;
+}
+
+.xai-step-message {
+    color: #3c4043;
+}
+
 [x-cloak] { display: none !important; }
 
 /* ===== Robot Marker & Popups ===== */

@@ -16,7 +16,7 @@ Trạng thái của toàn bộ ứng dụng (Application State) được quản 
 Toàn bộ logic backend nằm trong thư mục `delivery_robots/`, được phân chia thành các sub-package như sau:
 
 - **`core/`**: Chứa các cấu trúc dữ liệu cốt lõi, quản lý môi trường và bản đồ (Environment, Graph, Hubs).
-- **`algorithms/`**: Nơi triển khai các thuật toán tìm đường (A*, Dijkstra, GBFS, Insider) và module điều phối (**Dispatching**) phân bổ nhiệm vụ cho Robot.
+- **`algorithms/`**: Nơi triển khai các thuật toán tìm đường (A*, Dijkstra, GBFS, Insider) và module điều phối (**Dispatching**) gồm CSP, XAI và VRP/PDP.
 - **`routes/`**: Nơi định nghĩa các API endpoints chia theo nhóm (main_routes, environment_routes).
 - **`utils/`**: Các hàm tiện ích hỗ trợ về địa lý (Geo), đánh giá hiệu suất thuật toán (Metrics), phân tích tuyến đường và kiểm tra dữ liệu đầu vào (Validation).
 
@@ -43,7 +43,7 @@ Quản lý đồ thị mạng lưới đường giao thông:
 ### 2.3. Hubs (`core/hubs.py`)
 Quản lý tối ưu hóa điểm tập kết (Hubs) cho Robot:
 - Lưu vết lịch sử các điểm lấy và giao hàng của robot (`append_delivery_points`).
-- Cung cấp hàm `compute_optimized_hubs` sử dụng thuật toán **K-Means Clustering** (`sklearn.cluster.KMeans`) để gom cụm các tọa độ lịch sử. Từ đó tìm ra số điểm trung tâm (mặc định là 5) làm Hub mới để tối ưu việc phân bổ Robot đón đầu nhu cầu giao hàng trong tương lai.
+- Cung cấp hàm `compute_optimized_hubs` sử dụng thuật toán **K-Means Clustering** (`sklearn.cluster.KMeans`) để gom cụm các tọa độ lịch sử. Hàm ưu tiên đọc lịch sử từ `logs/delivery-history.jsonl` và fallback về RAM nếu file log chưa đủ điểm hợp lệ.
 
 ---
 
@@ -72,10 +72,19 @@ Mô-đun này chịu trách nhiệm ghép nối tối ưu giữa đơn hàng (De
 - **Priority Score (`calculate_priority_score`)**: Tính toán độ ưu tiên của đơn hàng dựa trên thời gian chờ (`wait_minutes`) và loại hình địa điểm (ví dụ: Nhà hàng có trọng số cao hơn Nhà dân). Công thức: `p_weight + d_weight + wait_minutes * 2.8`.
 - **Hệ thống Điều phối (`assign_deliveries`)**:
     - Sắp xếp đơn hàng theo điểm ưu tiên giảm dần.
-    - Với mỗi đơn hàng, tính toán điểm số tổng hợp (`totalScore`) cho từng robot rảnh rỗi.
+    - Lọc robot bằng CSP: trạng thái rảnh, pin đủ, còn capacity và không quá xa điểm pickup.
+    - Với mỗi đơn hàng hoặc batch đơn hàng, tính toán điểm số tổng hợp (`totalScore`) cho từng robot khả thi.
     - **Total Score** bao gồm: Chi phí đường đi (`totalCost`), Rủi ro pin (`batteryRisk`) và Điểm ưu tiên của đơn hàng.
     - Kết quả trả về bao gồm danh sách gán (assignments) kèm theo **toàn bộ dữ liệu tuyến đường (Route Payload)** để Frontend không cần gọi thêm API tìm đường sau khi đã gán nhiệm vụ.
+    - Khi `return_explanations=True`, backend trả về explanation/XAI cho các robot bị reject, bị prune, được score và được chọn.
 
+### 3.5. VRP/PDP với Simulated Annealing (`dispatch/vrp_solver.py`)
+Mô-đun này tối ưu thứ tự pickup/dropoff khi một robot nhận nhiều đơn:
+- Robot demo có capacity tối đa **3 đơn đang active**.
+- Solver tạo danh sách stop gồm pickup và dropoff của từng đơn.
+- Ràng buộc bắt buộc: pickup phải xuất hiện trước dropoff tương ứng.
+- Distance matrix dùng cùng hệ thống route có trọng số động, nên traffic, rain, obstacle và road memory đều ảnh hưởng tới chi phí batch.
+- Kết quả trả về gồm thứ tự stop, chi phí ban đầu, chi phí cuối, số vòng lặp, số move được accept và tỷ lệ cải thiện để hiển thị trong XAI.
 
 ---
 
@@ -117,10 +126,15 @@ Thư mục `utils/` tập hợp các logic tính toán phụ trợ, giúp làm s
   - `haversine_distance`: Tính khoảng cách chim bay (mét) giữa 2 tọa độ lat/lon. (Là hàm Heuristic h(n) chủ chốt cho thuật toán A* và GBFS).
   - `point_to_segment_distance_meters`: Tính khoảng cách từ 1 điểm đến 1 đoạn thẳng (Dùng để xác định 1 tọa độ có nằm trên một tuyến đường đang bị kẹt xe hay không).
 - **`utils/metrics.py`**: Ghi nhận và tính trung bình thời gian thực thi (ms), số lượng node mở rộng (`nodes_explored`) của hàng trăm lệnh gọi tìm đường, phục vụ dashboard tổng quan.
+- **`utils/persistent_log.py`**: Ghi log dạng JSONL vào `logs/app-events.jsonl` và `logs/delivery-history.jsonl` để có lịch sử nhẹ mà không cần database.
 - **`utils/route_analysis.py`**:
   - `nearest_node_id`: Tìm Node gần nhất trong đồ thị tính từ tọa độ bất kỳ. Dùng để "Snap" tọa độ người dùng chọn vào lưới giao thông.
   - `build_route_response`: Biến đổi danh sách các Node trả về từ thuật toán thành một Payload JSON chuẩn. Hàm này cũng lặp qua từng cạnh của đường đi để tính ra giá trị phạt kẹt xe, thời tiết... trả về trong object `costBreakdown`.
 - **`utils/validation.py`**: Bộ kiểm tra đầu vào (validate lat/lon, kiểu dữ liệu) để đảm bảo API không bị crash khi Frontend gửi request sai định dạng.
 
 ---
-**Tài liệu được trích xuất tự động và hoàn chỉnh.** Dùng để tra cứu logic xử lý phía Backend của dự án.
+## 6. Trạng thái hiện tại
+
+- Backend hiện đã có routing có trọng số động, CSP dispatch, XAI explanation, VRP/PDP batch routing, K-means hub optimization và JSONL logging.
+- Chưa có database lâu dài; logging file là giải pháp nhẹ cho scope hiện tại.
+- Advanced K-means như Auto-K/Elbow chưa được triển khai.

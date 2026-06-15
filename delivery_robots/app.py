@@ -8,6 +8,9 @@ from flask import Flask
 from .config import (
     API_LOGS_MAX_LENGTH,
     CHARGING_STATIONS_INITIAL,
+    GRAPH_CACHE_DIR,
+    GRAPH_CACHE_ENABLED,
+    GRAPH_CACHE_FILENAME,
     GRAPH_CENTER,
     GRAPH_DIST_METERS,
     GRAPH_NETWORK_TYPE,
@@ -20,6 +23,7 @@ from .config import (
 
 from .core.environment import (
     edge_weight_with_traffic as core_edge_weight_with_traffic,
+    build_environment_snapshot as core_build_environment_snapshot,
     get_rush_hour_multiplier as core_get_rush_hour_multiplier,
     get_simulation_time as core_get_simulation_time,
     obstacle_penalty_for_point as core_obstacle_penalty_for_point,
@@ -74,6 +78,9 @@ _app_state = {
     "graph_center": GRAPH_CENTER,
     "graph_dist_meters": GRAPH_DIST_METERS,
     "graph_network_type": GRAPH_NETWORK_TYPE,
+    "graph_cache_enabled": GRAPH_CACHE_ENABLED,
+    "graph_cache_dir": GRAPH_CACHE_DIR,
+    "graph_cache_filename": GRAPH_CACHE_FILENAME,
     "traffic_anchors": TRAFFIC_ANCHORS,
     "traffic_period_seconds": TRAFFIC_PERIOD_SECONDS,
     "rain_zones": RAIN_ZONES,
@@ -124,6 +131,11 @@ def _sync_globals_from_state():
     _spatial_tree = _app_state["spatial_tree"]
 
 
+@app.before_request
+def _refresh_state_before_request():
+    _sync_state_from_globals()
+
+
 def get_road_graph():
     _sync_state_from_globals()
     result = core_get_road_graph(
@@ -168,17 +180,41 @@ def edge_weight_with_traffic(from_node, to_node, edge_data):
     return core_edge_weight_with_traffic(_app_state, from_node, to_node, edge_data)
 
 
+def get_environment_snapshot():
+    _sync_state_from_globals()
+    return core_build_environment_snapshot(_app_state)
+
+
+def _current_get_road_graph():
+    return get_road_graph()
+
+
+def _current_road_graph():
+    _sync_state_from_globals()
+    return _road_graph
+
+
+def _current_nearest_node_id(graph, lat, lon, ox=None):
+    _sync_state_from_globals()
+    return nearest_node_id(graph, lat, lon, _app_state)
+
+
+def _current_ox():
+    _sync_state_from_globals()
+    return _ox
+
+
 def _build_routes_context():
     return {
         "app_state": _app_state,
-        "get_road_graph": get_road_graph,
-        "road_graph_getter": lambda: _road_graph,
+        "get_road_graph": _current_get_road_graph,
+        "road_graph_getter": _current_road_graph,
         "get_simulation_time": get_simulation_time,
         "get_rush_hour_multiplier": get_rush_hour_multiplier,
         "build_metrics_payload": build_metrics_payload,
         "record_route_metrics": record_route_metrics,
         "build_route_response": build_route_response,
-        "nearest_node_id": lambda g, lat, lon, ox=None: nearest_node_id(g, lat, lon, _app_state),
+        "nearest_node_id": _current_nearest_node_id,
         "validate_coordinate": validate_coordinate,
         "validate_lat_lon": validate_lat_lon,
         "validate_non_negative_int": validate_non_negative_int,
@@ -187,6 +223,7 @@ def _build_routes_context():
         "rain_penalty_for_point": rain_penalty_for_point,
         "obstacle_penalty_for_point": obstacle_penalty_for_point,
         "edge_weight_with_traffic": edge_weight_with_traffic,
+        "get_environment_snapshot": get_environment_snapshot,
         "traffic_period_seconds": TRAFFIC_PERIOD_SECONDS,
         "rush_hours": RUSH_HOURS,
         "simulation_speed": _simulation_speed,
@@ -198,7 +235,7 @@ def _build_routes_context():
         "metrics": _metrics,
         "api_logs": _api_logs,
         "api_logs_lock": _api_logs_lock,
-        "get_ox": lambda: _ox,
+        "get_ox": _current_ox,
         "spatial_node_ids": _spatial_node_ids,
         "spatial_tree": _spatial_tree,
     }

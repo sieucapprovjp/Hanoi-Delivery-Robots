@@ -58,6 +58,9 @@
                     comparison: 'Waiting for route metrics...',
                     astarSteps: 'Waiting for path calculation...'
                 },
+                decision: {
+                    dispatchTimeline: 'Waiting for dispatch decisions...'
+                },
                 updateMetrics(d) {
                     this.metrics.totalCalculations = d.pathfinding.totalCalculations;
                     this.metrics.avgTime = d.pathfinding.avgCalculationTime + 'ms';
@@ -140,8 +143,7 @@
                     <select id="fleet-algo-select" class="algo-select">
                         <option value="astar">Advanced A* (Optimized)</option>
                         <option value="dijkstra">Dijkstra's Algorithm</option>
-                        <option value="greedy">Greedy Best-First</option>
-                        <option value="bfs">Breadth-First Search</option>
+                        <option value="gbfs">Greedy Best-First Search</option>
                     </select>
                     <button id="apply-fleet-algo-btn" class="btn-apply">Apply</button>
                 </div>
@@ -339,6 +341,13 @@
                     </div>
                 </div>
             </div>
+
+            <div class="mb-15">
+                <h3 class="fs-13 color-secondary-text mb-10">🧩 Dispatch CSP / XAI Timeline</h3>
+                <div id="dispatch-xai-timeline" x-html="$store.sim.decision.dispatchTimeline">
+                    Waiting for dispatch decisions...
+                </div>
+            </div>
         </div>
     </div>
 
@@ -371,12 +380,28 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="static/js/config.js" defer></script>
-    <script src="static/js/map.js" defer></script>
-    <script src="static/js/pathfinding.js" defer></script>
-    <script src="static/js/robot.js" defer></script>
-    <script src="static/js/simulation.js" defer></script>
-    <script src="static/js/app.js" defer></script>
+    <script src="static/js/core/config.js" defer></script>
+    <script src="static/js/core/api_client.js" defer></script>
+    <script src="static/js/core/ui_helpers.js" defer></script>
+    <script src="static/js/map/map.js" defer></script>
+    <script src="static/js/map/charging_layer.js" defer></script>
+    <script src="static/js/map/weather_layer.js" defer></script>
+    <script src="static/js/map/traffic_layer.js" defer></script>
+    <script src="static/js/map/delivery_layer.js" defer></script>
+    <script src="static/js/core/pathfinding.js" defer></script>
+    <script src="static/js/simulation/renderers.js" defer></script>
+    <script src="static/js/insider/xai_timeline.js" defer></script>
+    <script src="static/js/robot/renderers.js" defer></script>
+    <script src="static/js/robot/robot.js" defer></script>
+    <script src="static/js/simulation/delivery_factory.js" defer></script>
+    <script src="static/js/simulation/dispatch_client.js" defer></script>
+    <script src="static/js/simulation/simulation.js" defer></script>
+    <script src="static/js/environment/rain_controls.js" defer></script>
+    <script src="static/js/environment/traffic_controls.js" defer></script>
+    <script src="static/js/environment/obstacle_controls.js" defer></script>
+    <script src="static/js/environment/environment_controls.js" defer></script>
+    <script src="static/js/insider/insider_panel.js" defer></script>
+    <script src="static/js/core/app.js" defer></script>
 </body>
 
 </html>

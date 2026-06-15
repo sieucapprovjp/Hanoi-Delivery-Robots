@@ -13,7 +13,6 @@ def _reconstruct_node_path(came_from, current):
     path.reverse()
     return path
 
-
 def run_weighted_route_search(
     graph,
     start_node,

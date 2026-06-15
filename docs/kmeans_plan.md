@@ -7,9 +7,10 @@
 ## What Is Implemented
 - Backend dependency setup:
   - Added `scikit-learn` and `numpy` in `requirements.txt`.
-- Backend data collection and optimization API in `delivery_robots/app.py`:
-  - `POST /api/log_delivery`: stores pickup/dropoff coordinates.
+- Backend data collection and optimization API:
+  - `POST /api/log_delivery`: stores pickup/dropoff coordinates in memory and appends them to `logs/delivery-history.jsonl`.
   - `POST /api/optimize-hubs`: runs k-means (`k=5`) and returns centroid hubs.
+  - K-means now prefers the persistent JSONL history and falls back to in-memory history if the file does not contain enough valid points.
 - Frontend simulation integration in `delivery_robots/static/js/simulation.js`:
   - `logDeliveryData(delivery)` sends each generated delivery to backend.
   - `optimizeHubs()` calls optimizer endpoint and repositions robots.
@@ -60,7 +61,7 @@ Error when history is too small:
 ```
 
 ## Demo Walkthrough (Midterm)
-1. Start simulation and let it run for ~30-60 seconds to collect delivery points.
+1. Start simulation and let it run for ~30-60 seconds to collect delivery points, or reuse existing delivery history from `logs/delivery-history.jsonl`.
 2. Open logs/dispatch panel to show ongoing AI decisions.
 3. Click `🧠 Optimize Hubs` in the control panel.
 4. Explain that k-means clusters demand points and returns 5 centroids.
@@ -77,5 +78,6 @@ Error when history is too small:
 
 ## Notes / Next Improvements
 - Add a metric card for "empty distance before vs after optimization".
+- Add controls to clear or scope delivery history when a clean demo run is needed.
 - Optionally run optimization every fixed interval (e.g., every 2 simulated hours).
 - Optionally keep separate pickup-only vs dropoff-only clustering modes.

@@ -1,5 +1,6 @@
 import unittest
 import importlib
+from unittest.mock import patch
 
 import networkx as nx
 
@@ -61,6 +62,42 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.get_json()["status"], "ok")
 
+    def test_api_logs_persists_posted_entry(self):
+        with patch("delivery_robots.routes.environment_routes.append_app_event") as append_mock:
+            resp = self.client.post(
+                "/api/logs",
+                json={"message": "hello", "level": "info", "source": "test"},
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        append_mock.assert_called_once()
+        self.assertEqual(append_mock.call_args.args[0]["message"], "hello")
+
+    def test_log_delivery_persists_history_entry(self):
+        with patch("delivery_robots.routes.main_routes.append_delivery_history") as append_mock:
+            resp = self.client.post(
+                "/api/log_delivery",
+                json={
+                    "deliveryId": 9,
+                    "pickupLat": 21.0,
+                    "pickupLon": 105.0,
+                    "pickupName": "Pickup",
+                    "pickupCategory": "restaurant",
+                    "dropoffLat": 21.001,
+                    "dropoffLon": 105.001,
+                    "dropoffName": "Dropoff",
+                    "dropoffCategory": "residential",
+                    "createdAt": 123,
+                },
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        append_mock.assert_called_once()
+        payload = append_mock.call_args.args[0]
+        self.assertEqual(payload["deliveryId"], 9)
+        self.assertEqual(payload["pickup"]["category"], "restaurant")
+        self.assertEqual(payload["dropoff"]["category"], "residential")
+
     def test_add_traffic_route(self):
         resp = self.client.post(
             "/api/traffic/add",
@@ -104,6 +141,13 @@ class ApiTests(unittest.TestCase):
         breakdown = data["costBreakdown"]
         self.assertIn("obstaclePenalty", breakdown)
         self.assertIn("estimatedMinutes", breakdown)
+
+    def test_route_accepts_greedy_alias_as_gbfs(self):
+        resp = self.client.get(
+            "/api/route?fromLat=21.0000&fromLon=105.0000&toLat=21.0020&toLon=105.0020&algo=greedy"
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["algo"], "gbfs")
 
     def test_classical_compare_returns_algorithms(self):
         resp = self.client.get(

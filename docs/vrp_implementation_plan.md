@@ -1,5 +1,11 @@
 # 📋 Implementation Plan — VRP/TSP với Simulated Annealing
 
+> Status: implemented in the current codebase. This file is kept as a planning and
+> traceability reference. The active implementation lives in
+> `delivery_robots/algorithms/dispatch/vrp_solver.py`,
+> `delivery_robots/algorithms/dispatch/allocation.py`,
+> frontend robot/simulation modules, and `tests/test_vrp.py`.
+
 > Kế hoạch triển khai tính năng Vehicle Routing Problem cho dự án AI Delivery Robots.
 
 ---
@@ -234,7 +240,7 @@ gantt
 | `algorithms/__init__.py` | SỬA | ~3 dòng |
 | `config.py` | SỬA | ~10 dòng thêm |
 | `routes/main_routes.py` | SỬA | ~15 dòng |
-| `static/js/robot.js` | SỬA | ~80 dòng thêm/sửa |
-| `static/js/simulation.js` | SỬA | ~40 dòng thêm/sửa |
-| `static/js/config.js` | SỬA | ~5 dòng thêm |
+| `static/js/robot/robot.js` | SỬA | ~80 dòng thêm/sửa |
+| `static/js/simulation/simulation.js` | SỬA | ~40 dòng thêm/sửa |
+| `static/js/core/config.js` | SỬA | ~5 dòng thêm |
 | `tests/test_vrp.py` | **TẠO MỚI** | ~120 dòng |
