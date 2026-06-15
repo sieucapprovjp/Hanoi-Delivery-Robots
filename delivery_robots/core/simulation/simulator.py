@@ -1,7 +1,7 @@
 import simpy
 import random
 import threading
-from typing import Generator
+from typing import Generator, Any
 from .robot_agent import RobotAgent
 from ...algorithms.assignment import compute_battery_cost
 from ...algorithms.base import AssignmentInput
@@ -16,10 +16,6 @@ from ...config import (
     DISPATCH_BETA,
     DISPATCH_GAMMA,
     DISPATCH_LAMBDA,
-    ROBOT_STATUS_MOVING_TO_PICKUP,
-    REASSIGN_PENALTY,
-    MAX_REASSIGN_LIMIT,
-    REASSIGN_COOLDOWN,
 )
 
 from ...utils import Profiler, profile_time, profile_block
@@ -55,6 +51,22 @@ class SimulatorManager:
         self.order_queue = self.order_manager.order_queue
         self.app_state["order_queue"] = self.order_queue
         self.scenario_config = None
+
+    def _safe_run_route_search(self, *args: Any, **kwargs: Any) -> Any:
+        """Executes run_weighted_route_search, falling back if skip_diagnostics is unsupported.
+
+        Args:
+            *args (Any): Positional arguments for the search function.
+            **kwargs (Any): Keyword arguments for the search function.
+
+        Returns:
+            Any: The search result (AlgoResult).
+        """
+        try:
+            return self.run_weighted_route_search(*args, **kwargs)
+        except TypeError:
+            kwargs.pop("skip_diagnostics", None)
+            return self.run_weighted_route_search(*args, **kwargs)
 
     def initialize_robots(self):
         self.robots = []
@@ -297,244 +309,6 @@ class SimulatorManager:
                 self.emit_system_event(f"Snapshot creation failed: {e}")
                 continue
 
-            # Check for re-assignments of active orders (Ref: algo S2.3)
-            active_robots_going_to_pickup = [
-                r
-                for r in self.robots
-                if r.status == ROBOT_STATUS_MOVING_TO_PICKUP
-                and r.current_task is not None
-            ]
-            if active_robots_going_to_pickup:
-                import networkx as nx
-
-                def weight_fn(u, v, d):
-                    return snap_graph.get_edge_weight(u, v, d)
-
-                for r_old in list(active_robots_going_to_pickup):
-                    task = r_old.current_task
-                    if not task:
-                        continue
-
-                    # Check anti-chatter constraints
-                    reassign_count = task.get("reassign_count", 0)
-                    last_reassign_time = task.get("last_reassign_time")
-
-                    if reassign_count >= MAX_REASSIGN_LIMIT:
-                        continue
-                    if (
-                        last_reassign_time is not None
-                        and (self.env.now - last_reassign_time) < REASSIGN_COOLDOWN
-                    ):
-                        continue
-
-                    # Calculate remaining travel cost for r_old to reach pickup
-                    remaining_path = r_old.current_path[r_old.path_index :]
-                    d_old_pickup = 0.0
-                    if remaining_path and len(remaining_path) >= 2:
-                        for u, v in zip(remaining_path[:-1], remaining_path[1:]):
-                            edge_data = snap_graph.get_edge_data(u, v)
-                            if edge_data:
-                                d_old_pickup += snap_graph.get_edge_weight(
-                                    u, v, edge_data
-                                )
-                    else:
-                        continue
-
-                    best_candidate = None
-                    min_d_new_pickup = float("inf")
-                    best_pickup_path = None
-                    best_dropoff_path = None
-                    best_charge_path = None
-                    best_hub = None
-                    is_3_leg_for_best = False
-
-                    # Evaluate each idle robot as a candidate r_new
-                    for r_new in idle_robots:
-                        r_new_node = self.nearest_node_id(
-                            snap_graph, r_new.lat, r_new.lon
-                        )
-                        pickup_node = self.nearest_node_id(
-                            snap_graph, task["pickup"]["lat"], task["pickup"]["lon"]
-                        )
-                        delivery_node = self.nearest_node_id(
-                            snap_graph, task["dropoff"]["lat"], task["dropoff"]["lon"]
-                        )
-
-                        try:
-                            # Standard routing from r_new to pickup
-                            pickup_result = self.run_weighted_route_search(
-                                snap_graph,
-                                r_new_node,
-                                pickup_node,
-                                task["pickup"]["lat"],
-                                task["pickup"]["lon"],
-                                weight_fn,
-                                "astar",
-                            )
-                            pickup_path = pickup_result.path
-                            pickup_cost = pickup_result.planned_cost
-
-                            # Standard routing from pickup to dropoff
-                            dropoff_result = self.run_weighted_route_search(
-                                snap_graph,
-                                pickup_node,
-                                delivery_node,
-                                task["dropoff"]["lat"],
-                                task["dropoff"]["lon"],
-                                weight_fn,
-                                "astar",
-                            )
-                            dropoff_path = dropoff_result.path
-                            dropoff_cost = dropoff_result.planned_cost
-                        except nx.NetworkXNoPath:
-                            continue
-
-                        # Battery check: does r_new have enough battery for direct delivery?
-                        battery_cost = compute_battery_cost(
-                            snap_graph, pickup_path
-                        ) + compute_battery_cost(snap_graph, dropoff_path)
-
-                        is_3_leg = False
-                        charge_path = None
-                        hub = None
-
-                        if r_new.battery < battery_cost:
-                            # 3-leg route required for r_new
-                            hub = r_new.select_optimal_hub()
-                            if not hub:
-                                continue
-
-                            hub_node = self.nearest_node_id(
-                                snap_graph, hub["lat"], hub["lon"]
-                            )
-                            try:
-                                # Leg 1: r_new -> Hub
-                                charge_result = self.run_weighted_route_search(
-                                    snap_graph,
-                                    r_new_node,
-                                    hub_node,
-                                    hub["lat"],
-                                    hub["lon"],
-                                    weight_fn,
-                                    "astar",
-                                )
-                                # Leg 2: Hub -> Pickup
-                                pickup_result = self.run_weighted_route_search(
-                                    snap_graph,
-                                    hub_node,
-                                    pickup_node,
-                                    task["pickup"]["lat"],
-                                    task["pickup"]["lon"],
-                                    weight_fn,
-                                    "astar",
-                                )
-                                charge_path = charge_result.path
-                                pickup_path = pickup_result.path
-                                d_new_pickup = (
-                                    charge_result.planned_cost
-                                    + pickup_result.planned_cost
-                                )
-                                is_3_leg = True
-                            except nx.NetworkXNoPath:
-                                continue
-                        else:
-                            d_new_pickup = pickup_cost
-
-                        # Trigger check: d(r_new, pickup) + penalty_reassign < d(r_old, pickup)
-                        if d_new_pickup + REASSIGN_PENALTY < d_old_pickup:
-                            if d_new_pickup < min_d_new_pickup:
-                                min_d_new_pickup = d_new_pickup
-                                best_candidate = r_new
-                                best_pickup_path = pickup_path
-                                best_dropoff_path = dropoff_path
-                                best_charge_path = charge_path
-                                best_hub = hub
-                                is_3_leg_for_best = is_3_leg
-                                best_pickup_cost = pickup_cost
-                                best_dropoff_cost = dropoff_cost
-                                best_charge_cost = (
-                                    charge_result.planned_cost if is_3_leg else 0.0
-                                )
-
-                    if best_candidate:
-                        # Reassign!
-                        # Cancel task for old robot
-                        r_old.action.interrupt(cause="reassignment")
-
-                        # Update task info
-                        task["reassign_count"] = reassign_count + 1
-                        task["last_reassign_time"] = self.env.now
-                        task["is_3_leg"] = is_3_leg_for_best
-                        task["pickup_path"] = best_pickup_path
-                        task["dropoff_path"] = best_dropoff_path
-
-                        task["pickup_planned_cost"] = best_pickup_cost
-                        task["dropoff_planned_cost"] = best_dropoff_cost
-                        task["pickup_edge_planned_costs"] = [
-                            snap_graph.get_edge_weight(
-                                u, v, snap_graph.get_edge_data(u, v)
-                            )
-                            for u, v in zip(best_pickup_path[:-1], best_pickup_path[1:])
-                        ]
-                        task["dropoff_edge_planned_costs"] = [
-                            snap_graph.get_edge_weight(
-                                u, v, snap_graph.get_edge_data(u, v)
-                            )
-                            for u, v in zip(
-                                best_dropoff_path[:-1], best_dropoff_path[1:]
-                            )
-                        ]
-
-                        pickup_geom_path, pickup_seg_geom = self.build_route_geometry(
-                            snap_graph, best_pickup_path
-                        )
-                        task["pickup_geometry_path"] = pickup_geom_path
-                        task["pickup_segment_geometry"] = pickup_seg_geom
-
-                        dropoff_geom_path, dropoff_seg_geom = self.build_route_geometry(
-                            snap_graph, best_dropoff_path
-                        )
-                        task["dropoff_geometry_path"] = dropoff_geom_path
-                        task["dropoff_segment_geometry"] = dropoff_seg_geom
-
-                        if is_3_leg_for_best:
-                            task["charging_station"] = best_hub
-                            task["charge_path"] = best_charge_path
-                            task["charge_planned_cost"] = best_charge_cost
-                            task["charge_edge_planned_costs"] = [
-                                snap_graph.get_edge_weight(
-                                    u, v, snap_graph.get_edge_data(u, v)
-                                )
-                                for u, v in zip(
-                                    best_charge_path[:-1], best_charge_path[1:]
-                                )
-                            ]
-                            charge_geom_path, charge_seg_geom = (
-                                self.build_route_geometry(snap_graph, best_charge_path)
-                            )
-                            task["charge_geometry_path"] = charge_geom_path
-                            task["charge_segment_geometry"] = charge_seg_geom
-                        else:
-                            task.pop("charging_station", None)
-                            task.pop("charge_path", None)
-                            task.pop("charge_geometry_path", None)
-                            task.pop("charge_segment_geometry", None)
-                            task.pop("charge_planned_cost", None)
-                            task.pop("charge_edge_planned_costs", None)
-
-                        task["robot_name"] = best_candidate.name
-                        self.order_manager.mark_assigned(task)
-
-                        # Assign task to new robot
-                        best_candidate.assign_task(task)
-
-                        self.emit_system_event(
-                            f"Order {task['id']} reassigned from {r_old.name} to {best_candidate.name}"
-                        )
-
-                        # Remove newly busy robot from idle_robots list
-                        idle_robots.remove(best_candidate)
-
             # Retrieve pending orders and idle robots
             pending_orders = [
                 t for t in self.order_queue if t.get("status") == ORDER_STATUS_PENDING
@@ -554,7 +328,9 @@ class SimulatorManager:
                 orders=pending_orders,
                 nearest_node_fn=self.nearest_node_id,
                 weight_fn=lambda u, v, d: snap_graph.get_edge_weight(u, v, d),
-                run_route_search_fn=self.run_weighted_route_search,
+                run_route_search_fn=lambda *args, **kwargs: self._safe_run_route_search(
+                    *args, skip_diagnostics=True, **kwargs
+                ),
                 alpha=DISPATCH_ALPHA,
                 beta=DISPATCH_BETA,
                 gamma=DISPATCH_GAMMA,
@@ -632,7 +408,7 @@ class SimulatorManager:
                                 return snap_graph.get_edge_weight(u, v, d)
 
                             # Leg 1: Robot -> Hub
-                            charge_result = self.run_weighted_route_search(
+                            charge_result = self._safe_run_route_search(
                                 snap_graph,
                                 robot_node,
                                 hub_node,
@@ -640,10 +416,11 @@ class SimulatorManager:
                                 hub["lon"],
                                 weight_fn,
                                 "astar",
+                                skip_diagnostics=True,
                             )
 
                             # Leg 2: Hub -> Pickup
-                            pickup_result = self.run_weighted_route_search(
+                            pickup_result = self._safe_run_route_search(
                                 snap_graph,
                                 hub_node,
                                 pickup_node,
@@ -651,10 +428,11 @@ class SimulatorManager:
                                 task["pickup"]["lon"],
                                 weight_fn,
                                 "astar",
+                                skip_diagnostics=True,
                             )
 
                             # Leg 3: Pickup -> Delivery
-                            dropoff_result = self.run_weighted_route_search(
+                            dropoff_result = self._safe_run_route_search(
                                 snap_graph,
                                 pickup_node,
                                 delivery_node,
@@ -662,6 +440,7 @@ class SimulatorManager:
                                 task["dropoff"]["lon"],
                                 weight_fn,
                                 "astar",
+                                skip_diagnostics=True,
                             )
 
                             task["is_3_leg"] = True
@@ -796,7 +575,7 @@ class SimulatorManager:
     @profile_time(label="simulator_run_loop")
     def _run_loop(self):
         p = Profiler()
-        ticks_per_real_second = 10.0
+        ticks_per_real_second = 1.0
         real_time_step = 1.0 / ticks_per_real_second
         tick_counter = 0
 

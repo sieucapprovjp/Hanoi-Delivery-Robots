@@ -1,6 +1,7 @@
 import networkx as nx
 import numpy as np
 from sklearn.neighbors import BallTree
+from typing import Dict, Tuple, Any
 
 
 def _build_traffic_routes(
@@ -114,8 +115,8 @@ class GraphSnapshot(nx.MultiDiGraph):
     """An immutable snapshot of the road network graph at a specific planning time.
 
     This class subclasses networkx.MultiDiGraph to ensure 100% compatibility with
-    NetworkX algorithms and utility functions. It computes and freezes dynamic edge
-    weights at a specific simulated/real timestamp.
+    NetworkX algorithms and utility functions. It computes dynamic edge
+    weights on-demand at a specific simulated/real timestamp.
     """
 
     def __init__(
@@ -127,30 +128,28 @@ class GraphSnapshot(nx.MultiDiGraph):
         """Initializes the GraphSnapshot.
 
         Args:
-            graph (nx.MultiDiGraph): The live source road graph to copy structure from.
+            graph (nx.MultiDiGraph): The live source road graph to share structure with.
             planning_time (float): The timestamp when the planning occurred.
-            snap_state (dict): Copied environmental state elements to calculate static weights.
+            snap_state (dict): Copied environmental state elements to calculate weights.
         """
-        # Shallow copy of structural data (nodes, edges, graph attributes)
-        super().__init__(graph)
+        # Shallow copy of the graph dictionary to avoid copying the entire structural data (extremely fast)
+        self.__dict__.update(graph.__dict__)
         self.planning_time: float = planning_time
         self.snap_state: dict = snap_state
         self.neighbor_ordering_policy: str = snap_state.get(
             "neighbor_ordering_policy", "id"
         )
+        # Lock and cache to store lazy computed weights
+        import threading
 
-        from .environment import edge_weight_with_traffic
-
-        # Calculate and cache dynamic weight for all edges
-        for u, v, key, data in self.edges(keys=True, data=True):
-            weight = edge_weight_with_traffic(snap_state, u, v, data)
-            data["weight"] = weight
+        self._weight_lock: threading.Lock = threading.Lock()
+        self._weight_cache: Dict[Tuple[int, int, Any], float] = {}
 
         # Freeze structural mutations (raises error on add_node, add_edge, etc.)
         nx.freeze(self)
 
     def get_edge_weight(self, u: int, v: int, edge_data: dict) -> float:
-        """Retrieves the frozen weight for an edge or a dictionary of parallel edges.
+        """Retrieves the dynamic weight for an edge or a dictionary of parallel edges.
 
         Args:
             u (int): The source node ID.
@@ -158,15 +157,54 @@ class GraphSnapshot(nx.MultiDiGraph):
             edge_data (dict): The edge attribute dictionary, or dict of parallel edges.
 
         Returns:
-            float: The cached static edge weight.
+            float: The lazy-computed or cached dynamic edge weight.
         """
         from ..config import DEFAULT_EDGE_LENGTH
 
-        if "weight" in edge_data:
-            return edge_data["weight"]
-
         # If it's a MultiDiGraph parallel edge mapping (key -> edge_attributes_dict)
-        return min(
-            data.get("weight", data.get("length", DEFAULT_EDGE_LENGTH))
-            for data in edge_data.values()
-        )
+        if "length" not in edge_data:
+            min_w = float("inf")
+            for key, data in edge_data.items():
+                w = self._get_single_edge_weight(u, v, key, data)
+                if w < min_w:
+                    min_w = w
+            return min_w if min_w != float("inf") else DEFAULT_EDGE_LENGTH
+
+        # Otherwise it's a single edge attributes dictionary
+        cache_key = (u, v, id(edge_data))
+        with self._weight_lock:
+            if cache_key in self._weight_cache:
+                return self._weight_cache[cache_key]
+
+        from .environment import edge_weight_with_traffic
+
+        weight = edge_weight_with_traffic(self.snap_state, u, v, edge_data)
+
+        with self._weight_lock:
+            self._weight_cache[cache_key] = weight
+        return weight
+
+    def _get_single_edge_weight(self, u: int, v: int, key: Any, data: dict) -> float:
+        """Helper to get or compute weight for a single edge with a key.
+
+        Args:
+            u (int): The source node ID.
+            v (int): The destination node ID.
+            key (Any): The parallel edge key.
+            data (dict): The edge attribute dictionary.
+
+        Returns:
+            float: The computed weight of the edge.
+        """
+        cache_key = (u, v, key)
+        with self._weight_lock:
+            if cache_key in self._weight_cache:
+                return self._weight_cache[cache_key]
+
+        from .environment import edge_weight_with_traffic
+
+        weight = edge_weight_with_traffic(self.snap_state, u, v, data)
+
+        with self._weight_lock:
+            self._weight_cache[cache_key] = weight
+        return weight

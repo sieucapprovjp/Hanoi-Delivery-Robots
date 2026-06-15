@@ -29,6 +29,7 @@ def run_weighted_route_search(
     goal_lon: float,
     weight_fn: Callable[[int, int, dict], float],
     algorithm: str,
+    skip_diagnostics: bool = False,
 ) -> Tuple[List[int], int]:
     """Dispatches the route search query to the selected algorithm contract.
 
@@ -40,6 +41,7 @@ def run_weighted_route_search(
         goal_lon (float): Longitude of the goal node.
         weight_fn (Callable[[int, int, dict], float]): Function to calculate edge weight.
         algorithm (str): Identifier of the routing algorithm to use.
+        skip_diagnostics (bool): If True, skip calculating search metrics/diagnostics.
 
     Returns:
         Tuple[List[int], int]: A tuple containing the path list and nodes explored count.
@@ -66,6 +68,7 @@ def run_weighted_route_search(
         goal_lat=goal_lat,
         goal_lon=goal_lon,
         neighbor_ordering_policy=policy,
+        skip_diagnostics=skip_diagnostics,
     )
     algo_result = searcher.execute(context)
 
@@ -81,7 +84,9 @@ def run_weighted_route_search(
         algo_result = dataclasses.replace(algo_result, planned_cost=recalculated_cost)
 
     # Calculate optimal baseline using Dijkstra Oracle
-    if algorithm == "dijkstra":
+    if skip_diagnostics:
+        optimality_ratio = 1.0
+    elif algorithm == "dijkstra":
         optimality_ratio = 1.0
     else:
         try:

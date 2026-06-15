@@ -122,26 +122,29 @@ class AStarSearch(SearchContract[SearchInput, AlgoResult]):
                     planned_cost += weight_fn(u, v, graph[u][v])
 
                 # Calculate Heuristic Effectiveness Ratio using Reverse Dijkstra
-                reverse_costs = compute_reverse_dijkstra(graph, end_node, weight_fn)
-                total_ratio = 0.0
-                ratio_count = 0
-                for node in path:
-                    if node == end_node:
-                        continue
-                    h_val = haversine_distance(
-                        graph.nodes[node]["y"],
-                        graph.nodes[node]["x"],
-                        goal_lat,
-                        goal_lon,
-                    )
-                    h_star_val = reverse_costs.get(node, 0.0)
-                    if h_star_val > 0.0:
-                        total_ratio += h_val / h_star_val
-                        ratio_count += 1
+                if getattr(context, "skip_diagnostics", False):
+                    heuristic_effectiveness = 1.0
+                else:
+                    reverse_costs = compute_reverse_dijkstra(graph, end_node, weight_fn)
+                    total_ratio = 0.0
+                    ratio_count = 0
+                    for node in path:
+                        if node == end_node:
+                            continue
+                        h_val = haversine_distance(
+                            graph.nodes[node]["y"],
+                            graph.nodes[node]["x"],
+                            goal_lat,
+                            goal_lon,
+                        )
+                        h_star_val = reverse_costs.get(node, 0.0)
+                        if h_star_val > 0.0:
+                            total_ratio += h_val / h_star_val
+                            ratio_count += 1
 
-                heuristic_effectiveness = (
-                    total_ratio / ratio_count if ratio_count > 0 else 1.0
-                )
+                    heuristic_effectiveness = (
+                        total_ratio / ratio_count if ratio_count > 0 else 1.0
+                    )
 
                 comp_time = time.perf_counter() - start_time
                 return AlgoResult(
@@ -215,5 +218,6 @@ def astar_search(
         weight_fn=weight_fn,
         goal_lat=goal_lat,
         goal_lon=goal_lon,
+        skip_diagnostics=kwargs.get("skip_diagnostics", False),
     )
     return AStarSearch().execute(context)

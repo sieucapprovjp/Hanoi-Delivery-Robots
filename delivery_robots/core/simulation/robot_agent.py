@@ -608,6 +608,7 @@ class RobotAgent:
                                 destination_lon,
                                 weight_fn,
                                 "astar",
+                                skip_diagnostics=True,
                             )
                             new_path = route_result.path
 
@@ -799,6 +800,7 @@ class RobotAgent:
 
         target_lat, target_lon = self.lat, self.lon
         graph = self.app_state.get("road_graph")
+        final_node = None
 
         if hasattr(self, "current_task") and self.current_task and graph:
             dropoff_path = self.current_task.get("dropoff_path", [])
@@ -808,44 +810,71 @@ class RobotAgent:
                     target_lat = graph.nodes[final_node]["y"]
                     target_lon = graph.nodes[final_node]["x"]
 
-        hubs = self.app_state.get("charging_stations", [])
-        from ...utils.geo import haversine_distance
+        task_id = (
+            self.current_task.get("id")
+            if (hasattr(self, "current_task") and self.current_task)
+            else None
+        )
+        cache_key = (
+            (task_id, final_node)
+            if (task_id is not None and final_node is not None)
+            else None
+        )
 
-        nearest_hub = None
-        min_dist = float("inf")
-        for hub in hubs:
-            dist = haversine_distance(target_lat, target_lon, hub["lat"], hub["lon"])
-            if dist < min_dist:
-                min_dist = dist
-                nearest_hub = hub
+        if (
+            cache_key is not None
+            and hasattr(self, "_cached_safety_key")
+            and self._cached_safety_key == cache_key
+            and hasattr(self, "_cached_b_to_nearest_hub")
+            and self._cached_b_to_nearest_hub is not None
+        ):
+            b_to_nearest_hub = self._cached_b_to_nearest_hub
+        else:
+            hubs = self.app_state.get("charging_stations", [])
+            from ...utils.geo import haversine_distance
 
-        b_to_nearest_hub = 0.0
-        if nearest_hub and graph:
-            try:
-                dest_node = nearest_node_id(
-                    graph, target_lat, target_lon, self.app_state
+            nearest_hub = None
+            min_dist = float("inf")
+            for hub in hubs:
+                dist = haversine_distance(
+                    target_lat, target_lon, hub["lat"], hub["lon"]
                 )
-                hub_node = nearest_node_id(
-                    graph, nearest_hub["lat"], nearest_hub["lon"], self.app_state
-                )
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest_hub = hub
 
-                def weight_fn(u, v, d):
-                    return edge_weight_with_traffic(self.app_state, u, v, d)
+            b_to_nearest_hub = 0.0
+            if nearest_hub and graph:
+                try:
+                    dest_node = nearest_node_id(
+                        graph, target_lat, target_lon, self.app_state
+                    )
+                    hub_node = nearest_node_id(
+                        graph, nearest_hub["lat"], nearest_hub["lon"], self.app_state
+                    )
 
-                route_result = run_weighted_route_search(
-                    graph,
-                    dest_node,
-                    hub_node,
-                    nearest_hub["lat"],
-                    nearest_hub["lon"],
-                    weight_fn,
-                    "astar",
-                )
-                b_to_nearest_hub = self.get_path_battery_cost(route_result.path)
-            except Exception:
-                b_to_nearest_hub = (
-                    min_dist / SPEED_METERS_PER_SECOND
-                ) * BATTERY_DRAIN_RATE
+                    def weight_fn(u, v, d):
+                        return edge_weight_with_traffic(self.app_state, u, v, d)
+
+                    route_result = run_weighted_route_search(
+                        graph,
+                        dest_node,
+                        hub_node,
+                        nearest_hub["lat"],
+                        nearest_hub["lon"],
+                        weight_fn,
+                        "astar",
+                        skip_diagnostics=True,
+                    )
+                    b_to_nearest_hub = self.get_path_battery_cost(route_result.path)
+                except Exception:
+                    b_to_nearest_hub = (
+                        min_dist / SPEED_METERS_PER_SECOND
+                    ) * BATTERY_DRAIN_RATE
+
+            if cache_key is not None:
+                self._cached_safety_key = cache_key
+                self._cached_b_to_nearest_hub = b_to_nearest_hub
 
         return b_complete_current + b_to_nearest_hub + BATTERY_SAFETY_MARGIN
 
@@ -893,6 +922,7 @@ class RobotAgent:
                     hub["lon"],
                     weight_fn,
                     "astar",
+                    skip_diagnostics=True,
                 )
                 total_weight = 0.0
                 path = route_result.path
@@ -956,6 +986,7 @@ class RobotAgent:
                 station["lon"],
                 weight_fn,
                 "astar",
+                skip_diagnostics=True,
             )
             self.current_path = route_result.path
             self.geometry_path = build_geometry_path(graph, self.current_path)
