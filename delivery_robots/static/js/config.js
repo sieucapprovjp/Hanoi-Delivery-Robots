@@ -24,6 +24,7 @@ const CONFIG = {
 
     // Robot Settings
     ROBOT: {
+        CAPACITY: 3,
         COLORS: {
             error: '#ea4335',
             info: '#1a73e8'
@@ -74,13 +75,22 @@ const CONFIG = {
         ORDERS: '/api/orders',
         DATA_LOCATIONS: '/api/data/locations',
         DATA_HUBS: '/api/data/hubs',
-        DATA_ROBOTS: '/api/data/robots'
+        DATA_ROBOTS: '/api/data/robots',
+        DISPATCH_EXPLANATIONS: '/api/dispatch/explanations'
+    },
+
+    VRP: {
+        ENABLED: true,
+        MAX_ORDERS_PER_ROBOT: 3
     },
 
     // UI Settings
     UI: {
         METRICS_REFRESH_INTERVAL_MS: 3000,
         TRAFFIC_REFRESH_INTERVAL_MS: 3500,
+        SERVER_LOGS_ENABLED: false,
+        ROBOT_STATUS_RENDER_INTERVAL_MS: 250,
+        DISPATCH_INSIGHTS_MAX_ITEMS: 80,
         WEATHER_MODES: {
             RAIN: 'rain',
             TRAFFIC: 'traffic'

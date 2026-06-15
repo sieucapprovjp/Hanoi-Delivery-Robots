@@ -92,6 +92,7 @@ KMEANS_RANDOM_STATE = 42
 KMEANS_N_INIT = "auto"
 HUB_NAME_PREFIX = "AI Hub "
 HUB_NAME_ASCII_OFFSET = 65  # ASCII code for 'A'
+DEFAULT_OPTIMIZED_HUB_SPOTS = 2
 
 # ── Geography / Geodesy ──
 EARTH_RADIUS_METERS = 6371009
@@ -122,6 +123,10 @@ DEFAULT_LOG_SOURCE = "frontend"
 DEFAULT_LOGS_LIMIT = 200
 LOGS_LIMIT_MIN = 1
 LOGS_LIMIT_MAX = 1000
+PERSISTENT_LOG_DIR = "logs"
+APP_EVENTS_LOG_FILENAME = "app-events.jsonl"
+DELIVERY_HISTORY_LOG_FILENAME = "delivery-history.jsonl"
+PERSISTENT_LOG_ENABLED = True
 
 # ── Robot Statuses ──
 ROBOT_STATUS_IDLE = "idle"
@@ -154,6 +159,23 @@ DISPATCH_BETA = 1.0  # Weight for distance/cost from pickup to delivery point (b
 DISPATCH_GAMMA = 100.0  # Weight for battery penalty (gamma)
 DISPATCH_LAMBDA = 0.05  # Exponential coefficient in battery penalty function f(B) = e^(-lambda * B) (lambda)
 DEFAULT_DISPATCH_MODEL = "nearest_idle"  # Default dispatch model identifier
+DISPATCH_CSP_XAI_ENABLED = True
+DISPATCH_REQUIRED_ROBOT_STATUS = ROBOT_STATUS_IDLE
+DISPATCH_MIN_BATTERY_PERCENT = 0.0
+DISPATCH_MIN_PROJECTED_BATTERY_PERCENT = 0.0
+DISPATCH_MAX_PICKUP_DISTANCE_METERS = 2600.0
+DISPATCH_XAI_EXPLANATION_HISTORY_LIMIT = 100
+
+# ── VRP / Pickup-Delivery Batching ──
+VRP_ENABLED = True
+VRP_MAX_ORDERS_PER_ROBOT = 3
+ROBOT_ORDER_CAPACITY = 3
+VRP_MIN_ORDERS_FOR_SA = 2
+VRP_SA_INITIAL_TEMP = 500
+VRP_SA_MIN_TEMP = 0.01
+VRP_SA_COOLING_RATE = 0.995
+VRP_SA_ITERATIONS_PER_TEMP = 50
+VRP_SA_MAX_ITERATIONS = 5000
 
 # ── Re-dispatching & Re-assignment ──
 REPLANNING_THRESHOLD = 15.0  # Allowable gap threshold before triggering replanning

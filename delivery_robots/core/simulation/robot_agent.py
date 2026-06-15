@@ -21,6 +21,7 @@ from ...config import (
     ORDER_STATUS_ASSIGNED,
     ORDER_STATUS_IN_TRANSIT,
     ORDER_STATUS_DELIVERED,
+    ROBOT_ORDER_CAPACITY,
 )
 from ..environment import edge_weight_with_traffic
 from ...utils.route_analysis import (
@@ -78,6 +79,64 @@ class RobotAgent:
 
         # Task queue for orders
         self.task_queue = []
+        self.capacity = ROBOT_ORDER_CAPACITY
+
+    def _location_log_payload(self, location: dict | None) -> dict | None:
+        if not isinstance(location, dict):
+            return None
+        try:
+            lat = float(location["lat"])
+            lon = float(location["lon"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        return {
+            "lat": lat,
+            "lon": lon,
+            "name": location.get("name"),
+            "category": location.get("category"),
+        }
+
+    def _record_completed_delivery(self, task: dict) -> None:
+        pickup = self._location_log_payload(task.get("pickup"))
+        dropoff = self._location_log_payload(task.get("dropoff"))
+        if not pickup or not dropoff:
+            return
+
+        history_lock = self.app_state.get("history_lock")
+        delivery_history = self.app_state.get("delivery_history")
+        if delivery_history is not None:
+            if history_lock is not None:
+                with history_lock:
+                    delivery_history.append([pickup["lat"], pickup["lon"]])
+                    delivery_history.append([dropoff["lat"], dropoff["lon"]])
+            else:
+                delivery_history.append([pickup["lat"], pickup["lon"]])
+                delivery_history.append([dropoff["lat"], dropoff["lon"]])
+
+        if not self.app_state.get("persistent_log_enabled", False):
+            return
+
+        try:
+            from ...utils.persistent_log import append_delivery_history
+
+            payload = {
+                "deliveryId": task.get("id"),
+                "robotName": self.name,
+                "pickup": pickup,
+                "dropoff": dropoff,
+                "createdAt": task.get("created_time"),
+                "deliveredAt": self.env.now,
+                "plannedCost": task.get("planned_cost"),
+                "actualCost": task.get("actual_cost"),
+                "planExecuteGap": task.get("plan_execute_gap"),
+            }
+            log_dir = self.app_state.get("persistent_log_dir")
+            if log_dir:
+                append_delivery_history(payload, log_dir=log_dir)
+            else:
+                append_delivery_history(payload)
+        except Exception:
+            return
 
     def assign_task(self, task):
         self.task_queue.append(task)
@@ -135,6 +194,10 @@ class RobotAgent:
         Returns:
             typing.Generator: A generator yielding SimPy timeout events.
         """
+        if task.get("vrp_batch_orders"):
+            yield from self.execute_vrp_batch(task)
+            return
+
         # Initialize execution trace tracking
         gps_trace: list = [(self.lat, self.lon)]
         start_battery: float = self.battery
@@ -265,15 +328,7 @@ class RobotAgent:
                 else:
                     record_delivery_gap(metrics, gap)
 
-            history_lock = self.app_state.get("history_lock")
-            delivery_history = self.app_state.get("delivery_history")
-            if delivery_history is not None and "dropoff" in task:
-                dropoff_coords = [task["dropoff"]["lat"], task["dropoff"]["lon"]]
-                if history_lock is not None:
-                    with history_lock:
-                        delivery_history.append(dropoff_coords)
-                else:
-                    delivery_history.append(dropoff_coords)
+            self._record_completed_delivery(task)
 
             # DELIVERING -> IDLE / GOING_TO_CHARGE
             if self.battery < BATTERY_LOW:
@@ -325,6 +380,108 @@ class RobotAgent:
             else:
                 raise exc
 
+        self.current_path = []
+        self.geometry_path = []
+        self.segment_geometry = []
+        self.route_target = None
+        self.charging_station_name = None
+        self.segment_duration = 0
+        self.current_task = None
+        self._emit_state()
+        return
+
+    def _batch_order_by_id(self, task: dict) -> dict:
+        orders = task.get("vrp_batch_orders") or []
+        return {str(order.get("id")): order for order in orders}
+
+    def execute_vrp_batch(self, task: dict) -> typing.Generator:
+        """Execute a VRP batch task with pickup/dropoff precedence."""
+        orders = task.get("vrp_batch_orders") or []
+        sequence = task.get("vrp_sequence") or []
+        segments = task.get("vrp_segments") or []
+        order_by_id = self._batch_order_by_id(task)
+        order_manager = self.app_state.get("order_manager")
+
+        self.current_task = task
+        self.charging_station_name = None
+
+        for order in orders:
+            order["robot_name"] = self.name
+            if order_manager:
+                order_manager.mark_assigned(order)
+            else:
+                order["status"] = ORDER_STATUS_ASSIGNED
+
+        try:
+            for index, stop in enumerate(sequence):
+                segment = segments[index] if index < len(segments) else {}
+                stop_type = stop.get("type")
+                order = order_by_id.get(str(stop.get("deliveryId")))
+                if stop_type == "pickup":
+                    self.status = ROBOT_STATUS_MOVING_TO_PICKUP
+                    self.route_target = f"Pickup {stop.get('deliveryId')}"
+                else:
+                    self.status = ROBOT_STATUS_MOVING_TO_DROPOFF
+                    self.route_target = f"Dropoff {stop.get('deliveryId')}"
+
+                self.current_path = segment.get("path", [])
+                self.geometry_path = segment.get("geometry_path", [])
+                self.segment_geometry = segment.get("segment_geometry", [])
+                self.path_index = 0
+                self.segment_duration = 0
+                self._emit_state()
+                yield from self.traverse_path(self.current_path)
+
+                if stop_type == "pickup":
+                    if order:
+                        if order_manager:
+                            order_manager.mark_in_transit(order)
+                        else:
+                            order["status"] = ORDER_STATUS_IN_TRANSIT
+                    self.route_target = f"Loaded {stop.get('deliveryId')}"
+                    self._emit_state()
+                    yield self.env.timeout(30)
+                elif stop_type == "dropoff":
+                    if order:
+                        if order_manager:
+                            order_manager.mark_delivered(order)
+                        else:
+                            order["status"] = ORDER_STATUS_DELIVERED
+                        self._record_completed_delivery(order)
+                    self.route_target = f"Delivered {stop.get('deliveryId')}"
+                    self._emit_state()
+                    yield self.env.timeout(30)
+        except EmergencyChargingException:
+            for order in orders:
+                if order.get("status") != ORDER_STATUS_DELIVERED:
+                    if order_manager:
+                        order_manager.requeue_order(order)
+                    else:
+                        order["status"] = ORDER_STATUS_PENDING
+                        order_queue = self.app_state.get("order_queue")
+                        if order_queue is not None:
+                            order_queue.insert(0, order)
+            self.status = ROBOT_STATUS_MOVING_TO_CHARGE
+            self.current_path = []
+            self.geometry_path = []
+            self.segment_geometry = []
+            self.route_target = None
+            self.current_task = None
+            self._emit_state()
+            return
+        except simpy.Interrupt as exc:
+            if exc.cause == "reassignment":
+                self.status = ROBOT_STATUS_IDLE
+                self.current_path = []
+                self.geometry_path = []
+                self.segment_geometry = []
+                self.route_target = None
+                self.current_task = None
+                self._emit_state()
+                return
+            raise exc
+
+        self.status = ROBOT_STATUS_MOVING_TO_CHARGE if self.battery < BATTERY_LOW else ROBOT_STATUS_IDLE
         self.current_path = []
         self.geometry_path = []
         self.segment_geometry = []
@@ -923,6 +1080,36 @@ class RobotAgent:
         return max(0.0, (BATTERY_MAX - self.battery) / r_charge)
 
     def get_state(self):
+        active_orders = []
+        if self.current_task and self.current_task.get("vrp_batch_orders"):
+            active_orders.extend(
+                {
+                    "id": order.get("id"),
+                    "status": order.get("status"),
+                    "pickup": order.get("pickup", {}).get("name"),
+                    "dropoff": order.get("dropoff", {}).get("name"),
+                }
+                for order in self.current_task.get("vrp_batch_orders", [])
+            )
+        elif self.current_task:
+            active_orders.append(
+                {
+                    "id": self.current_task.get("id"),
+                    "status": self.current_task.get("status"),
+                    "pickup": self.current_task.get("pickup", {}).get("name"),
+                    "dropoff": self.current_task.get("dropoff", {}).get("name"),
+                }
+            )
+        active_orders.extend(
+            {
+                "id": task.get("id"),
+                "status": task.get("status"),
+                "pickup": task.get("pickup", {}).get("name"),
+                "dropoff": task.get("dropoff", {}).get("name"),
+            }
+            for task in self.task_queue
+        )
+
         state = {
             "id": self.robot_id,
             "name": self.name,
@@ -937,6 +1124,9 @@ class RobotAgent:
             "segment_duration": self.segment_duration,
             "charging_station": getattr(self, "charging_station_name", None),
             "remaining_charge_time": self.get_remaining_charge_time(),
+            "capacity": self.capacity,
+            "current_load": len(active_orders),
+            "active_orders": active_orders[: self.capacity],
         }
 
         if self.geometry_path:

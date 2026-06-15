@@ -18,7 +18,10 @@ from .config import (
     TRAFFIC_ANCHORS,
     TRAFFIC_PERIOD_SECONDS,
     DEFAULT_DISPATCH_MODEL,
+    DISPATCH_XAI_EXPLANATION_HISTORY_LIMIT,
     NEIGHBOR_ORDERING_POLICY,
+    PERSISTENT_LOG_DIR,
+    PERSISTENT_LOG_ENABLED,
 )
 
 from .core.data import CHARGING_STATIONS
@@ -165,6 +168,8 @@ MetricsInterceptor.register_failure_callback(_on_route_search_failed)
 
 _api_logs_lock = threading.Lock()
 _api_logs = deque(maxlen=API_LOGS_MAX_LENGTH)
+_dispatch_explanations_lock = threading.Lock()
+_dispatch_explanations = deque(maxlen=DISPATCH_XAI_EXPLANATION_HISTORY_LIMIT)
 
 _spatial_node_ids = np.array([])
 _spatial_tree = None
@@ -196,6 +201,8 @@ _app_state = {
     "obstacles": _obstacles,
     "api_logs": _api_logs,
     "api_logs_lock": _api_logs_lock,
+    "dispatch_explanations": _dispatch_explanations,
+    "dispatch_explanations_lock": _dispatch_explanations_lock,
     "spatial_node_ids": _spatial_node_ids,
     "spatial_tree": _spatial_tree,
     "sim_now": _sim_now,
@@ -205,6 +212,8 @@ _app_state = {
     "neighbor_ordering_policy": NEIGHBOR_ORDERING_POLICY,
     "metrics": _metrics,
     "metrics_lock": _metrics_lock,
+    "persistent_log_enabled": PERSISTENT_LOG_ENABLED,
+    "persistent_log_dir": PERSISTENT_LOG_DIR,
 }
 
 register_environment_subscribers(_event_bus, _app_state)
