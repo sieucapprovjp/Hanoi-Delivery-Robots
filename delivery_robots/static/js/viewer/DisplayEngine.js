@@ -115,19 +115,21 @@ class DisplayEngine {
         }
         robot.segmentDuration = state.segment_duration; // fallback
 
-        if (robot.routeTarget !== state.route_target) {
+        const routeTargetChanged = robot.routeTarget !== state.route_target;
+
+        if (routeTargetChanged) {
             robot.backendPathIndex = state.path_index;
         } else {
             robot.backendPathIndex = Math.max(robot.backendPathIndex || 0, state.path_index);
         }
 
-        robot.routeTarget = state.route_target
+        robot.routeTarget = state.route_target;
 
         if (state.geometry_path && state.geometry_path.length > 0) {
             // Detect route change: new target or different path length
             const needsReset = !robot.geometryPath
                 || robot.geometryPath.length !== state.geometry_path.length
-                || robot.routeTarget !== state.route_target;
+                || routeTargetChanged;
 
             if (needsReset) {
                 const isSameRoute = (robot.routeTarget === state.route_target && robot.status !== 'idle');

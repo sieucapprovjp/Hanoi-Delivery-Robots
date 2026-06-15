@@ -72,6 +72,7 @@ class SearchInput:
         goal_lat (float): The latitude of the destination coordinate.
         goal_lon (float): The longitude of the destination coordinate.
         neighbor_ordering_policy (str): The active neighbor ordering policy.
+        skip_diagnostics (bool): If True, skip calculating search metrics/diagnostics like reverse Dijkstra.
     """
 
     graph: nx.MultiDiGraph
@@ -81,6 +82,7 @@ class SearchInput:
     goal_lat: float = 0.0
     goal_lon: float = 0.0
     neighbor_ordering_policy: str = "id"
+    skip_diagnostics: bool = False
 
 
 class SearchContract(ABC, Generic[Input, Output]):

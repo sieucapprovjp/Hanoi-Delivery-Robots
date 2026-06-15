@@ -2,13 +2,15 @@
 
 import functools
 import os
+import threading
 import time
 import tracemalloc
 from typing import Callable, List, TypeVar, Any
 
 # Ensure tracemalloc is started globally for memory tracking
-if not tracemalloc.is_tracing():
-    tracemalloc.start()
+# (Disabled for performance optimization; started lazily when diagnostics are requested)
+# if not tracemalloc.is_tracing():
+#     tracemalloc.start()
 
 T = TypeVar("T")
 
@@ -20,6 +22,34 @@ class MetricsInterceptor:
     _failure_callbacks: List[Callable[..., None]] = []
     log_dir: str = "logs"
     log_file: str = os.path.join(log_dir, "interceptor.log")
+    _log_lock: threading.Lock = threading.Lock()
+
+    @classmethod
+    def _write_log(cls, log_line: str) -> None:
+        """Write log line to file, rotating it if it exceeds the maximum size limit.
+
+        Args:
+            log_line (str): The log line content to write.
+        """
+        from ..config import INTERCEPTOR_LOG_MAX_BYTES
+
+        with cls._log_lock:
+            try:
+                if not os.path.exists(cls.log_dir):
+                    os.makedirs(cls.log_dir)
+
+                # Check if file size exceeds limit
+                if os.path.exists(cls.log_file):
+                    if os.path.getsize(cls.log_file) >= INTERCEPTOR_LOG_MAX_BYTES:
+                        backup_file = cls.log_file + ".bak"
+                        if os.path.exists(backup_file):
+                            os.remove(backup_file)
+                        os.rename(cls.log_file, backup_file)
+
+                with open(cls.log_file, "a") as f:
+                    f.write(log_line)
+            except Exception:
+                pass
 
     @classmethod
     def register_callback(cls, callback: Callable[..., None]) -> None:
@@ -121,9 +151,6 @@ class MetricsInterceptor:
 
         # Log metrics to file
         try:
-            if not os.path.exists(cls.log_dir):
-                os.makedirs(cls.log_dir)
-
             from ..config import NEIGHBOR_ORDERING_POLICY
 
             policy = NEIGHBOR_ORDERING_POLICY
@@ -144,8 +171,7 @@ class MetricsInterceptor:
                 f"Optimality Ratio: {optimality_ratio:.3f} | "
                 f"Heuristic Effectiveness: {heuristic_effectiveness:.3f}\n"
             )
-            with open(cls.log_file, "a") as f:
-                f.write(log_line)
+            cls._write_log(log_line)
         except Exception:
             pass
 
@@ -189,8 +215,6 @@ class MetricsInterceptor:
                 pass
 
         try:
-            if not os.path.exists(cls.log_dir):
-                os.makedirs(cls.log_dir)
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
             log_line = (
                 f"[{timestamp}] [{algo_name}] FAILURE | "
@@ -199,8 +223,7 @@ class MetricsInterceptor:
                 f"Memory: {memory_bytes} bytes | "
                 f"Error: {type(error).__name__}: {error}\n"
             )
-            with open(cls.log_file, "a") as f:
-                f.write(log_line)
+            cls._write_log(log_line)
         except Exception:
             pass
 
@@ -217,6 +240,24 @@ def intercept_measure(func: Callable[..., T]) -> Callable[..., T]:
 
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> T:
+        # Extract context to check skip_diagnostics
+        context = None
+        if len(args) >= 2 and hasattr(args[1], "graph"):
+            context = args[1]
+        elif "context" in kwargs:
+            context = kwargs["context"]
+
+        skip_diagnostics = (
+            getattr(context, "skip_diagnostics", False) if context else False
+        )
+
+        if skip_diagnostics:
+            return func(*args, **kwargs)
+
+        # Lazy start tracemalloc if not already tracing
+        if not tracemalloc.is_tracing():
+            tracemalloc.start()
+
         # Reset peak to measure peak allocation for this call specifically.
         # Note: In multi-threaded environments, reset_peak is shared,
         # but provides a good process-level estimate for benchmarking.

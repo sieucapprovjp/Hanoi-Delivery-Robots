@@ -195,9 +195,9 @@ class SnapFactory:
         sim_time = t if t is not None else state.get("sim_now", 0)
         real_time_val = time.time()
 
-        # Safely copy dynamic objects under their respective locks
+        # Safely reference the road graph under its lock
         with state["graph_lock"]:
-            graph_copy = state["road_graph"].copy()
+            road_graph = state["road_graph"]
 
         with state["obstacles_lock"]:
             obstacles_copy = [dict(obs) for obs in state["obstacles"]]
@@ -212,7 +212,7 @@ class SnapFactory:
 
         # Construct the frozen snapshot state dict
         snap_state = {
-            "road_graph": graph_copy,
+            "road_graph": road_graph,
             "rain_zones": rain_zones_copy,
             "obstacles": obstacles_copy,
             "traffic_routes": traffic_routes_copy,
@@ -226,7 +226,7 @@ class SnapFactory:
             "neighbor_ordering_policy": state.get("neighbor_ordering_policy", "id"),
         }
 
-        return GraphSnapshot(graph_copy, sim_time, snap_state)
+        return GraphSnapshot(road_graph, sim_time, snap_state)
 
 
 def register_environment_subscribers(event_bus: EventBus, state: dict) -> None:
