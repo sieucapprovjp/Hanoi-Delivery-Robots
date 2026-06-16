@@ -1,8 +1,10 @@
 import tempfile
 import threading
 import unittest
+import json
 
 import networkx as nx
+import numpy as np
 
 from delivery_robots.core.hubs import (
     compute_optimized_hubs,
@@ -95,8 +97,8 @@ class HubOptimizationTests(unittest.TestCase):
 
     def test_snap_hubs_to_graph_moves_centroid_to_nearest_road_node(self):
         graph = nx.Graph()
-        graph.add_node("road-a", y=21.0, x=105.0)
-        graph.add_node("road-b", y=21.1, x=105.1)
+        graph.add_node(np.int64(101), y=21.0, x=105.0)
+        graph.add_node(np.int64(202), y=21.1, x=105.1)
         hubs = [{"id": 0, "lat": 21.02, "lon": 105.02, "name": "AI Hub A"}]
 
         def nearest_node(_graph, lat, lon, _ox=None):
@@ -115,7 +117,8 @@ class HubOptimizationTests(unittest.TestCase):
         self.assertEqual(snapped[0]["centroidLat"], 21.02)
         self.assertEqual(snapped[0]["centroidLon"], 105.02)
         self.assertTrue(snapped[0]["snappedToRoad"])
-        self.assertEqual(snapped[0]["roadNodeId"], "road-a")
+        self.assertEqual(snapped[0]["roadNodeId"], "101")
+        json.dumps(snapped)
 
 
 if __name__ == "__main__":

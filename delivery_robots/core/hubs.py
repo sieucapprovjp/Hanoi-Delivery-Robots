@@ -93,6 +93,6 @@ def snap_hubs_to_graph(hubs, graph, nearest_node_id_fn, ox=None):
         snapped["lat"] = float(node["y"])
         snapped["lon"] = float(node["x"])
         snapped["snappedToRoad"] = True
-        snapped["roadNodeId"] = node_id
+        snapped["roadNodeId"] = str(node_id)
         snapped_hubs.append(snapped)
     return snapped_hubs
