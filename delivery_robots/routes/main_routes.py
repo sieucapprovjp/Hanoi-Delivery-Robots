@@ -17,7 +17,7 @@ from ..core.environment import (
     rain_penalty_for_snapshot,
     traffic_penalty_for_snapshot,
 )
-from ..core.hubs import append_delivery_points, compute_optimized_hubs
+from ..core.hubs import append_delivery_points, compute_optimized_hubs, snap_hubs_to_graph
 from ..utils.geo import haversine_distance
 from ..utils.persistent_log import append_delivery_history
 from ..utils.route_analysis import attach_route_metadata, build_memory_weight_fn
@@ -270,6 +270,8 @@ def register_main_routes(app, ctx):
             hubs = compute_optimized_hubs(
                 app_state, cluster_count=DEFAULT_HUB_CLUSTER_COUNT
             )
+            graph, _, _ = get_road_graph()
+            hubs = snap_hubs_to_graph(hubs, graph, nearest_node_id, app_state["ox"])
             # Sync charging stations with optimized hubs (1:1 replace strategy)
             with app_state["charging_stations_lock"]:
                 app_state["charging_stations"].clear()
