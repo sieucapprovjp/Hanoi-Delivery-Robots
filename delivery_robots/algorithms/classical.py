@@ -233,18 +233,31 @@ def compare_classical_algorithms(graph, start_node, end_node, goal_lat, goal_lon
     results = {
         "Dijkstra": run_dijkstra(graph, start_node, end_node),
         "A*": run_astar(graph, start_node, end_node, goal_lat, goal_lon),
-        "Greedy Best-First": run_greedy_best_first(
-            graph, start_node, end_node, goal_lat, goal_lon
-        ),
+        "GBFS": run_greedy_best_first(graph, start_node, end_node, goal_lat, goal_lon),
         "BFS": run_bfs(graph, start_node, end_node),
     }
 
     found_costs = [res["pathCost"] for res in results.values() if res["found"]]
     best_cost = min(found_costs) if found_costs else 0.0
-    for res in results.values():
+    for name, res in results.items():
         res["isBestCost"] = bool(res["found"] and best_cost and res["pathCost"] == best_cost)
         if not best_cost:
             res["isBestCost"] = False
         res["pathNodeIds"] = res.pop("path")
+        res["algorithmName"] = name
+        res["summary"] = (
+            f"{name} explored {res['nodesExplored']} nodes in {res['timeMs']}ms and "
+            f"{'found an optimal path' if res['expectedOptimal'] else 'used a heuristic shortcut'}"
+        )
 
-    return {"algorithms": results, "bestPathCost": best_cost}
+    results["Greedy Best-First"] = results["GBFS"]
+
+    return {
+        "algorithms": results,
+        "bestPathCost": best_cost,
+        "comparisonSummary": {
+            "algorithmCount": len(results),
+            "optimalAlgorithm": "Dijkstra" if best_cost else None,
+            "heuristicAlgorithms": ["A*", "GBFS"],
+        },
+    }

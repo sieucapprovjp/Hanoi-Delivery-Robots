@@ -33,6 +33,15 @@ class ClassicalAiTests(unittest.TestCase):
         self.assertTrue(algorithms["Dijkstra"]["found"])
         self.assertTrue(algorithms["A*"]["found"])
 
+    def test_compare_exposes_gbfs_as_a_first_class_algorithm(self):
+        graph = build_graph()
+        result = compare_classical_algorithms(graph, 1, 3, 21.0020, 105.0020)
+        algorithms = result["algorithms"]
+
+        self.assertIn("GBFS", algorithms)
+        self.assertTrue(algorithms["GBFS"]["found"])
+        self.assertFalse(algorithms["GBFS"]["expectedOptimal"])
+
 
 if __name__ == "__main__":
     unittest.main()

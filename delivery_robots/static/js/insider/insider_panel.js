@@ -159,8 +159,8 @@ async function runInsiderComparison() {
         const best = d.best_path_length;
         const rows = [
             { name: "A* (Informed)", ...algos["A*"], icon: "⭐" },
-            { name: "Dijkstra (Uninformed)", ...algos["Dijkstra"], icon: "🔵" },
-            { name: "Greedy Best-First", ...algos["Greedy Best-First"], icon: "🟡" },
+            { name: "Dijkstra (Optimal)", ...algos["Dijkstra"], icon: "🔵" },
+            { name: "GBFS (Heuristic)", ...algos["GBFS"] || algos["Greedy Best-First"], icon: "🟡" },
             { name: "BFS (Blind)", ...algos["BFS"], icon: "🟢" },
         ];
         const bestTime = Math.min(...rows.map(r => r.time_ms));
@@ -183,7 +183,7 @@ async function runInsiderComparison() {
 
         rows.forEach(r => {
             const isAStar = r.name.startsWith("A*");
-            const optimal = r.optimal
+            const optimal = (r.expectedOptimal || r.optimal)
                 ? `<span style="color:${CONFIG.UI.COLORS.success};">✅ Yes</span>`
                 : `<span style="color:${CONFIG.UI.COLORS.error};">❌ No</span>`;
             const eff = best > 0 ? ((r.path_length / best) * 100).toFixed(0) + '%' : 'N/A';
@@ -207,11 +207,12 @@ async function runInsiderComparison() {
 
         const astarNodes = algos["A*"].nodes_explored;
         const dijkstraNodes = algos["Dijkstra"].nodes_explored;
+        const gbfsNodes = (algos["GBFS"] || algos["Greedy Best-First"]).nodes_explored;
         const speedup = dijkstraNodes > 0 ? ((1 - astarNodes / dijkstraNodes) * 100).toFixed(0) : 0;
 
         html += `
             <div class="insight-box">
-                <strong>${CONFIG.UI.TEXT.INSIDER.KEY_INSIGHT}</strong> A* explored <strong>${astarNodes}</strong> nodes vs Dijkstra's <strong>${dijkstraNodes}</strong> — that's <strong class="color-success">${speedup}% fewer nodes</strong> while finding the same optimal path!
+                <strong>${CONFIG.UI.TEXT.INSIDER.KEY_INSIGHT}</strong> A* explored <strong>${astarNodes}</strong> nodes vs Dijkstra's <strong>${dijkstraNodes}</strong> — that's <strong class="color-success">${speedup}% fewer nodes</strong> while finding the same optimal path. GBFS used <strong>${gbfsNodes}</strong> nodes with a heuristic-first strategy.
             </div>
         `;
 

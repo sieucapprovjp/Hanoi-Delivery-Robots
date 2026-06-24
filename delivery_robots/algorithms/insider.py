@@ -393,12 +393,15 @@ def run_insider_comparison(
         for result in [astar, dijkstra, greedy, bfs]
         if result["path_length"] > 0
     )
+    algorithms = {
+        "A*": astar,
+        "Dijkstra": dijkstra,
+        "GBFS": greedy,
+        "BFS": bfs,
+    }
+    algorithms["Greedy Best-First"] = greedy
+
     return {
-        "algorithms": {
-            "A*": astar,
-            "Dijkstra": dijkstra,
-            "Greedy Best-First": greedy,
-            "BFS": bfs,
-        },
+        "algorithms": algorithms,
         "best_path_length": best_path,
     }
