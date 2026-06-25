@@ -57,4 +57,5 @@ htmlcov/
 ./delivery_robots/__init__.py
 ./delivery_robots/test_server.py
 */__pycache__
+*./outputs
 
