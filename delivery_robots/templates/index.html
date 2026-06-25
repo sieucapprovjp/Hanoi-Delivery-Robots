@@ -359,18 +359,17 @@
         </div>
         <div class="panel-content">
             <div class="mb-20">
-                <h3 class="fs-14 color-dark mb-10">📊 Algorithm Comparison</h3>
-                <p class="fs-12 color-secondary-text mb-10">Compare performance of 4 core pathfinding algorithms in
-                    real-time.</p>
-                <button id="run-comparison-btn" class="btn-comparison">Run Comparison</button>
+                <h3 class="fs-14 color-dark mb-10">📊 Pathfinding Demo</h3>
+                <p class="fs-12 color-secondary-text mb-10">Run the same Hoan Kiem route through A*, Dijkstra, and GBFS, then compare frontier behavior and outcome.</p>
+                <button id="run-comparison-btn" class="btn-comparison">Run Pathfinding Demo</button>
                 <div id="comparison-table" x-html="$store.sim.insider.comparison">
                     Waiting for route metrics...
                 </div>
             </div>
 
             <div class="border-top-standard pt-20">
-                <h3 class="fs-14 color-dark mb-10">🔬 A* Expansion Step-by-Step</h3>
-                <p class="fs-12 color-secondary-text mb-10">Visualize how A* explores nodes and calculates f-scores.</p>
+                <h3 class="fs-14 color-dark mb-10">🔬 A* Step-by-Step</h3>
+                <p class="fs-12 color-secondary-text mb-10">Use this when you want to explain why A* expands fewer nodes than Dijkstra on the same route.</p>
                 <button id="run-astar-viz-btn" class="btn-astar-viz">Run A* Visualization</button>
                 <div id="astep-visualizer" x-html="$store.sim.insider.astarSteps">
                     Waiting for path calculation...

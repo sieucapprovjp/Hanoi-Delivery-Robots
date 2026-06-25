@@ -10,8 +10,8 @@ HanoiMap.prototype.showDeliveryMarkers = function (delivery) {
                     <div class="delivery-pin-name">${delivery.pickup.name}</div>
                 </div>
             `,
-            iconSize: [120, 40],
-            iconAnchor: [24, 34]
+            iconSize: [36, 36],
+            iconAnchor: [18, 18]
         })
     }).addTo(this.map);
 
@@ -24,8 +24,8 @@ HanoiMap.prototype.showDeliveryMarkers = function (delivery) {
                     <div class="delivery-pin-name">${delivery.destination.name}</div>
                 </div>
             `,
-            iconSize: [120, 40],
-            iconAnchor: [24, 34]
+            iconSize: [36, 36],
+            iconAnchor: [18, 18]
         })
     }).addTo(this.map);
 

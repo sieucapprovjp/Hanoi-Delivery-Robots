@@ -142,10 +142,11 @@ async function showAStarProcess(robotId) {
 }
 
 async function runInsiderComparison() {
-    const store = Alpine.store('sim');
-    store.insider.comparison = `<div class="p-10 text-center">${CONFIG.UI.TEXT.LOADING.INSIDER_COMPARISON_RUNNING}</div>`;
-
+    let store;
     try {
+        store = Alpine.store('sim');
+        store.insider.comparison = `<div class="p-10 text-center">${CONFIG.UI.TEXT.LOADING.INSIDER_COMPARISON_RUNNING}</div>`;
+
         const from = CONFIG.DATA.LOCATIONS[0];
         const to = CONFIG.DATA.LOCATIONS[1];
         const d = await getJson(CONFIG.API.INSIDER, {
@@ -156,17 +157,100 @@ async function runInsiderComparison() {
         }, CONFIG.UI.TEXT.API_ERRORS.INSIDER_COMPARISON);
 
         const algos = d.algorithms;
-        const best = d.best_path_length;
         const rows = [
             { name: "A* (Informed)", ...algos["A*"], icon: "⭐" },
             { name: "Dijkstra (Uninformed)", ...algos["Dijkstra"], icon: "🔵" },
             { name: "Greedy Best-First", ...algos["Greedy Best-First"], icon: "🟡" },
-            { name: "BFS (Blind)", ...algos["BFS"], icon: "🟢" },
         ];
+        const comparisonRows = rows;
+        const positivePathLengths = comparisonRows.map(item => item.path_length).filter(v => v > 0);
+        const bestPathLength = positivePathLengths.length ? Math.min(...positivePathLengths) : 0;
         const bestTime = Math.min(...rows.map(r => r.time_ms));
+        const maxNodes = Math.max(...rows.map(r => r.nodes_explored || 0));
+        const maxTime = Math.max(...rows.map(r => r.time_ms || 0));
         const table = CONFIG.UI.TEXT.TABLE;
+        const routeLabel = `${from.name} → ${to.name}`;
+
+        const cardTone = (name) => {
+            if (name.startsWith("A*")) return "card-primary";
+            if (name.startsWith("Dijkstra")) return "card-neutral";
+            return "card-warn";
+        };
+
+        const cardRole = (name) => {
+            if (name.startsWith("A*")) return "Balanced and optimal";
+            if (name.startsWith("Dijkstra")) return "Exact baseline";
+            return "Fast heuristic";
+        };
 
         let html = `
+            <div class="insider-demo-header">
+                <div>
+                    <div class="insider-demo-kicker">PATHFINDING DEMO</div>
+                    <div class="insider-demo-route">${routeLabel}</div>
+                    <div class="insider-demo-note">Same start, same goal, same road graph. The difference is how each algorithm prioritizes the frontier.</div>
+                </div>
+            </div>
+            <div class="algo-summary-grid">
+        `;
+
+        comparisonRows.forEach(r => {
+            const nodeWidth = maxNodes > 0 ? (r.nodes_explored / maxNodes) * 100 : 0;
+            const timeWidth = maxTime > 0 ? (r.time_ms / maxTime) * 100 : 0;
+            const isOptimal = r.optimal ? "Optimal path" : "Not guaranteed optimal";
+            const isAStar = r.name.startsWith("A*");
+            const isDijkstra = r.name.startsWith("Dijkstra");
+            const support = isAStar
+                ? `Fewer nodes than Dijkstra while still finding the same path.`
+                : isDijkstra
+                    ? `Exact shortest-path baseline used for comparison.`
+                    : `Greedy shortcut that often explores less but may miss the best path.`;
+
+            html += `
+                <div class="algo-demo-card ${cardTone(r.name)}">
+                    <div class="algo-demo-top">
+                        <div class="algo-demo-name">${r.icon} ${r.name}</div>
+                        <div class="algo-demo-role">${cardRole(r.name)}</div>
+                    </div>
+                    <div class="algo-demo-meta">${isOptimal}</div>
+                    <div class="algo-demo-bars">
+                        <div class="algo-demo-bar">
+                            <div class="algo-demo-bar-header">
+                                <span>Nodes explored</span>
+                                <strong>${r.nodes_explored}</strong>
+                            </div>
+                            <div class="algo-demo-track"><div class="algo-demo-fill" style="width:${nodeWidth}%;"></div></div>
+                        </div>
+                        <div class="algo-demo-bar">
+                            <div class="algo-demo-bar-header">
+                                <span>Time</span>
+                                <strong>${r.time_ms}ms</strong>
+                            </div>
+                            <div class="algo-demo-track"><div class="algo-demo-fill algo-demo-fill-alt" style="width:${timeWidth}%;"></div></div>
+                        </div>
+                        <div class="algo-demo-path-row">
+                            <span>Path</span>
+                            <strong>${r.path_length} nodes</strong>
+                        </div>
+                    </div>
+                    <div class="algo-demo-support">${support}</div>
+                </div>
+            `;
+        });
+
+        html += `
+            </div>
+            <div class="insight-box">
+                <strong>${CONFIG.UI.TEXT.INSIDER.KEY_INSIGHT}</strong>
+                A* explored <strong>${algos["A*"].nodes_explored}</strong> nodes vs Dijkstra's <strong>${algos["Dijkstra"].nodes_explored}</strong>
+                - that is <strong class="color-success">${((1 - algos["A*"].nodes_explored / algos["Dijkstra"].nodes_explored) * 100).toFixed(0)}% fewer nodes</strong>
+                while keeping the same optimal path.
+            </div>
+            <div class="insider-compare-summary">
+                <div><strong>A*</strong> balances cost + heuristic and is the practical default here.</div>
+                <div><strong>Dijkstra</strong> is the exact baseline, but it expands more of the graph.</div>
+                <div><strong>GBFS</strong> is the fastest-looking heuristic, but it can trade away optimality.</div>
+            </div>
             <table class="comparison-table">
                 <thead>
                     <tr>
@@ -186,7 +270,7 @@ async function runInsiderComparison() {
             const optimal = r.optimal
                 ? `<span style="color:${CONFIG.UI.COLORS.success};">✅ Yes</span>`
                 : `<span style="color:${CONFIG.UI.COLORS.error};">❌ No</span>`;
-            const eff = best > 0 ? ((r.path_length / best) * 100).toFixed(0) + '%' : 'N/A';
+            const eff = bestPathLength > 0 ? ((r.path_length / bestPathLength) * 100).toFixed(0) + '%' : 'N/A';
             const effColor = eff === '100%' ? CONFIG.UI.COLORS.success : CONFIG.UI.COLORS.error;
             const timeBadge = r.time_ms === bestTime ? '⚡ ' : '';
             const timeColor = r.time_ms === bestTime ? CONFIG.UI.COLORS.success : CONFIG.UI.COLORS.textLight;
@@ -205,27 +289,18 @@ async function runInsiderComparison() {
 
         html += `</tbody></table>`;
 
-        const astarNodes = algos["A*"].nodes_explored;
-        const dijkstraNodes = algos["Dijkstra"].nodes_explored;
-        const speedup = dijkstraNodes > 0 ? ((1 - astarNodes / dijkstraNodes) * 100).toFixed(0) : 0;
-
-        html += `
-            <div class="insight-box">
-                <strong>${CONFIG.UI.TEXT.INSIDER.KEY_INSIGHT}</strong> A* explored <strong>${astarNodes}</strong> nodes vs Dijkstra's <strong>${dijkstraNodes}</strong> — that's <strong class="color-success">${speedup}% fewer nodes</strong> while finding the same optimal path!
-            </div>
-        `;
-
-        store.insider.comparison = html;
+        if (store) store.insider.comparison = html;
     } catch (e) {
-        store.insider.comparison = `<div class="p-10 text-center color-error">Error: ${e.message}</div>`;
+        if (store) store.insider.comparison = `<div class="p-10 text-center color-error">Error: ${e.message}</div>`;
+        console.error('runInsiderComparison:', e);
     }
 }
 
 async function runAStarVisualization() {
-    const store = Alpine.store('sim');
-    store.insider.astarSteps = `<div class="p-10 text-center">${CONFIG.UI.TEXT.LOADING.ASTAR_STEP_RUNNING}</div>`;
-
+    let store;
     try {
+        store = Alpine.store('sim');
+        store.insider.astarSteps = `<div class="p-10 text-center">${CONFIG.UI.TEXT.LOADING.ASTAR_STEP_RUNNING}</div>`;
         const from = CONFIG.DATA.LOCATIONS[0];
         const to = CONFIG.DATA.LOCATIONS[1];
         const d = await getJson(CONFIG.API.ASTEP, {
@@ -289,15 +364,28 @@ async function runAStarVisualization() {
             </div>
         `;
 
-        store.insider.astarSteps = html;
+        if (store) store.insider.astarSteps = html;
     } catch (e) {
-        store.insider.astarSteps = `<div class="p-10 text-center color-error">Error: ${e.message}</div>`;
+        if (store) store.insider.astarSteps = `<div class="p-10 text-center color-error">Error: ${e.message}</div>`;
+        console.error('runAStarVisualization:', e);
     }
 }
 
 function setupInsiderControls() {
-    document.getElementById('run-comparison-btn')?.addEventListener('click', runInsiderComparison);
-    document.getElementById('run-astar-viz-btn')?.addEventListener('click', runAStarVisualization);
+    const comparisonBtn = document.getElementById('run-comparison-btn');
+    const astarBtn = document.getElementById('run-astar-viz-btn');
+
+    if (comparisonBtn) {
+        comparisonBtn.removeEventListener('click', runInsiderComparison);
+        comparisonBtn.addEventListener('click', runInsiderComparison);
+    }
+    if (astarBtn) {
+        astarBtn.removeEventListener('click', runAStarVisualization);
+        astarBtn.addEventListener('click', runAStarVisualization);
+    }
 }
 
 window.showAStarProcess = showAStarProcess;
+window.runInsiderComparison = runInsiderComparison;
+window.runAStarVisualization = runAStarVisualization;
+setupInsiderControls();

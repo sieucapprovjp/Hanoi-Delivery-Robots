@@ -221,7 +221,6 @@ class Simulation {
 
         // UI Updates via store or minimal direct DOM for high frequency
         this.updateRobotStatus();
-        this.updateAlgorithmComparison();
     }
 
     start() {

@@ -253,7 +253,7 @@ const CONFIG = {
             LOADING: {
                 ASTAR_COMPUTING: '⏳ Computing A*...',
                 ASTAR_STEP_RUNNING: '⏳ Running A* step-by-step...',
-                INSIDER_COMPARISON_RUNNING: '⏳ Running 4 algorithms...',
+                INSIDER_COMPARISON_RUNNING: '⏳ Running A*, Dijkstra, and GBFS...',
                 POPUP: 'Loading...'
             },
             LOGS: {
